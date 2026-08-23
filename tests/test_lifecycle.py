@@ -162,6 +162,20 @@ class FactoryLifecycleTests(unittest.TestCase):
             ),
             "",
         )
+        public_config = yaml.safe_load((ROOT / "factory.yaml").read_text(encoding="utf-8"))
+        evidence_paths = [
+            *public_config["evidence"]["screenshots"],
+            public_config["evidence"]["video"],
+            "evidence/factory/browser-receipt.json",
+        ]
+        for path in evidence_paths:
+            ignored = subprocess.run(
+                ["git", "-C", str(target), "check-ignore", "--no-index", "--", path],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(ignored.returncode, 1, f"public proof path is ignored: {path}")
 
     def test_five_failed_reviews_escalate_without_merge(self) -> None:
         run = self.initialize(run_id="exhausted-run")

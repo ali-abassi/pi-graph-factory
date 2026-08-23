@@ -25,6 +25,8 @@ All notable changes to Pi Graph Factory are documented here.
 - Generated `steps.yaml` is no longer committed.
 - New repositories start with conservative ignores for local factory state,
   environment files, caches, bytecode, virtual environments, and dependencies.
+- Default screenshot, video, and browser-receipt paths now use the tracked
+  `evidence/factory/` directory so proof survives isolated-lane integration.
 
 ### Security
 

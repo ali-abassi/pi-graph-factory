@@ -39,12 +39,12 @@ review:
 
 evidence:
   screenshots:
-    - .factory/evidence/desktop.png
-    - .factory/evidence/mobile.png
-  video: .factory/evidence/flow.webm
+    - evidence/factory/desktop.png
+    - evidence/factory/mobile.png
+  video: evidence/factory/flow.webm
   test_commands:
     - git diff --check
-    - test -f .factory/evidence/browser-receipt.json
+    - test -f evidence/factory/browser-receipt.json
 
 limits:
   agent_timeout_seconds: 1800

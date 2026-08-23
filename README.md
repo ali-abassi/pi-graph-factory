@@ -205,6 +205,9 @@ provider-side budgets remain the only hard external spend cap.
 
 The target project owns meaningful capture automation. Configure screenshot,
 video, browser-receipt, and test paths under `evidence` in `factory.yaml`.
+Proof paths must survive lane commits and integration, so keep them in a
+project-owned tracked directory such as `evidence/factory/`, never under the
+controller's ignored `.factory/` run-state directory.
 
 For every review cycle the controller:
 
