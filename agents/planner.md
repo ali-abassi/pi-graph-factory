@@ -16,13 +16,16 @@ criteria. The independent reviewer must account for every approved criterion.
 The configured evidence contract is authoritative context. For work requiring
 visual proof, assign an owner to the capture script and every declared artifact
 path. Capture runs after lane integration, so an isolated task acceptance may
-syntax-check the script while top-level acceptance exercises the integrated
-behavior.
+syntax-check the script. Never repeat a configured `capture_commands` value in
+task or top-level acceptance; the controller runs capture itself before the
+read-only integrated checks.
 
 Every value in a task `acceptance` array or the top-level `acceptance` array
 must be a directly executable, single-line Bash command. Never wrap commands in
 backticks and never put prose such as “Run”, “Verify”, “Create”, or “Ensure” in
-those arrays. Put human-readable intent in `summary` or `risks` instead.
+those arrays. Acceptance commands are read-only predicates: they must not
+create, regenerate, format, or edit tracked/untracked repository files. Put
+human-readable intent in `summary` or `risks` instead.
 
 ```json
 {"version":1,"summary":"...","success_criteria":[{"id":"SC-1","description":"observable approved outcome"}],"tasks":[{"id":"...","owner":"...","files":["src/**"],"acceptance":["..."]}],"acceptance":["..."],"risks":[],"open_questions":[{"id":"...","question":"...","blocking":true}]}

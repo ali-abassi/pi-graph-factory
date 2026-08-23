@@ -43,18 +43,24 @@ alpha from an unattended production service.
 
 ## Evidence
 
-- 34 deterministic repository tests across simple, medium, complex, refusal,
+- 40 deterministic repository tests across simple, medium, complex, refusal,
   lifecycle, concurrency, and graph cases.
 - Versioned approved outcomes must receive exact independent-review coverage
   with concrete inspected evidence; failed outcomes require routed ownership.
 - Visual proof is regenerated on the integrated commit and after every repair;
-  capture commands may write only declared artifacts.
+  capture commands may write only declared tracked artifacts. Acceptance and
+  review must leave that commit unchanged.
 - 4/4 fresh adversarial promotion cases.
 - SIGKILL holdout proving lock release, contiguous events, and fail-closed retry.
 - A live Luna/xhigh browser application run reached `merge_ready` with four
   passing target tests, screenshot, WebM, and a clean browser receipt. Manual
   audit caught committed bytecode that the model reviewer missed; the promoted
   controller now rejects that artifact class mechanically.
+- A live two-lane Luna/xhigh run exposed a duplicated capture command that
+  dirtied proof after its commit. The run is explicitly invalid; the controller
+  now rejects capture/acceptance overlap and any acceptance/reviewer mutation
+  before review. Its independent reviewer also rejected a semantically weak
+  video and routed the failed criterion back to design.
 - Pi Graph Core v0.1.0 and Pi Graph v0.3.0 validation of the 24-node topology.
 - Full risk register: [`risk-register.json`](risk-register.json).
 

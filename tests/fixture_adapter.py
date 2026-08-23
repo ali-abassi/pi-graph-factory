@@ -59,6 +59,8 @@ elif args.role.startswith("repair:"):
               "addressed": ["FIX-1"],
               "checks": ["grep -q reviewed app.txt"]}
 elif args.role.startswith("review:"):
+    if os.environ.get("PI_GRAPH_FACTORY_REVIEW_MUTATION") == "1":
+        Path("reviewer-was-here.txt").write_text("reviewers must be read-only\n")
     counter = Path(os.environ["PI_GRAPH_FACTORY_REVIEW_COUNTER"])
     count = int(counter.read_text()) if counter.exists() else 0
     counter.write_text(str(count + 1))

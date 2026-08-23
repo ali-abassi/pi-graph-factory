@@ -5,7 +5,18 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.factory import FactoryError, capture_evidence, digest_bytes
+import yaml
+
+from scripts.factory import (
+    FactoryError,
+    capture_evidence,
+    digest_bytes,
+    load_config,
+    validate_plan,
+)
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class FactoryCaptureFreshnessTests(unittest.TestCase):
@@ -74,6 +85,67 @@ class FactoryCaptureFreshnessTests(unittest.TestCase):
                 self.repo,
                 1,
             )
+
+    def test_plan_cannot_repeat_the_capture_command_as_acceptance(self) -> None:
+        plan = {
+            "summary": "Build and prove the app",
+            "tasks": [
+                {
+                    "id": "build",
+                    "owner": "product",
+                    "files": ["app.txt"],
+                    "acceptance": ["test -s app.txt"],
+                }
+            ],
+            "acceptance": ["cp app.txt evidence/flow.webm"],
+            "risks": [],
+            "open_questions": [],
+        }
+        with self.assertRaisesRegex(FactoryError, "must not repeat configured evidence capture"):
+            validate_plan(
+                plan,
+                {"product"},
+                evidence_capture_commands={"cp app.txt evidence/flow.webm"},
+            )
+
+    def test_config_cannot_repeat_capture_as_an_evidence_test(self) -> None:
+        value = yaml.safe_load((ROOT / "factory.yaml").read_text(encoding="utf-8"))
+        value["evidence"]["test_commands"].append(
+            value["evidence"]["capture_commands"][0]
+        )
+        path = self.root / "overlapping-evidence-commands.yaml"
+        path.write_text(yaml.safe_dump(value, sort_keys=False), encoding="utf-8")
+        with self.assertRaisesRegex(FactoryError, "must not repeat state-changing"):
+            load_config(path)
+
+    def test_acceptance_mutation_stops_before_review(self) -> None:
+        self.state["plan"]["acceptance"] = [
+            "printf 'mutated after capture' > evidence/flow.webm"
+        ]
+        with self.assertRaisesRegex(FactoryError, "evidence acceptance mutated"):
+            capture_evidence(
+                self.run,
+                self.state,
+                self.config("cp app.txt evidence/flow.webm"),
+                self.repo,
+                1,
+            )
+
+    def test_ignored_evidence_is_not_accepted_as_commit_bound_proof(self) -> None:
+        (self.repo / ".gitignore").write_text("ignored/\n", encoding="utf-8")
+        subprocess.run(["git", "add", ".gitignore"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-qm", "ignore generated proof"], cwd=self.repo, check=True)
+        config = {
+            "evidence": {
+                "capture_commands": ["mkdir -p ignored && cp app.txt ignored/desktop.png"],
+                "screenshots": ["ignored/desktop.png"],
+                "video": None,
+                "artifacts": [],
+                "test_commands": ["test -s app.txt"],
+            }
+        }
+        with self.assertRaisesRegex(FactoryError, "not tracked in the proof commit"):
+            capture_evidence(self.run, self.state, config, self.repo, 1)
 
 
 if __name__ == "__main__":

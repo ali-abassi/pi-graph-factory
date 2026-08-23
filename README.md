@@ -226,6 +226,11 @@ writes, and binds review to the resulting commit. This lets frontend capture
 exercise backend or product work from other lanes without weakening lane
 isolation.
 
+Task, plan, and evidence-test acceptance commands are read-only predicates.
+They cannot repeat configured capture commands or mutate repository files after
+scope/proof validation. Reviewers are also mechanically prevented from changing
+the integration tree they judge.
+
 For every review cycle the controller:
 
 1. runs approved integrated acceptance and configured evidence commands;
@@ -289,7 +294,7 @@ the two-engine drift this repository previously had.
 .venv/bin/python -m py_compile scripts/*.py tests/*.py
 ```
 
-The deterministic suite currently covers 34 cases, including:
+The deterministic suite currently covers 40 cases, including:
 
 - simple single-owner first-pass work;
 - a two-owner feature with directed design repair;
@@ -304,6 +309,8 @@ The deterministic suite currently covers 34 cases, including:
   of omitted or partial outcome accounting;
 - post-integration capture refresh, capture-command failure, and declared-only
   proof writes;
+- refusal of duplicate capture/acceptance commands, acceptance-time repository
+  mutation, ignored proof artifacts, and reviewer writes;
 - fresh proof after repair, successful merge, target/config drift, and bounded
   human escalation.
 

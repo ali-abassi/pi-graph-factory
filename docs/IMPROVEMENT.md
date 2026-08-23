@@ -107,3 +107,25 @@
 - **Assurance boundary:** capture provenance and freshness are mechanical;
   whether a screenshot or video proves the intended behavior remains a semantic
   reviewer and target-test responsibility.
+
+## Exact review-boundary climb v6
+
+- **Trigger:** the first live two-lane Luna/xhigh medium run generated a sound
+  versioned plan, integrated both owners, and committed fresh browser proof.
+  The plan also repeated the configured capture command in top-level
+  acceptance, so acceptance regenerated three artifacts after the proof commit.
+  The review manifest named the commit while hashing the dirty replacements.
+- **Live result:** invalid by construction, despite all mechanical commands
+  passing. The independent reviewer separately failed `SC-7` because the WebM
+  did not visibly show blank-title rejection or clear reload transitions and
+  routed one repair to the design owner. The stopped run used 243,526 accounted
+  tokens and $0.02286416 across planner, two implementers, and reviewer.
+- **Candidate:** capture and test command lists must be disjoint; plan/task
+  acceptance cannot repeat capture; acceptance commands are enforced as
+  read-only predicates after implementation, repair, and proof capture;
+  declared proof must be tracked; reviewers cannot mutate integration; final
+  merge rechecks cleanliness and every reviewed file hash.
+- **Promotion rule:** all prior suites plus duplicate-command,
+  acceptance-mutation, ignored-proof, lane-scope-bypass, and reviewer-mutation
+  refusals. Repeat the live medium run on the promoted controller before any
+  complex live claim.

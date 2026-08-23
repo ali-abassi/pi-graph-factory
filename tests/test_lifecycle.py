@@ -291,6 +291,33 @@ class FactoryLifecycleTests(unittest.TestCase):
         failed = self.command("plan", "--run", str(run), "--file", str(path), expected=2)
         self.assertIn("raw shell command", failed["error"])
 
+    def test_lane_acceptance_cannot_mutate_files_after_scope_validation(self) -> None:
+        run = self.initialize(run_id="lane-acceptance-mutation-run")
+        path = self.write_plan(self.root / "lane-acceptance-mutation.json", [])
+        value = json.loads(path.read_text())
+        value["tasks"][0]["acceptance"].append(
+            "printf 'scope bypass' > reviewer-was-here.txt"
+        )
+        path.write_text(json.dumps(value))
+        planned = self.command("plan", "--run", str(run), "--file", str(path))
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        failed = self.command("run", "--run", str(run), expected=2)
+        self.assertIn("acceptance for product mutated repository files", failed["error"])
+
+    def test_reviewer_cannot_mutate_the_integration_it_is_judging(self) -> None:
+        run = self.initialize(run_id="reviewer-mutation-run")
+        planned = self.command(
+            "plan",
+            "--run",
+            str(run),
+            "--file",
+            str(self.write_plan(self.root / "reviewer-mutation.json", [])),
+        )
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        self.env["PI_GRAPH_FACTORY_REVIEW_MUTATION"] = "1"
+        failed = self.command("run", "--run", str(run), expected=2)
+        self.assertIn("reviewer mutated the integration worktree", failed["error"])
+
 
 def git_head(repo: Path, ref: str = "HEAD") -> str:
     return subprocess.check_output(["git", "-C", str(repo), "rev-parse", ref], text=True).strip()

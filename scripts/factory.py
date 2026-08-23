@@ -137,6 +137,19 @@ def staged_files(repo: Path) -> list[str]:
     return sorted(os.fsdecode(raw) for raw in result.stdout.split(b"\0") if raw)
 
 
+def staged_change_digest(repo: Path) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(repo), "diff", "--cached", "--binary", "--full-index", "HEAD", "--"],
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode:
+        raise FactoryError(
+            f"cannot fingerprint staged changes: {result.stderr.decode(errors='replace').strip()}"
+        )
+    return digest_bytes(result.stdout)
+
+
 def worktree_changed_files(repo: Path) -> list[str]:
     tracked = set(git(repo, "diff", "--name-only").splitlines())
     tracked.update(git(repo, "diff", "--cached", "--name-only").splitlines())
@@ -278,6 +291,15 @@ def load_config(path: Path) -> dict[str, Any]:
             validate_acceptance_command(command, f"evidence {field}")
             for command in value["evidence"].get(field, [])
         ]
+    overlap = sorted(
+        set(value["evidence"]["capture_commands"])
+        & set(value["evidence"]["test_commands"])
+    )
+    if overlap:
+        raise FactoryError(
+            "evidence test_commands must not repeat state-changing capture_commands: "
+            + ", ".join(repr(command) for command in overlap)
+        )
     return value
 
 
@@ -332,7 +354,11 @@ def ensure_repo(path: Path, new_repo: bool) -> Path:
 
 
 def validate_plan(
-    plan: dict[str, Any], implementers: set[str], *, require_versioned: bool = False
+    plan: dict[str, Any],
+    implementers: set[str],
+    *,
+    require_versioned: bool = False,
+    evidence_capture_commands: set[str] | None = None,
 ) -> None:
     required = {"summary", "tasks", "acceptance", "risks", "open_questions"}
     if not isinstance(plan, dict):
@@ -415,6 +441,22 @@ def validate_plan(
                     f"{task['owner']} and {other_owner}"
                 )
             ownership.append((pattern, task["owner"]))
+    capture_overlap = sorted(
+        (
+            set(plan["acceptance"])
+            | {
+                command
+                for task in plan["tasks"]
+                for command in task["acceptance"]
+            }
+        )
+        & (evidence_capture_commands or set())
+    )
+    if capture_overlap:
+        raise FactoryError(
+            "plan acceptance must not repeat configured evidence capture commands: "
+            + ", ".join(repr(command) for command in capture_overlap)
+        )
     questions = plan["open_questions"]
     if not isinstance(questions, list):
         raise FactoryError("open_questions must be an array")
@@ -521,6 +563,9 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
                         plan,
                         {item["id"] for item in config["implementers"]},
                         require_versioned=True,
+                        evidence_capture_commands=set(
+                            config["evidence"].get("capture_commands", [])
+                        ),
                     )
                     break
                 except FactoryError as error:
@@ -537,7 +582,11 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
             }
     else:
         plan = json.loads(Path(args.file).read_text(encoding="utf-8"))
-        validate_plan(plan, {item["id"] for item in config["implementers"]})
+        validate_plan(
+            plan,
+            {item["id"] for item in config["implementers"]},
+            evidence_capture_commands=set(config["evidence"].get("capture_commands", [])),
+        )
     unanswered = [item for item in plan["open_questions"]
                   if item.get("blocking") and item["id"] not in state["answers"]]
     state["plan"] = plan
@@ -786,11 +835,19 @@ def execute_lane(
             f"implementer {owner} changed-file receipt does not match Git: "
             f"claimed={claimed}, actual={actual}"
         )
+    before_acceptance = staged_change_digest(workspace)
     acceptance = run_commands(
         workspace,
         acceptance_for_tasks(tasks),
         f"implementation owner {owner}",
     )
+    git(workspace, "add", "-A")
+    after_acceptance_files = staged_files(workspace)
+    if after_acceptance_files != actual or staged_change_digest(workspace) != before_acceptance:
+        raise FactoryError(
+            f"implementation acceptance for {owner} mutated repository files; "
+            "acceptance commands must be read-only predicates"
+        )
     receipt["verification"] = {"changed_files": actual, "acceptance": acceptance}
     commit = commit_lane(workspace, owner)
     return {"owner": owner, "branch": branch, "commit": commit, "receipt": receipt}
@@ -854,6 +911,12 @@ def capture_evidence(run: Path, state: dict[str, Any], config: dict[str, Any],
     configured = list(dict.fromkeys(config["evidence"].get("test_commands", [])))
     tests = run_commands(integration, approved, "integrated plan")
     tests.extend(run_commands(integration, configured, "configured evidence"))
+    test_changes = worktree_changed_files(integration)
+    if test_changes:
+        raise FactoryError(
+            "evidence acceptance mutated the committed review boundary; "
+            "acceptance commands must be read-only predicates: " + ", ".join(test_changes)
+        )
     evidence_files = []
     for raw in declared:
         if not raw:
@@ -861,6 +924,10 @@ def capture_evidence(run: Path, state: dict[str, Any], config: dict[str, Any],
         path = evidence_path(integration, raw)
         if not path.is_file() or not path.stat().st_size:
             raise FactoryError(f"required evidence missing: {raw}")
+        try:
+            git(integration, "ls-files", "--error-unmatch", "--", raw)
+        except FactoryError as error:
+            raise FactoryError(f"required evidence is not tracked in the proof commit: {raw}") from error
         evidence_files.append(file_receipt(integration, path))
     if not tests or not all(item["passed"] for item in tests):
         raise FactoryError("one or more evidence test commands failed")
@@ -963,11 +1030,19 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
         git(integration, "add", "-A")
         actual = staged_files(integration)
         validate_lane_changes(owner, tasks, actual)
+        before_acceptance = staged_change_digest(integration)
         acceptance = run_commands(
             integration,
             acceptance_for_tasks(tasks),
             f"repair owner {owner}",
         )
+        git(integration, "add", "-A")
+        after_acceptance_files = staged_files(integration)
+        if after_acceptance_files != actual or staged_change_digest(integration) != before_acceptance:
+            raise FactoryError(
+                f"repair acceptance for {owner} mutated repository files; "
+                "acceptance commands must be read-only predicates"
+            )
         receipt["verification"] = {"changed_files": actual, "acceptance": acceptance}
         git(integration, "commit", "-m", f"factory: repair cycle {cycle} ({owner})")
         receipts.append(receipt)
@@ -987,6 +1062,21 @@ def verify_merge_preconditions(repo: Path, state: dict[str, Any], evidence: dict
         raise FactoryError("evidence was not captured against the approved plan")
     if not all(item["passed"] for item in evidence["tests"]):
         raise FactoryError("evidence contains a failed test")
+    integration_changes = worktree_changed_files(integration)
+    if integration_changes:
+        raise FactoryError(
+            "integration worktree changed after proof capture: " + ", ".join(integration_changes)
+        )
+    for item in evidence["files"]:
+        path = evidence_path(integration, item["path"])
+        try:
+            git(integration, "ls-files", "--error-unmatch", "--", item["path"])
+        except FactoryError as error:
+            raise FactoryError(
+                f"reviewed evidence is not tracked in the integration commit: {item['path']}"
+            ) from error
+        if not path.is_file() or digest_bytes(path.read_bytes()) != item["sha256"]:
+            raise FactoryError(f"reviewed evidence hash no longer matches: {item['path']}")
     if git(repo, "rev-parse", state["target_branch"]) != state["base_commit"]:
         raise FactoryError("target branch drifted after factory initialization")
     ensure_clean(repo)
@@ -1073,6 +1163,11 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
             config["limits"],
         )
         record_usage(state, reviewer_receipt)
+        reviewer_changes = worktree_changed_files(integration_path)
+        if reviewer_changes:
+            raise FactoryError(
+                "reviewer mutated the integration worktree: " + ", ".join(reviewer_changes)
+            )
         review = review_output(reviewer_receipt, evidence, state["plan"])
         cycle_record = {"cycle": cycle, "evidence": evidence, "review": review,
                         "review_receipt": reviewer_receipt, "repairs": []}
@@ -1092,7 +1187,8 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         state["integration"]["commit"] = git(integration_path, "rev-parse", "HEAD")
         save_state(run, state, "repair_completed", {"cycle": cycle,
                                                      "commit": state["integration"]["commit"]})
-    assert final_evidence is not None and final_review is not None
+    if final_evidence is None or final_review is None:
+        raise FactoryError("review loop ended without a final evidence-backed verdict")
     verify_merge_preconditions(repo, state, final_evidence, final_review, integration_path)
     state["final_review"] = final_review
     state["final_evidence_sha256"] = final_evidence["sha256"]
