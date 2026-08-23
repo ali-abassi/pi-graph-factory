@@ -6,6 +6,15 @@ All notable changes to Pi Graph Factory are documented here.
 
 ### Added
 
+- Optional DeepSeek V4 Flash semantic enrichment for Graphify repository docs
+  and community labels, with an in-memory Pi credential bridge, profile-aware
+  caching, explicit AST fallback, and secret non-persistence tests.
+- Conditional public-seam TDD and reproduce-diagnose-regress skills for
+  implementation lanes, plus two-axis independent review.
+- A documented placement decision for triage, architecture improvement,
+  docs-enabled grilling, specs, tickets, implementation, and wayfinding skills.
+- One evidence-bound clear-prose skill synthesized from ten reviewed anti-slop
+  sources and loaded into every existing workflow role without a new stage.
 - Direct, interactive, and autonomous intake modes with durable brief provenance,
   structured self-grill validation, and planner handoff.
 - Ponytail-derived implementation and review skills, including skill prompt

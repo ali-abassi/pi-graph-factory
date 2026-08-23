@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -8,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts.repository_intelligence import ensure_repository_intelligence
+from scripts.repository_intelligence import IntelligenceError, ensure_repository_intelligence
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,7 +40,7 @@ class RepositoryIntelligenceTests(unittest.TestCase):
         subprocess.run(["git", "add", *names], cwd=self.repo, check=True)
         subprocess.run(["git", "commit", "-qm", "fixture"], cwd=self.repo, check=True)
 
-    def ensure(self) -> dict:
+    def ensure(self, enrichment: dict | None = None) -> dict:
         override = f"{sys.executable} {FAKE_GRAPHIFY}"
         with patch.dict(os.environ, {"PI_GRAPH_FACTORY_GRAPHIFY": override}):
             return ensure_repository_intelligence(
@@ -47,6 +48,7 @@ class RepositoryIntelligenceTests(unittest.TestCase):
                 auto_install=False,
                 timeout_seconds=30,
                 termination_grace_seconds=1,
+                enrichment=enrichment,
             )
 
     def test_code_repository_is_indexed_cached_and_refreshed_after_change(self) -> None:
@@ -95,6 +97,76 @@ class RepositoryIntelligenceTests(unittest.TestCase):
         ready = self.ensure()
         self.assertEqual(ready["status"], "ready")
         self.assertTrue(ready["refreshed"])
+
+    @patch("scripts.repository_intelligence.pi_api_key", return_value="private-test-key")
+    def test_semantic_enrichment_uses_configured_model_without_persisting_key(
+        self, _key: object,
+    ) -> None:
+        (self.repo / "app.py").write_text("print('ready')\n", encoding="utf-8")
+        (self.repo / "VISION.md").write_text("# Vision\n\nShip it.\n", encoding="utf-8")
+        self.commit("app.py", "VISION.md")
+        enrichment = {
+            "enabled": True,
+            "required": True,
+            "backend": "deepseek",
+            "model": "deepseek-ai/DeepSeek-V4-Flash-0731",
+            "mode": "deep",
+            "base_url": "https://inference.baseten.co/v1",
+            "pi_auth_model": "baseten/deepseek-ai/DeepSeek-V4-Flash-0731",
+        }
+
+        receipt = self.ensure(enrichment)
+        invocation = json.loads(
+            (self.repo / "graphify-out" / "fake-invocation.json").read_text()
+        )
+        self.assertEqual(receipt["enrichment"]["status"], "ready")
+        self.assertIn("--backend", invocation["args"])
+        self.assertIn("deepseek", invocation["args"])
+        self.assertIn("deepseek-ai/DeepSeek-V4-Flash-0731", invocation["args"])
+        self.assertIn("deep", invocation["args"])
+        self.assertNotIn("--code-only", invocation["args"])
+        self.assertTrue(invocation["deepseek_key_present"])
+        self.assertEqual(
+            invocation["deepseek_base_url"], "https://inference.baseten.co/v1"
+        )
+        self.assertNotIn("private-test-key", json.dumps(receipt))
+        self.assertIn("[REDACTED]", receipt["execution"]["output"])
+        self.assertNotIn(
+            "private-test-key",
+            (self.repo / "graphify-out" / "factory-metadata.json").read_text(),
+        )
+
+        cached = self.ensure(enrichment)
+        self.assertFalse(cached["refreshed"])
+
+    @patch(
+        "scripts.repository_intelligence.pi_api_key",
+        side_effect=IntelligenceError("no configured credential"),
+    )
+    def test_optional_enrichment_falls_back_to_ast_and_retries_later(
+        self, _key: object,
+    ) -> None:
+        (self.repo / "app.py").write_text("print('ready')\n", encoding="utf-8")
+        self.commit("app.py")
+        enrichment = {
+            "enabled": True,
+            "required": False,
+            "backend": "deepseek",
+            "model": "deepseek-v4-flash",
+            "mode": "deep",
+            "pi_auth_model": "baseten/deepseek-ai/DeepSeek-V4-Flash-0731",
+        }
+
+        receipt = self.ensure(enrichment)
+        invocation = json.loads(
+            (self.repo / "graphify-out" / "fake-invocation.json").read_text()
+        )
+        self.assertEqual(receipt["enrichment"]["status"], "unavailable")
+        self.assertIn("--code-only", invocation["args"])
+        metadata = json.loads(
+            (self.repo / "graphify-out" / "factory-metadata.json").read_text()
+        )
+        self.assertIsNone(metadata["profile_sha256"])
 
 
 if __name__ == "__main__":

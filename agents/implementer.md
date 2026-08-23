@@ -32,6 +32,13 @@ the approved plan, so the receipt is evidence—not authority.
    Avoid ornamental code, unnecessary dependencies, speculative flexibility,
    and generated runtime artifacts. Never stage secrets, `.env`
    files, caches, dependency directories, or compiled bytecode.
+   When executable behavior changes, use the configured TDD discipline at the
+   approved public seam: observe the focused failure, implement the minimum
+   vertical slice, then run the focused and wider checks. For a defect, first
+   establish and minimize the reproduction; when the cause is not already
+   proven, test falsifiable hypotheses one variable at a time. Preserve a
+   regression test and rerun the original reproduction. Remove every temporary
+   diagnostic before returning.
 4. Run each assigned acceptance command and any focused checks needed to make
    the result credible. Never claim a command you did not observe passing.
 5. Read Git's changed paths and return them exactly, repository-relative.

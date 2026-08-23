@@ -55,10 +55,15 @@ commands exactly-once across machine death.
 
 ## Evidence
 
-- 73 deterministic repository tests across simple, medium, complex, refusal,
+- 81 deterministic repository tests across simple, medium, complex, refusal,
   lifecycle, concurrency, and graph cases.
 - Graphify tests prove no-code deferral, first indexing, clean ignored output,
-  same-commit reuse, and refresh after a new commit.
+  same-commit reuse, refresh after a new commit, semantic-model dispatch,
+  credential non-persistence, and explicit AST fallback.
+- A live DeepSeek V4 Flash extraction produced a usable 537-node, 1,195-edge
+  map. Semantic enrichment is an approved-provider boundary, not a claim that
+  repository content remains local; the default falls back to AST-only when it
+  is unavailable.
 - Planning tests prove a low 8.0 judgment returns to the planner, a later 9.0
   judgment advances, missing project memory is assigned, and a forged overall
   score is refused.

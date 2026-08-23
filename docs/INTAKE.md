@@ -28,6 +28,14 @@ human-led. In an Agent X environment:
 - `/grill-me` is the bounded phone interview and produces `goal-brief.md`.
 - `goal-grill` is the text-interview alternative and produces the same brief
   contract.
+- `/grill-with-docs` is the same interactive path with durable domain modeling:
+  it updates `CONTEXT.md`/`CONTEXT-MAP.md` and creates an ADR only for a
+  surprising, hard-to-reverse tradeoff. It still produces the same Goal Brief,
+  so the factory does not need another intake mode.
+
+When the docs-enabled path changes files in the target repository, review and
+commit them before initialization. The enriched Graphify pass then includes
+those docs in the planner's repository map.
 
 The brief must be classified `Ready` or `Ready With Assumptions` and contain the
 required objective, evidence, scope, orchestration, validation, approval, and

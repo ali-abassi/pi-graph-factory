@@ -12,6 +12,8 @@ scope or checks cannot be satisfied, return blocked; never self-expand authority
 Prefer deletion/reuse, then standard library or native project features, then
 the smallest new code that satisfies the acceptance checks. Do not introduce an
 abstraction with one implementation or a dependency for a few clear lines.
+For executable behavior, follow the configured TDD skill at the approved seam.
+For defect work, follow the configured diagnosis skill before applying a fix.
 
 For repair context, return `addressed` with exactly every assigned issue id. If
 the controller requests a receipt-only correction, do not mutate the worktree;

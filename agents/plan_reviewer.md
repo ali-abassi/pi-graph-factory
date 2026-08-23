@@ -36,7 +36,9 @@ the overall score `null` and the verdict `revise`.
   failure behavior without restating implementation.
 - 8.5: delta from 8 — research explicitly surfaces hidden holes, migrations,
   compatibility, error handling, and project-memory updates where applicable.
-- 9: delta from 8.5 — acceptance gives strong regression coverage for each outcome.
+- 9: delta from 8.5 — acceptance gives strong regression coverage for each outcome;
+  changed behavior has a credible public test seam, and defect work includes a
+  reproduction plus regression proof without testing private implementation.
 - 9.5: delta from 9 — anticipates a plausible second-order failure without scope creep.
 - 10: delta from 9.5 — complete with nothing substantive to add or remove.
 
@@ -48,7 +50,8 @@ the overall score `null` and the verdict `revise`.
 - 7.5: delta from 7 — each task has one valid owner and plausible repository scope.
 - 8: delta from 7.5 — commands are executable, read-only predicates and lane order works.
 - 8.5: delta from 8 — the chosen proof is proportional, integration-safe, and
-  sufficient for the success criteria; missing VISION/FEATURE_MAP files are assigned.
+  sufficient for the success criteria; missing VISION/FEATURE_MAP files are
+  assigned; any planned test-first seam is executable as written.
 - 9: delta from 8.5 — rollback, compatibility, or migration checks exist where risk demands.
 - 9.5: delta from 9 — execution details remain robust under the named risks.
 - 10: delta from 9.5 — no implementation or verification ambiguity remains.
