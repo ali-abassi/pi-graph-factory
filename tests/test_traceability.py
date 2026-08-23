@@ -16,6 +16,7 @@ from scripts.factory import FactoryError, review_output
 ROOT = Path(__file__).resolve().parents[1]
 FACTORY = ROOT / "scripts" / "factory.py"
 ADAPTER = ROOT / "tests" / "traceability_adapter.py"
+GRAPHIFY = ROOT / "tests" / "fake_graphify.py"
 
 
 class FactoryTraceabilityTests(unittest.TestCase):
@@ -49,7 +50,11 @@ class FactoryTraceabilityTests(unittest.TestCase):
         config["merge"] = {"target": "main", "apply": False}
         self.config = self.root / "factory.yaml"
         self.config.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
-        self.env = {**os.environ, "PI_GRAPH_FACTORY_ADAPTER": str(ADAPTER)}
+        self.env = {
+            **os.environ,
+            "PI_GRAPH_FACTORY_ADAPTER": str(ADAPTER),
+            "PI_GRAPH_FACTORY_GRAPHIFY": f"{sys.executable} {GRAPHIFY}",
+        }
 
     def tearDown(self) -> None:
         self.temp.cleanup()

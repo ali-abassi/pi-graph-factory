@@ -23,6 +23,7 @@ time.sleep(float(os.environ.get("PI_GRAPH_FACTORY_ADAPTER_SLEEP", "0")))
 receipt_status = "passed"
 
 if args.role == "plan":
+    required_docs = context.get("required_project_docs", [])
     output = {
         "version": 1,
         "summary": "Create the text application",
@@ -30,8 +31,14 @@ if args.role == "plan":
         "success_criteria": [
             {"id": "SC-1", "description": "The reviewed text artifact exists."}
         ],
+        "research": [{
+            "question": "What outcome and proof does this repository require?",
+            "finding": "The project memory and request require a reviewed text artifact.",
+            "evidence": ["VISION.md", "FEATURE_MAP.md"],
+        }],
+        "assumptions": [],
         "tasks": [{"id": "build", "owner": "product",
-                   "files": ["app.txt", "evidence/**"],
+                   "files": ["app.txt", "evidence/**", *required_docs],
                    "acceptance": ["test -s app.txt"]}],
         "acceptance": ["test -s app.txt"],
         "risks": [],
@@ -42,6 +49,37 @@ if args.role == "plan":
         Path(marker_value).write_text("observed", encoding="utf-8")
         receipt_status = "invalid"
         output = {"error": "model response was not a JSON object", "raw_excerpt": "not json"}
+elif args.role.startswith("plan-review:"):
+    low_marker_value = os.environ.get("PI_GRAPH_FACTORY_LOW_PLAN_SCORE_ONCE")
+    low = bool(low_marker_value and not Path(low_marker_value).exists())
+    if low:
+        Path(low_marker_value).write_text("observed", encoding="utf-8")
+    score = 8.0 if low else 9.0
+    output = {
+        "rubric_version": "plan-quality-v1",
+        "dimensions": [
+            {
+                "name": name,
+                "score": score,
+                "evidence": "The plan is grounded in the supplied request and repository context.",
+                "reasoning": "It satisfies the named anchor with inspectable evidence.",
+                "gap_to_next": "Add more explicit repository evidence." if low else "No material gap.",
+            }
+            for name in ("grounding", "coverage", "feasibility", "minimality", "alignment")
+        ],
+        "critical_failure": False,
+        "overall_score": score,
+        "overall_reasoning": "The plan clears the configured quality bar." if not low
+        else "The plan needs more explicit grounding before approval.",
+        "improvements": [] if not low else [{
+            "dimension": "grounding",
+            "current_anchor": 8.0,
+            "target_anchor": 8.5,
+            "suggestion": "Tie every implementation task to a named repository finding.",
+            "why_raises_score": "It makes the plan independently traceable to repository evidence.",
+        }],
+        "verdict": "revise" if low else "pass",
+    }
 elif args.role.startswith("implement:"):
     Path("app.txt").write_text("implemented\n", encoding="utf-8")
     evidence = Path("evidence")
@@ -51,6 +89,17 @@ elif args.role.startswith("implement:"):
     (evidence / "browser-receipt.json").write_text('{"console_errors":[]}\n')
     changed_files = ["app.txt", "evidence/desktop.png", "evidence/flow.webm",
                      "evidence/browser-receipt.json"]
+    assigned_files = {
+        path
+        for task in context.get("tasks", [])
+        for path in task.get("files", [])
+    }
+    if "VISION.md" in assigned_files:
+        Path("VISION.md").write_text("# Vision\n\nBuild reliable reviewed software.\n")
+        changed_files.append("VISION.md")
+    if "FEATURE_MAP.md" in assigned_files:
+        Path("FEATURE_MAP.md").write_text("# Feature map\n\n- Reviewed text artifact\n")
+        changed_files.append("FEATURE_MAP.md")
     if os.environ.get("PI_GRAPH_FACTORY_WRITE_PYC") == "1":
         generated = evidence / "__pycache__" / "capture.cpython-314.pyc"
         generated.parent.mkdir()
@@ -88,13 +137,23 @@ elif args.role.startswith("review:"):
         invalid_marker.write_text("observed")
     else:
         counter.write_text(str(count + 1))
+    versioned_plan = context["plan"].get("version") == 1
     if count == 0 or os.environ.get("PI_GRAPH_FACTORY_ALWAYS_REPAIR") == "1":
-        output = {"verdict": "repair", "issues": [{"id": "FIX-1", "owner": "product",
-                  "message": "mark implementation reviewed"}],
+        issue = {"id": "FIX-1", "owner": "product",
+                 "message": "mark implementation reviewed"}
+        if versioned_plan:
+            issue.update({"criterion_id": "SC-1", "target_files": ["app.txt"]})
+        output = {"verdict": "repair", "issues": [issue],
                   "evidence": [context["evidence"]["sha256"]]}
+        if versioned_plan:
+            output["criteria"] = [{"id": "SC-1", "status": "fail",
+                                   "evidence": "app.txt is not marked reviewed"}]
     else:
         output = {"verdict": "pass", "issues": [],
                   "evidence": [context["evidence"]["sha256"], "app.txt contains reviewed"]}
+        if versioned_plan:
+            output["criteria"] = [{"id": "SC-1", "status": "pass",
+                                   "evidence": "app.txt contains reviewed"}]
     if invalid_once:
         output["evidence"] = ["truncated-evidence-receipt"]
 else:

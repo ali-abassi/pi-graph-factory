@@ -6,6 +6,13 @@ All notable changes to Pi Graph Factory are documented here.
 
 ### Added
 
+- Commit-aware Graphify repository intelligence before generated planning, with
+  automatic setup, ignored local output, no-code deferral, and post-implementation refresh.
+- `VISION.md` and `FEATURE_MAP.md` project memory, including safe new-repository
+  initialization and generated-plan ownership for missing files.
+- Evidence-backed plan research and assumptions plus an independent anchored
+  plan judge. Scores below 8.5/10 return to the planner for at most three cycles.
+- A project-level `FEATURE_MAP.md` and graph-first planner/implementer guidance.
 - Configured `plan --generate` with durable typed plan revisions and planner receipts.
 - Versioned success criteria with exact independent-review coverage and routed
   failures.
@@ -30,6 +37,10 @@ All notable changes to Pi Graph Factory are documented here.
 
 ### Changed
 
+- Questions are now reserved for material choices that repository evidence,
+  project memory, and a safe reversible assumption cannot resolve.
+- The compiled policy graph now begins with repository intelligence and includes
+  an independent pre-implementation plan-quality gate.
 - Git is now the source of truth for changed files; agent claims must match it.
 - Approved task and integrated acceptance commands now execute mechanically.
 - Reviewer approval must cite the current evidence manifest hash.

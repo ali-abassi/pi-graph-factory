@@ -17,6 +17,8 @@ from factory import (  # noqa: E402
     FactoryError,
     enforce_dispatch_limits,
     is_unsafe_repository_artifact,
+    validate_plan,
+    validate_plan_judgment,
     validated_usage,
 )
 
@@ -38,11 +40,12 @@ class FactoryCompilerTests(unittest.TestCase):
         self.assertEqual(len([item for item in ids if item.startswith("repair-")]), 4)
         self.assertEqual(len([item for item in ids if item.startswith("capture-")]), 5)
         self.assertEqual(len([item for item in ids if item.startswith("merge-")]), 5)
-        agent_steps = [steps["plan"], *[steps[item] for item in ids
+        agent_steps = [steps["plan"], steps["plan-review"], *[steps[item] for item in ids
                                        if item.startswith(("implement-", "review-", "repair-"))]]
         self.assertTrue(agent_steps)
         expected_timeouts = {
             "plan": self.factory["planner"]["timeout_seconds"],
+            "plan-review": self.factory["plan_review"]["timeout_seconds"],
             **{
                 f"implement-{agent['id']}": agent["timeout_seconds"]
                 for agent in self.factory["implementers"]
@@ -61,7 +64,7 @@ class FactoryCompilerTests(unittest.TestCase):
             self.assertEqual(step["timeout"], expected_timeouts[step["id"]])
         for step_id in ["integrate", "human-required", *[
             f"capture-{cycle}" for cycle in range(1, 6)
-        ], *[f"merge-{cycle}" for cycle in range(1, 6)]]:
+        ], *[f"merge-{cycle}" for cycle in range(1, 6)], "repository-intelligence"]:
             self.assertEqual(
                 steps[step_id]["timeout"],
                 self.factory["limits"]["command_timeout_seconds"],
@@ -75,6 +78,9 @@ class FactoryCompilerTests(unittest.TestCase):
             {"op": "equals", "path": "/verdict", "value": "repair"},
         )
         self.assertEqual(steps["capture-2"]["needs"], ["repair-1"])
+        self.assertEqual(steps["plan"]["needs"], ["repository-intelligence"])
+        self.assertEqual(steps["implement-product"]["needs"], ["plan-review"])
+        self.assertNotIn("retries", steps["plan-review"])
 
     def test_contract_rejects_more_than_ten_implementers_or_five_cycles(self) -> None:
         too_many = dict(self.factory)
@@ -136,6 +142,61 @@ class FactoryCompilerTests(unittest.TestCase):
             validated_usage({"role": "test", "usage": {"total": 3.5, "cost": 0}})
         with self.assertRaises(FactoryError):
             validated_usage({"role": "test", "usage": {"total": 3, "cost": float("nan")}})
+
+    def test_generated_plan_must_assign_missing_project_memory(self) -> None:
+        plan = {
+            "version": 1,
+            "summary": "Implement the request",
+            "proof": {"mode": "tests", "reason": "backend-only change"},
+            "research": [{
+                "question": "Where should the change live?",
+                "finding": "The application module owns it.",
+                "evidence": ["src/app.py"],
+            }],
+            "assumptions": [],
+            "success_criteria": [{"id": "SC-1", "description": "The behavior works."}],
+            "tasks": [{
+                "id": "build", "owner": "product", "files": ["src/**"],
+                "acceptance": ["python3 -m unittest"],
+            }],
+            "acceptance": ["python3 -m unittest"],
+            "risks": [],
+            "open_questions": [],
+        }
+        with self.assertRaisesRegex(FactoryError, "missing project memory"):
+            validate_plan(
+                plan,
+                {"product"},
+                require_versioned=True,
+                required_project_docs={"VISION.md", "FEATURE_MAP.md"},
+            )
+
+    def test_plan_judge_score_is_recomputed_instead_of_trusted(self) -> None:
+        receipt = {
+            "status": "passed",
+            "output": {
+                "rubric_version": "plan-quality-v1",
+                "dimensions": [{
+                    "name": name,
+                    "score": 9,
+                    "evidence": "inspectable context",
+                    "reasoning": "the named anchor is met",
+                    "gap_to_next": "no material gap",
+                } for name in (
+                    "grounding", "coverage", "feasibility", "minimality", "alignment"
+                )],
+                "critical_failure": False,
+                "overall_score": 10,
+                "overall_reasoning": "forged total",
+                "improvements": [],
+                "verdict": "pass",
+            },
+        }
+        with self.assertRaisesRegex(FactoryError, "weighted dimensions"):
+            validate_plan_judgment(receipt, 8.5)
+        receipt["output"]["dimensions"][0]["score"] = float("nan")
+        with self.assertRaisesRegex(FactoryError, "half-point anchors"):
+            validate_plan_judgment(receipt, 8.5)
 
 
 if __name__ == "__main__":

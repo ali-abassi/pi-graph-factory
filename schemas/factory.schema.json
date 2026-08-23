@@ -2,12 +2,31 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "factory", "planner", "implementers", "review", "evidence", "limits", "merge", "delivery"],
+  "required": ["version", "factory", "planner", "plan_review", "intelligence", "implementers", "review", "evidence", "limits", "merge", "delivery"],
   "properties": {
     "version": {"const": 1},
     "factory": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"},
     "model": {"type": "string"},
     "planner": {"$ref": "#/$defs/agent"},
+    "plan_review": {
+      "allOf": [
+        {"$ref": "#/$defs/agent"},
+        {"type": "object", "required": ["min_score", "max_cycles"],
+         "properties": {
+           "min_score": {"type": "number", "minimum": 7, "maximum": 10, "multipleOf": 0.5},
+           "max_cycles": {"type": "integer", "minimum": 1, "maximum": 5}
+         }}
+      ]
+    },
+    "intelligence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["provider", "required", "auto_install"],
+      "properties": {
+        "provider": {"const": "graphify"},
+        "required": {"type": "boolean"},
+        "auto_install": {"type": "boolean"}
+      }
+    },
     "implementers": {
       "type": "array", "minItems": 1, "maxItems": 10,
       "items": {

@@ -5,11 +5,12 @@
 **Go for trusted local and Railway-hosted trials. Conditional go for configured
 delivery. No-go for hostile-code execution or universal unattended production.**
 
-The factory now has strong local merge authorization: exact plan approval,
+The factory now has strong local merge authorization: commit-aware repository
+intelligence, independently judged generated plans, exact plan approval,
 isolated owner worktrees, Git-derived scope, executed acceptance, commit-bound
-evidence, independent review, bounded repair, one-writer locking, and durable
-caught failures. Those controls materially reduce false completion and unsafe
-merge.
+evidence, independent implementation review, bounded repair, one-writer
+locking, and durable caught failures. Those controls materially reduce false
+completion and unsafe merge.
 
 The runtime now also resumes validated lane, integration, capture, review,
 repair, and post-fast-forward checkpoints; selects visual proof only when the
@@ -22,10 +23,12 @@ commands exactly-once across machine death.
 
 - **Entry points:** `init`, `plan`, `answer`, `approve`, `run`, `inspect`,
   `resume`, `deliver`, and `status`.
-- **Assets:** source repositories, credentials available to local processes,
-  approved plan and merge authority, proof artifacts, provider quota and spend.
-- **Actors:** operator, planner, one to ten implementers, independent reviewer,
-  local harness/provider, and repository content that may be adversarial.
+- **Assets:** source repositories, generated repository maps, credentials
+  available to local processes, approved plan and merge authority, proof
+  artifacts, provider quota and spend.
+- **Actors:** operator, planner, independent plan judge, one to ten implementers,
+  independent implementation reviewer, local harness/provider, and repository
+  content that may be adversarial.
 - **Sources of truth:** frozen config and plan hashes, Git commits and staged
   paths, controller-run command results, evidence manifest, append-only events,
   and final receipt.
@@ -36,21 +39,29 @@ commands exactly-once across machine death.
 ## Critical invariants
 
 1. No merge without exact-plan approval and a clean current review.
-2. No agent change outside its approved owner scope.
-3. No acceptance or proof claim without controller-observed evidence.
-4. No stale evidence after a repair.
-5. No more than one state-writing controller and five review attempts.
-6. No later dispatch after an explicitly configured local usage ceiling is
+2. No generated plan approval unless an independently scored judgment clears
+   the configured threshold; the controller recomputes the weighted score.
+3. No agent change outside its approved owner scope.
+4. No acceptance or proof claim without controller-observed evidence.
+5. No stale evidence after a repair.
+6. No more than one state-writing controller, three plan-quality cycles, and
+   five implementation review attempts.
+7. No later dispatch after an explicitly configured local usage ceiling is
    observed; token and cost ceilings may be disabled for subscription sessions.
-7. Recovery accepts only known process identities, owner scopes, commits,
+8. Recovery accepts only known process identities, owner scopes, commits,
    receipts, and current evidence; ambiguous state fails closed.
-8. No claim of hostile-code sandboxing, exactly-once external delivery, hard
+9. No claim of hostile-code sandboxing, exactly-once external delivery, hard
    provider spend enforcement, or universal visual quality.
 
 ## Evidence
 
-- 67 deterministic repository tests across simple, medium, complex, refusal,
+- 73 deterministic repository tests across simple, medium, complex, refusal,
   lifecycle, concurrency, and graph cases.
+- Graphify tests prove no-code deferral, first indexing, clean ignored output,
+  same-commit reuse, and refresh after a new commit.
+- Planning tests prove a low 8.0 judgment returns to the planner, a later 9.0
+  judgment advances, missing project memory is assigned, and a forged overall
+  score is refused.
 - Controller-death coverage includes a live held lane, committed repair
   reconstruction, and the narrow state-save window after a reviewed
   fast-forward reaches the target branch.
@@ -97,16 +108,18 @@ commands exactly-once across machine death.
   repair receipts one read-only fingerprinted correction. The final live
   bug-fix run still stopped after two invalid repair receipts; it is refusal
   evidence, not a `merge_ready` claim.
-- Pi Graph Core v0.1.0 and Pi Graph v0.3.0 validation of the 24-node topology.
+- Pi Graph Core v0.1.0 and Pi Graph v0.3.0 validation of the 26-node topology.
 - Full risk register: [`risk-register.json`](risk-register.json).
 
 ## Remaining conditions
 
 The next high-value work is the user-observed step-by-step complex run: inspect
-every planner input/output, lane context/receipt, integrated check, proof,
-review, repair, merge, and delivery receipt against a frozen application
-corpus. Railway Cloud Agents provide a persistent off-laptop VM, but their
-shared personal disk and credentials are still a trusted environment.
+every Graphify receipt, planner input/output, plan judgment, lane
+context/receipt, integrated check, proof, review, repair, merge, and delivery
+receipt against a frozen application corpus. Those approved/rejected plans
+should become the first human-rated calibration set for `plan-quality-v1`.
+Railway Cloud Agents provide a persistent off-laptop VM, but their shared
+personal disk and credentials are still a trusted environment.
 
 External deploy commands need project-specific idempotency and rollback. A VM
 dying after a provider accepted a deploy but before the local receipt was saved

@@ -49,21 +49,88 @@ def compile_factory(spec: dict[str, Any]) -> dict[str, Any]:
         details = "; ".join(f"{'.'.join(map(str, error.absolute_path))}: {error.message}" for error in errors)
         raise ValueError(details)
 
-    steps: list[dict[str, Any]] = [{
-        "id": "plan", "needs": [],
-        "cmd": harness_command(spec["planner"], "planner", '--input "$INPUT"'),
-        "schema": {"version": "integer", "summary": "string", "proof": "object", "success_criteria": "array",
-                   "tasks": "array", "acceptance": "array", "risks": "array"},
-        "gate": gate_json("assert x['version']==1 and x['success_criteria'] and x['tasks'] and x['acceptance']"),
-        "retries": 1,
-        **timeout_field(spec["planner"], spec["limits"]),
-    }]
+    graphify_command = (
+        'python3 "$WORKFLOW_DIR/scripts/repository_intelligence.py" --repo . '
+        + ("--auto-install " if spec["intelligence"]["auto_install"] else "")
+        + ("" if spec["intelligence"]["required"] else "--optional ")
+        + (
+            f'--timeout {spec["limits"]["command_timeout_seconds"]} '
+            if spec["limits"]["command_timeout_seconds"] is not None
+            else ""
+        )
+        + f'--termination-grace {spec["limits"]["termination_grace_seconds"]} --out "$OUT"'
+    )
+    steps: list[dict[str, Any]] = [
+        {
+            "id": "repository-intelligence",
+            "needs": [],
+            "cmd": graphify_command,
+            "schema": {
+                "provider": {"type": "string", "enum": ["graphify"]},
+                "status": {
+                    "type": "string",
+                    "enum": ["ready", "deferred"] + (
+                        [] if spec["intelligence"]["required"] else ["unavailable"]
+                    ),
+                },
+                "source_commit": "string",
+            },
+            "gate": gate_json(
+                "assert x['status'] in "
+                + repr(
+                    ("ready", "deferred")
+                    + (() if spec["intelligence"]["required"] else ("unavailable",))
+                )
+            ),
+            **command_timeout_field(spec["limits"]),
+        },
+        {
+            "id": "plan", "needs": ["repository-intelligence"],
+            "cmd": harness_command(
+                spec["planner"],
+                "planner",
+                '--input "$INPUT" --intelligence "$RUN/repository-intelligence.md"',
+            ),
+            "schema": {
+                "version": "integer", "summary": "string", "proof": "object",
+                "research": "array", "assumptions": "array", "success_criteria": "array",
+                "tasks": "array", "acceptance": "array", "risks": "array",
+                "open_questions": "array",
+            },
+            "gate": gate_json(
+                "assert x['version']==1 and x['research'] and x['success_criteria'] "
+                "and x['tasks'] and x['acceptance']"
+            ),
+            "retries": 1,
+            **timeout_field(spec["planner"], spec["limits"]),
+        },
+        {
+            "id": "plan-review", "needs": ["plan"],
+            "cmd": harness_command(
+                spec["plan_review"],
+                "plan-reviewer",
+                '--input "$INPUT" --intelligence "$RUN/repository-intelligence.md" '
+                '--plan "$RUN/plan.md"',
+            ),
+            "schema": {
+                "rubric_version": {"type": "string", "enum": ["plan-quality-v1"]},
+                "dimensions": "array", "critical_failure": "boolean",
+                "overall_score": "number", "overall_reasoning": "string",
+                "improvements": "array", "verdict": {"type": "string", "enum": ["pass"]},
+            },
+            "gate": gate_json(
+                "assert x['verdict']=='pass' and not x['critical_failure'] and "
+                f"x['overall_score'] >= {spec['plan_review']['min_score']}"
+            ),
+            **timeout_field(spec["plan_review"], spec["limits"]),
+        },
+    ]
     implementer_ids = []
     for lane in spec["implementers"]:
         sid = f"implement-{lane['id']}"
         implementer_ids.append(sid)
         steps.append({
-            "id": sid, "needs": ["plan"],
+            "id": sid, "needs": ["plan-review"],
             "cmd": harness_command(
                 lane, f"implementer:{lane['id']}",
                 f'--plan "$RUN/plan.md" --scope {json.dumps(lane["scope"])} --workspace {json.dumps(lane["id"])}',

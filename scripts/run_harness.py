@@ -20,6 +20,7 @@ def main() -> int:
     parser.add_argument("--tools", default="")
     parser.add_argument("--skill", action="append", default=[])
     parser.add_argument("--input", type=Path)
+    parser.add_argument("--intelligence", type=Path)
     parser.add_argument("--plan", type=Path)
     parser.add_argument("--review", type=Path)
     parser.add_argument("--evidence", type=Path)
@@ -32,7 +33,7 @@ def main() -> int:
         args.instructions = workflow_dir / args.instructions
     args.skill = [str(path if path.is_absolute() else workflow_dir / path) for path in map(Path, args.skill)]
     context = []
-    for label in ("input", "plan", "review", "evidence"):
+    for label in ("input", "intelligence", "plan", "review", "evidence"):
         path = getattr(args, label)
         if path and path.is_file():
             context.append(f"<{label}>\n{path.read_text(encoding='utf-8')}\n</{label}>")

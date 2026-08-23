@@ -8,22 +8,28 @@ repair limits, and external effects.
 ## The experience
 
 1. A request arrives from a person, issue, webhook, or another workflow.
-2. The planner inspects the repository and asks only questions that materially
-   change the result.
-3. The user sees and explicitly approves the exact plan, success criteria,
+2. The controller prepares repository intelligence. Existing code is indexed or
+   refreshed with Graphify; a code-free new project defers its first graph.
+   `VISION.md` and `FEATURE_MAP.md` supply durable product direction.
+3. The planner queries that map, verifies relevant source, researches hidden
+   gaps, and resolves uncertainty with defensible assumptions before asking a
+   question.
+4. A separate model judges grounding, coverage, feasibility, minimality, and
+   alignment. Anything below 8.5/10 returns with advice for at most three cycles.
+5. The user sees and explicitly approves the exact plan, success criteria,
    ownership, proof mode, and commands.
-4. One to ten implementation agents work in isolated Git worktrees. Different
+6. One to ten implementation agents work in isolated Git worktrees. Different
    lanes may use different harnesses, models, instructions, and skills.
-5. The controller integrates the lanes and runs the approved checks.
-6. UI work receives current-commit screenshots, video, and browser evidence.
+7. The controller integrates the lanes and runs the approved checks.
+8. UI work receives current-commit screenshots, video, and browser evidence.
    Tiny fixes, documentation, refactors, and non-UI work use test evidence
    without ceremonial media.
-7. An independent reviewer accounts for every approved outcome. Findings route
+9. An independent reviewer accounts for every approved outcome. Findings route
    to the exact owner and files. At most five repair cycles may run.
-8. A clean review authorizes a guarded merge. When delivery is configured, a
+10. A clean review authorizes a guarded merge. When delivery is configured, a
    separate explicit command deploys, checks health, and attempts the configured
    rollback on failure.
-9. Every input, output, command, receipt, transition, and artifact remains
+11. Every input, output, command, receipt, transition, and artifact remains
    inspectable. Interrupted work resumes from validated checkpoints instead of
    starting the factory again or silently accepting partial state.
 
@@ -44,6 +50,11 @@ repair limits, and external effects.
 - The model never owns control flow or merge authority.
 - Approval binds exact bytes, not a conversational summary.
 - Git and executed commands outrank agent claims.
+- Repository maps reduce context use but never replace source verification.
+- Project vision and the feature map are durable decision context, not hidden
+  permission to expand an approved request.
+- An independent anchored judgment improves plans; exact user approval remains
+  the authority for what gets built.
 - Evidence is proportional to the change and bound to the reviewed commit.
 - Usage is always observed; subscription users are not blocked by arbitrary
   token or dollar ceilings unless they explicitly configure enforcement.

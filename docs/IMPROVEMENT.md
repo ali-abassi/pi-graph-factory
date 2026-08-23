@@ -234,3 +234,34 @@
 - **Assurance boundary:** local Git transitions resume from mechanically known
   checkpoints. Arbitrary external provider effects and background daemons
   outside the recorded process group are not transactionally exactly-once.
+
+## Repository-grounded planning climb v12
+
+- **Trigger:** planning previously began with broad repository inspection, had
+  no durable project vision/feature context, and could advance a syntactically
+  valid but weak plan directly to operator approval. New projects also had no
+  explicit lifecycle for gaining repository intelligence after code appeared.
+- **Candidate:** create or refresh a local ignored Graphify map when tracked code
+  exists; reuse it only at the exact source commit; rebuild corrupt or stale
+  caches; defer cleanly for a code-free project and retry after implementation.
+  Feed capped `VISION.md` and `FEATURE_MAP.md` content to a graph-first planner,
+  require evidence-backed research and explicit assumptions, and assign missing
+  project-memory files as implementation work.
+- **Quality gate:** send each generated plan to a fresh independent judge using
+  anchored grounding, coverage, feasibility, minimality, and alignment scores.
+  Recompute the weighted score mechanically, require 8.5/10, and return precise
+  rubric-linked advice to the planner for at most three quality cycles. Exact
+  operator approval remains mandatory after the judge passes.
+- **Result:** 73/73 repository tests pass. Deterministic cases prove new-project
+  deferral-to-ready, first indexing, cache reuse, corrupt/stale refresh, ignored
+  graph output, missing project-memory restoration, low-score revision, forged
+  score refusal, and the unchanged implementation/review/merge safety suite.
+  The 26-node policy graph passes both validators; Ruff, bytecode compilation,
+  dependency audit, Bandit medium/high, and Gitleaks also pass.
+- **Simplicity boundary:** Graphify remains an ignored index rather than a
+  second workflow engine or committed dependency. The existing controller owns
+  the one planning loop. No vector database, agent memory service, judge voting,
+  or extra scheduler was added.
+- **Assurance boundary:** deterministic control flow and rubric arithmetic are
+  proven; semantic plan scoring is not yet calibrated against a frozen
+  human-rated corpus. The next step-by-step live runs become that corpus.
