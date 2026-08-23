@@ -245,6 +245,11 @@ and review again. File existence and provenance are mechanical. Semantic visual
 quality still depends on the configured browser/native capture and independent
 reviewer.
 
+If a declared capture command fails without writing outside its declared proof
+paths, the controller restores the clean integration commit, hashes a failed
+capture receipt, and asks the independent reviewer to route a repair inside the
+same five-cycle budget. Partial proof can never authorize merge.
+
 ## Merge policy
 
 `merge.apply: false` is the safe default. A successful run ends at
@@ -294,7 +299,7 @@ the two-engine drift this repository previously had.
 .venv/bin/python -m py_compile scripts/*.py tests/*.py
 ```
 
-The deterministic suite currently covers 40 cases, including:
+The deterministic suite currently covers 43 cases, including:
 
 - simple single-owner first-pass work;
 - a two-owner feature with directed design repair;
@@ -311,6 +316,8 @@ The deterministic suite currently covers 40 cases, including:
   proof writes;
 - refusal of duplicate capture/acceptance commands, acceptance-time repository
   mutation, ignored proof artifacts, and reviewer writes;
+- failed-capture cleanup, forced repair routing, recapture, and refusal of a
+  reviewer pass against invalid proof;
 - fresh proof after repair, successful merge, target/config drift, and bounded
   human escalation.
 

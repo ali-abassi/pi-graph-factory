@@ -111,6 +111,32 @@ class FactoryLifecycleTests(unittest.TestCase):
         self.assertEqual(receipt["merge"]["status"], "merged")
         self.assertEqual(receipt["evidence_sha256"], state["final_evidence_sha256"])
 
+    def test_capture_failure_is_reviewed_repaired_and_recaptured(self) -> None:
+        config = yaml.safe_load(self.config.read_text())
+        config["evidence"]["capture_commands"] = [
+            "grep -q reviewed app.txt && cp app.txt evidence/flow.webm"
+        ]
+        config_path = self.root / "capture-repair-factory.yaml"
+        config_path.write_text(yaml.safe_dump(config, sort_keys=False))
+        run = self.initialize(config_path, "capture-repair-run")
+        planned = self.command(
+            "plan",
+            "--run",
+            str(run),
+            "--file",
+            str(self.write_plan(self.root / "capture-repair-plan.json", [])),
+        )
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        completed = self.command("run", "--run", str(run))
+        self.assertEqual(completed["phase"], "merged")
+        state = json.loads((run / "state.json").read_text())
+        self.assertFalse(state["cycles"][0]["evidence"]["valid"])
+        self.assertEqual(state["cycles"][0]["evidence"]["files"], [])
+        self.assertTrue(state["cycles"][1]["evidence"]["valid"])
+        self.assertTrue(state["cycles"][1]["evidence"]["files"])
+        self.assertEqual(state["cycles"][0]["review"]["verdict"], "repair")
+        self.assertEqual(state["cycles"][1]["review"]["verdict"], "pass")
+
     def test_conflicting_file_ownership_is_rejected_before_approval(self) -> None:
         config = yaml.safe_load(self.config.read_text())
         second = dict(config["implementers"][0])

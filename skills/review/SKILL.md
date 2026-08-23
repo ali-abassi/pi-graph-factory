@@ -9,6 +9,10 @@ and video manifest. Cite the current evidence hash. Never approve missing,
 stale, contradictory, or semantically useless proof; route each blocking issue
 to one approved owner without editing the code yourself.
 
+An evidence receipt with `valid: false` is a controller-observed capture
+failure, not missing context. Inspect the failure output and clean commit, then
+route a repair; never pass it.
+
 For plan version 1, account for every approved success criterion in order with
 a pass/fail status and concrete inspected evidence. Route each failed criterion
 through an issue bearing its `criterion_id`.

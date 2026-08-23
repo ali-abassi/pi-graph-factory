@@ -63,6 +63,12 @@ class FactoryError(RuntimeError):
     pass
 
 
+class EvidenceFailure(FactoryError):
+    def __init__(self, message: str, evidence: dict[str, Any]):
+        super().__init__(message)
+        self.evidence = evidence
+
+
 @contextmanager
 def run_lock(run: Path):
     path = run / ".controller.lock"
@@ -158,7 +164,13 @@ def worktree_changed_files(repo: Path) -> list[str]:
     return sorted(tracked)
 
 
-def run_commands(cwd: Path, commands: list[str], label: str) -> list[dict[str, Any]]:
+def run_commands(
+    cwd: Path,
+    commands: list[str],
+    label: str,
+    *,
+    raise_on_failure: bool = True,
+) -> list[dict[str, Any]]:
     receipts = []
     for command in commands:
         result = subprocess.run(
@@ -177,11 +189,13 @@ def run_commands(cwd: Path, commands: list[str], label: str) -> list[dict[str, A
             "output": (result.stdout + result.stderr)[-2000:],
         }
         receipts.append(receipt)
-        if result.returncode:
+        if result.returncode and raise_on_failure:
             raise FactoryError(
                 f"approved acceptance command failed for {label}: {command!r} "
-                f"(exit {result.returncode})"
+                f"(exit {result.returncode}): {receipt['output'][-500:]}"
             )
+        if result.returncode:
+            break
     return receipts
 
 
@@ -883,27 +897,69 @@ def file_receipt(root: Path, path: Path) -> dict[str, Any]:
             "sha256": digest_bytes(path.read_bytes())}
 
 
+def restore_declared_capture_changes(integration: Path, changed: list[str]) -> None:
+    tracked = []
+    untracked = []
+    for raw in changed:
+        if git(integration, "ls-files", "--error-unmatch", "--", raw, check=False):
+            tracked.append(raw)
+        else:
+            untracked.append(raw)
+    if tracked:
+        git(integration, "restore", "--staged", "--worktree", "--", *tracked)
+    for raw in untracked:
+        path = evidence_path(integration, raw)
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+        elif path.exists():
+            raise FactoryError(f"capture failure left a non-file artifact requiring inspection: {raw}")
+    remaining = worktree_changed_files(integration)
+    if remaining:
+        raise FactoryError(
+            "capture failure cleanup did not restore the integration boundary: "
+            + ", ".join(remaining)
+        )
+
+
 def capture_evidence(run: Path, state: dict[str, Any], config: dict[str, Any],
                      integration: Path, cycle: int) -> dict[str, Any]:
     if worktree_changed_files(integration):
         raise FactoryError("integration worktree must be clean before evidence capture")
-    capture = run_commands(
-        integration,
-        list(dict.fromkeys(config["evidence"].get("capture_commands", []))),
-        "configured evidence capture",
-    )
     declared = [
         *config["evidence"]["screenshots"],
         config["evidence"].get("video"),
         *config["evidence"].get("artifacts", []),
     ]
     declared = [value for value in declared if value]
+    capture = run_commands(
+        integration,
+        list(dict.fromkeys(config["evidence"].get("capture_commands", []))),
+        "configured evidence capture",
+        raise_on_failure=False,
+    )
     changed = worktree_changed_files(integration)
     unexpected = [value for value in changed if value not in declared]
     if unexpected:
         raise FactoryError(
             "evidence capture changed files outside declared artifacts: " + ", ".join(unexpected)
         )
+    if capture and not all(item["passed"] for item in capture):
+        restore_declared_capture_changes(integration, changed)
+        source_commit = git(integration, "rev-parse", "HEAD")
+        receipt = {
+            "valid": False,
+            "cycle": cycle,
+            "captured_at": now(),
+            "source_commit": source_commit,
+            "approved_plan_sha256": state["approved_plan_sha256"],
+            "capture": capture,
+            "files": [],
+            "tests": [],
+            "failure": "configured evidence capture failed before proof could be committed",
+        }
+        receipt["sha256"] = digest_json(receipt)
+        atomic_json(run / "evidence" / f"cycle-{cycle}.json", receipt)
+        raise EvidenceFailure("configured evidence capture failed; reviewer repair required", receipt)
     if changed:
         git(integration, "add", "--", *changed)
         git(integration, "commit", "-m", f"factory: capture evidence cycle {cycle}")
@@ -932,7 +988,7 @@ def capture_evidence(run: Path, state: dict[str, Any], config: dict[str, Any],
     if not tests or not all(item["passed"] for item in tests):
         raise FactoryError("one or more evidence test commands failed")
     source_commit = git(integration, "rev-parse", "HEAD")
-    receipt = {"cycle": cycle, "captured_at": now(), "source_commit": source_commit,
+    receipt = {"valid": True, "cycle": cycle, "captured_at": now(), "source_commit": source_commit,
                "approved_plan_sha256": state["approved_plan_sha256"],
                "capture": capture, "files": evidence_files, "tests": tests}
     receipt["sha256"] = digest_json(receipt)
@@ -954,6 +1010,8 @@ def review_output(
         raise FactoryError("reviewer did not cite the current evidence receipt")
     if output["verdict"] == "pass" and output["issues"]:
         raise FactoryError("reviewer cannot pass with unresolved issues")
+    if not evidence.get("valid", True) and output["verdict"] == "pass":
+        raise FactoryError("reviewer cannot pass when evidence capture is invalid")
     if output["verdict"] == "repair" and not output["issues"]:
         raise FactoryError("repair verdict requires issues")
     failed_criteria: set[str] = set()
@@ -1062,6 +1120,8 @@ def verify_merge_preconditions(repo: Path, state: dict[str, Any], evidence: dict
         raise FactoryError("evidence was not captured against the approved plan")
     if not all(item["passed"] for item in evidence["tests"]):
         raise FactoryError("evidence contains a failed test")
+    if not evidence.get("valid", True):
+        raise FactoryError("final evidence capture is invalid")
     integration_changes = worktree_changed_files(integration)
     if integration_changes:
         raise FactoryError(
@@ -1153,7 +1213,10 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     final_evidence = None
     final_review = None
     for cycle in range(1, config["review"]["max_cycles"] + 1):
-        evidence = capture_evidence(run, state, config, integration_path, cycle)
+        try:
+            evidence = capture_evidence(run, state, config, integration_path, cycle)
+        except EvidenceFailure as failure:
+            evidence = failure.evidence
         state["integration"]["commit"] = evidence["source_commit"]
         enforce_dispatch_limits(state, config["limits"], f"review:{cycle}")
         reviewer_receipt = invoke_agent(

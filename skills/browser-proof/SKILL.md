@@ -26,3 +26,9 @@ For each declared flow:
 Never manufacture image or video bytes. A file existing is not proof that the
 flow worked. Prefer stable roles, labels, or test ids over brittle CSS selectors.
 Use a mobile viewport too when the approved plan requires it.
+
+Prove exactly the approved criteria. Do not introduce extra interaction
+requirements owned by another lane merely to drive capture; focus or navigate
+directly when that behavior is not itself under review. Leave inline errors and
+important before/after states visibly settled long enough for a reviewer to
+inspect them in the video instead of racing through commands.

@@ -43,7 +43,7 @@ alpha from an unattended production service.
 
 ## Evidence
 
-- 40 deterministic repository tests across simple, medium, complex, refusal,
+- 43 deterministic repository tests across simple, medium, complex, refusal,
   lifecycle, concurrency, and graph cases.
 - Versioned approved outcomes must receive exact independent-review coverage
   with concrete inspected evidence; failed outcomes require routed ownership.
@@ -61,6 +61,10 @@ alpha from an unattended production service.
   now rejects capture/acceptance overlap and any acceptance/reviewer mutation
   before review. Its independent reviewer also rejected a semantically weak
   video and routed the failed criterion back to design.
+- A fresh fixed-controller medium run then stopped on a genuine generated
+  capture defect before review. Failed capture is now cleaned back to the exact
+  integration commit, represented by a hash-bound invalid receipt, and forced
+  through independent review/repair/recapture inside the existing cycle budget.
 - Pi Graph Core v0.1.0 and Pi Graph v0.3.0 validation of the 24-node topology.
 - Full risk register: [`risk-register.json`](risk-register.json).
 

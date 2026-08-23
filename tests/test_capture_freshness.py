@@ -8,10 +8,12 @@ from pathlib import Path
 import yaml
 
 from scripts.factory import (
+    EvidenceFailure,
     FactoryError,
     capture_evidence,
     digest_bytes,
     load_config,
+    review_output,
     validate_plan,
 )
 
@@ -85,6 +87,41 @@ class FactoryCaptureFreshnessTests(unittest.TestCase):
                 self.repo,
                 1,
             )
+
+    def test_partial_failed_capture_is_restored_and_receipted(self) -> None:
+        with self.assertRaises(EvidenceFailure) as raised:
+            capture_evidence(
+                self.run,
+                self.state,
+                self.config("printf partial > evidence/flow.webm; false"),
+                self.repo,
+                1,
+            )
+        evidence = raised.exception.evidence
+        self.assertFalse(evidence["valid"])
+        self.assertFalse(evidence["capture"][0]["passed"])
+        self.assertEqual(
+            subprocess.check_output(
+                ["git", "-C", str(self.repo), "status", "--porcelain"], text=True
+            ),
+            "",
+        )
+        self.assertTrue((self.run / "evidence" / "cycle-1.json").is_file())
+
+    def test_reviewer_cannot_pass_a_failed_capture_receipt(self) -> None:
+        evidence = {
+            "valid": False,
+            "sha256": "failed-capture-receipt",
+        }
+        receipt = {
+            "output": {
+                "verdict": "pass",
+                "issues": [],
+                "evidence": ["failed-capture-receipt"],
+            }
+        }
+        with self.assertRaisesRegex(FactoryError, "cannot pass when evidence capture is invalid"):
+            review_output(receipt, evidence, {"summary": "legacy plan"})
 
     def test_plan_cannot_repeat_the_capture_command_as_acceptance(self) -> None:
         plan = {

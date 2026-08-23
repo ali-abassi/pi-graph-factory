@@ -129,3 +129,23 @@
   acceptance-mutation, ignored-proof, lane-scope-bypass, and reviewer-mutation
   refusals. Repeat the live medium run on the promoted controller before any
   complex live claim.
+
+## Capture recovery climb v7
+
+- **Trigger:** the clean v6 medium rerun integrated both owners but its generated
+  capture script required an unapproved empty-state CTA focus behavior that the
+  product lane did not implement. Capture exited 1 and correctly stopped before
+  review, leaving no false proof, but the defect could not enter the existing
+  reviewer-directed repair loop.
+- **Candidate:** a failed capture may write only declared artifacts; the
+  controller restores those partial writes to the exact integration commit,
+  persists a hash-bound `valid: false` receipt, and invokes the independent
+  reviewer. Invalid evidence can only receive `repair`; after scoped repair the
+  normal next cycle recaptures everything. Unexpected capture writes still fail
+  immediately without agent repair.
+- **Simplicity boundary:** this reuses the one canonical review/repair state
+  machine, owner routing, and five-cycle cap. It adds no scheduler, queue,
+  alternate merge path, or automatic acceptance of missing evidence.
+- **Promotion rule:** preserve the frozen failed-capture refusal while proving
+  partial-write cleanup, reviewer-pass refusal, routed repair, fresh recapture,
+  and every prior gate. Then start a new clean medium live run.

@@ -28,6 +28,11 @@ Missing, stale, contradictory, or semantically useless proof is a blocking
 issue. Every issue needs a unique id, concrete message, and an owner from the
 approved plan so the controller can route repair mechanically.
 
+The controller may provide an evidence receipt with `valid: false` when a
+declared capture command failed. Inspect its command output and the clean source
+commit, return `repair`, and route the concrete capture/integration defect to
+the approved owner best able to fix it. Never pass invalid capture evidence.
+
 For a version 1 plan, return one `criteria` entry for every approved success
 criterion in its original order. Mark it `pass` or `fail` and cite the concrete
 fact you personally inspected. Every failed criterion needs a routed issue with

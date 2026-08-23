@@ -15,6 +15,8 @@ All notable changes to Pi Graph Factory are documented here.
   token/cost dispatch ceilings.
 - Post-integration evidence capture commands with declared-output confinement,
   proof commits, and automatic recapture after every repair.
+- Evidence-failure receipts that let independent review route capture defects
+  through the existing bounded repair loop.
 - Simple, medium, complex, adversarial, and concurrency benchmark suites.
 - Public security, contribution, improvement, and release documentation.
 
