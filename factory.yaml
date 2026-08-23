@@ -25,7 +25,7 @@ implementers:
     model: claude-sonnet-4-6
     thinking: medium
     instructions: agents/designer.md
-    skills: [skills/design]
+    skills: [skills/design, skills/browser-proof]
     tools: [read, edit, write, bash]
 
 review:
@@ -45,6 +45,12 @@ evidence:
   test_commands:
     - git diff --check
     - test -f .factory/evidence/browser-receipt.json
+
+limits:
+  agent_timeout_seconds: 1800
+  max_total_tokens: 500000
+  max_total_cost_usd: 10
+  require_usage: false
 
 merge:
   target: main

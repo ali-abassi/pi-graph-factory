@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-import argparse, json, subprocess
+import argparse
+import json
+import subprocess
 from pathlib import Path
 
 parser = argparse.ArgumentParser()

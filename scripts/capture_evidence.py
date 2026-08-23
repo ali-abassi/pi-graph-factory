@@ -4,8 +4,11 @@
 This prototype does not invent browser automation. Projects provide screenshot,
 video, and test commands; this adapter verifies the declared files and receipts.
 """
-import argparse, json, subprocess
+import argparse
+import json
+import subprocess
 from pathlib import Path
+
 import yaml
 
 parser = argparse.ArgumentParser()

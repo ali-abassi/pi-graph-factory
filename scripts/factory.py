@@ -5,13 +5,20 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import fcntl
+import fnmatch
 import hashlib
 import json
+import math
 import os
+import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -22,10 +29,61 @@ from jsonschema import Draft202012Validator
 ROOT = Path(__file__).resolve().parent.parent
 FACTORY_SCHEMA = json.loads((ROOT / "schemas" / "factory.schema.json").read_text())
 TERMINAL = {"human_required", "merge_ready", "merged", "failed"}
+GLOB_MAGIC = re.compile(r"[*?\[]")
+TASK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+GENERATED_DIRECTORIES = {
+    "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "node_modules",
+}
+GENERATED_FILES = {".DS_Store"}
+GENERATED_SUFFIXES = {".pyc", ".pyo"}
+SAFE_ENV_TEMPLATES = {".env.example", ".env.sample", ".env.template"}
+DEFAULT_GITIGNORE = """.factory/
+.DS_Store
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+node_modules/
+"""
 
 
 class FactoryError(RuntimeError):
     pass
+
+
+@contextmanager
+def run_lock(run: Path):
+    path = run / ".controller.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open("a+", encoding="utf-8")
+    try:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise FactoryError(f"factory run is already active: {run}") from error
+        handle.seek(0)
+        handle.truncate()
+        handle.write(f"pid={os.getpid()}\nacquired_at={now()}\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+        yield
+    finally:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
 
 
 def now() -> str:
@@ -55,11 +113,149 @@ def atomic_json(path: Path, value: Any) -> None:
 
 
 def git(repo: Path, *args: str, check: bool = True) -> str:
-    result = subprocess.run(["git", "-C", str(repo), *args], text=True,
-                            capture_output=True, check=False)
+    result = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        check=False,
+    )
     if check and result.returncode:
         raise FactoryError(f"git {' '.join(args)} failed: {(result.stderr or result.stdout).strip()}")
     return result.stdout.strip()
+
+
+def staged_files(repo: Path) -> list[str]:
+    result = subprocess.run(
+        ["git", "-C", str(repo), "diff", "--cached", "--name-only", "-z"],
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode:
+        raise FactoryError(f"cannot inspect staged changes: {result.stderr.decode(errors='replace').strip()}")
+    return sorted(os.fsdecode(raw) for raw in result.stdout.split(b"\0") if raw)
+
+
+def run_commands(cwd: Path, commands: list[str], label: str) -> list[dict[str, Any]]:
+    receipts = []
+    for command in commands:
+        result = subprocess.run(
+            ["bash", "-c", command],
+            cwd=cwd,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            check=False,
+        )
+        receipt = {
+            "command": command,
+            "passed": result.returncode == 0,
+            "exit_code": result.returncode,
+            "output": (result.stdout + result.stderr)[-2000:],
+        }
+        receipts.append(receipt)
+        if result.returncode:
+            raise FactoryError(
+                f"approved acceptance command failed for {label}: {command!r} "
+                f"(exit {result.returncode})"
+            )
+    return receipts
+
+
+def validate_repo_pattern(raw: Any) -> str:
+    if not isinstance(raw, str) or not raw.strip():
+        raise FactoryError("task file patterns must be non-empty strings")
+    pattern = raw.strip().replace("\\", "/")
+    parts = pattern.split("/")
+    if pattern.startswith("/") or any(part in {"", ".", ".."} for part in parts):
+        raise FactoryError(f"task file pattern must stay inside the repository: {raw!r}")
+    return pattern
+
+
+def validate_acceptance_command(raw: Any, label: str) -> str:
+    if not isinstance(raw, str) or not raw.strip():
+        raise FactoryError(f"{label} must contain non-empty acceptance commands")
+    command = raw.strip()
+    if "`" in command or "\n" in command or re.match(r"^[A-Z][A-Za-z]+(?:\s|$)", command):
+        raise FactoryError(
+            f"{label} acceptance must be a raw shell command, not prose or Markdown: {raw!r}"
+        )
+    syntax = subprocess.run(
+        ["bash", "-n", "-c", command],
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        check=False,
+    )
+    if syntax.returncode:
+        raise FactoryError(
+            f"{label} acceptance is not valid shell syntax: {raw!r}: {syntax.stderr.strip()}"
+        )
+    return command
+
+
+def pattern_prefix(pattern: str) -> tuple[str, ...]:
+    prefix = []
+    for part in pattern.split("/"):
+        if GLOB_MAGIC.search(part):
+            break
+        prefix.append(part)
+    return tuple(prefix)
+
+
+def patterns_may_overlap(left: str, right: str) -> bool:
+    if left == right:
+        return True
+    left_magic = bool(GLOB_MAGIC.search(left))
+    right_magic = bool(GLOB_MAGIC.search(right))
+    if not left_magic and fnmatch.fnmatchcase(left, right):
+        return True
+    if not right_magic and fnmatch.fnmatchcase(right, left):
+        return True
+    left_prefix = pattern_prefix(left)
+    right_prefix = pattern_prefix(right)
+    shared = min(len(left_prefix), len(right_prefix))
+    return left_prefix[:shared] == right_prefix[:shared] and (left_magic or right_magic)
+
+
+def matches_scope(path: str, patterns: list[str]) -> bool:
+    normalized = path.replace("\\", "/")
+    return any(fnmatch.fnmatchcase(normalized, pattern) for pattern in patterns)
+
+
+def acceptance_for_tasks(tasks: list[dict[str, Any]]) -> list[str]:
+    return list(dict.fromkeys(command for task in tasks for command in task["acceptance"]))
+
+
+def is_unsafe_repository_artifact(path: str) -> bool:
+    normalized = path.replace("\\", "/")
+    parts = normalized.split("/")
+    name = parts[-1]
+    if any(part in GENERATED_DIRECTORIES for part in parts[:-1]):
+        return True
+    if name in GENERATED_FILES or Path(name).suffix in GENERATED_SUFFIXES:
+        return True
+    return name == ".env" or (name.startswith(".env.") and name not in SAFE_ENV_TEMPLATES)
+
+
+def validate_lane_changes(owner: str, tasks: list[dict[str, Any]], actual: list[str]) -> None:
+    if not actual:
+        raise FactoryError(f"implementer {owner} produced no repository change")
+    unsafe = [path for path in actual if is_unsafe_repository_artifact(path)]
+    if unsafe:
+        raise FactoryError(
+            f"implementer {owner} staged generated or secret-bearing artifacts: "
+            f"{', '.join(unsafe)}"
+        )
+    patterns = [pattern for task in tasks for pattern in task["files"]]
+    escaped = [path for path in actual if not matches_scope(path, patterns)]
+    if escaped:
+        raise FactoryError(
+            f"implementer {owner} changed files outside approved scope: {', '.join(escaped)}"
+        )
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -113,7 +309,7 @@ def ensure_repo(path: Path, new_repo: bool) -> Path:
         git(path, "init", "-b", "main")
         git(path, "config", "user.email", "factory@example.invalid")
         git(path, "config", "user.name", "Pi Graph Factory")
-        (path / ".gitignore").write_text(".factory/\n", encoding="utf-8")
+        (path / ".gitignore").write_text(DEFAULT_GITIGNORE, encoding="utf-8")
         git(path, "add", ".gitignore")
         git(path, "commit", "-m", "Initialize repository")
     if not (path / ".git").exists():
@@ -124,31 +320,77 @@ def ensure_repo(path: Path, new_repo: bool) -> Path:
 
 def validate_plan(plan: dict[str, Any], implementers: set[str]) -> None:
     required = {"summary", "tasks", "acceptance", "risks", "open_questions"}
+    if not isinstance(plan, dict):
+        raise FactoryError("plan must be a JSON object")
     if not required <= set(plan):
         raise FactoryError(f"plan is missing fields: {sorted(required - set(plan))}")
+    if not isinstance(plan["summary"], str) or not plan["summary"].strip():
+        raise FactoryError("plan summary must be a non-empty string")
     if not isinstance(plan["tasks"], list) or not plan["tasks"]:
         raise FactoryError("plan must contain at least one task")
+    if not isinstance(plan["acceptance"], list) or not plan["acceptance"]:
+        raise FactoryError("plan acceptance must contain non-empty commands")
+    plan["acceptance"] = [
+        validate_acceptance_command(command, "plan") for command in plan["acceptance"]
+    ]
+    if not isinstance(plan["risks"], list):
+        raise FactoryError("plan risks must be an array")
     seen_ids: set[str] = set()
-    ownership: dict[str, str] = {}
+    ownership: list[tuple[str, str]] = []
     for task in plan["tasks"]:
-        if not {"id", "owner", "files", "acceptance"} <= set(task):
+        if not isinstance(task, dict) or not {"id", "owner", "files", "acceptance"} <= set(task):
             raise FactoryError("every task needs id, owner, files, and acceptance")
+        if not isinstance(task["id"], str) or not TASK_ID.fullmatch(task["id"]):
+            raise FactoryError(f"invalid task id: {task['id']!r}")
         if task["id"] in seen_ids:
             raise FactoryError(f"duplicate task id: {task['id']}")
         seen_ids.add(task["id"])
         if task["owner"] not in implementers:
             raise FactoryError(f"unknown task owner {task['owner']!r}")
+        if not isinstance(task["files"], list) or not task["files"]:
+            raise FactoryError(f"task {task['id']} must own at least one file pattern")
+        task["files"] = [validate_repo_pattern(pattern) for pattern in task["files"]]
+        if not isinstance(task["acceptance"], list) or not task["acceptance"]:
+            raise FactoryError(f"task {task['id']} must contain non-empty acceptance commands")
+        task["acceptance"] = [
+            validate_acceptance_command(command, f"task {task['id']}")
+            for command in task["acceptance"]
+        ]
         for pattern in task["files"]:
-            if pattern in ownership and ownership[pattern] != task["owner"]:
+            conflict = next(
+                (
+                    (other_pattern, other_owner)
+                    for other_pattern, other_owner in ownership
+                    if other_owner != task["owner"] and patterns_may_overlap(pattern, other_pattern)
+                ),
+                None,
+            )
+            if conflict:
+                other_pattern, other_owner = conflict
                 raise FactoryError(
-                    f"conflicting file ownership for {pattern}: {ownership[pattern]} and {task['owner']}")
-            ownership[pattern] = task["owner"]
+                    f"conflicting file ownership; overlapping file ownership for "
+                    f"{pattern} and {other_pattern}: "
+                    f"{task['owner']} and {other_owner}"
+                )
+            ownership.append((pattern, task["owner"]))
     questions = plan["open_questions"]
     if not isinstance(questions, list):
         raise FactoryError("open_questions must be an array")
+    question_ids: set[str] = set()
     for question in questions:
-        if not {"id", "question", "blocking"} <= set(question):
+        if not isinstance(question, dict) or not {"id", "question", "blocking"} <= set(question):
             raise FactoryError("every open question needs id, question, and blocking")
+        if (
+            not isinstance(question["id"], str)
+            or not TASK_ID.fullmatch(question["id"])
+            or question["id"] in question_ids
+        ):
+            raise FactoryError(f"invalid or duplicate question id: {question['id']!r}")
+        if not isinstance(question["question"], str) or not question["question"].strip():
+            raise FactoryError("question text must be non-empty")
+        if not isinstance(question["blocking"], bool):
+            raise FactoryError("question blocking must be boolean")
+        question_ids.add(question["id"])
 
 
 def cmd_init(args: argparse.Namespace) -> dict[str, Any]:
@@ -161,7 +403,7 @@ def cmd_init(args: argparse.Namespace) -> dict[str, Any]:
     if not request or not request.strip():
         raise FactoryError("request must not be empty")
     base = git(repo, "rev-parse", "HEAD")
-    identifier = args.id or f"factory-{dt.datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    identifier = args.id or f"factory-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d-%H%M%S')}"
     run = Path(args.out).expanduser().resolve() if args.out else repo / ".factory" / "runs" / identifier
     if run.exists():
         raise FactoryError(f"run already exists: {run}")
@@ -177,6 +419,8 @@ def cmd_init(args: argparse.Namespace) -> dict[str, Any]:
         "plan": None, "plan_sha256": None, "approved_plan_sha256": None,
         "answers": {}, "cycles": [], "lane_receipts": {}, "integration": None,
         "final_review": None, "merge": None,
+        "usage": {"calls": 0, "input_tokens": 0, "output_tokens": 0,
+                  "total_tokens": 0, "cost_usd": 0.0, "unknown_calls": 0},
     }
     save_state(run, state, "trigger_received", {"request_sha256": state["request_sha256"]})
     return {"ok": True, "run": str(run), "phase": state["phase"], "base_commit": base}
@@ -187,19 +431,88 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
     state = load_state(run)
     if state["phase"] not in {"intake", "clarification", "awaiting_plan_approval"}:
         raise FactoryError(f"cannot submit a plan during phase {state['phase']}")
-    plan = json.loads(Path(args.file).read_text(encoding="utf-8"))
     config = load_frozen_config(run, state)
-    validate_plan(plan, {item["id"] for item in config["implementers"]})
+    source = "file"
+    planner_receipt = None
+    planner_receipts: list[dict[str, Any]] = []
+    plan_number = int(state.get("plan_revision", 0)) + 1
+    if args.generate:
+        source = "planner"
+        planner_context = {
+            "request": state["request"],
+            "answers": state["answers"],
+            "base_commit": state["base_commit"],
+            "target_branch": state["target_branch"],
+            "implementers": [
+                {"id": item["id"], "scope": item["scope"]}
+                for item in config["implementers"]
+            ],
+        }
+        for attempt in range(1, 3):
+            enforce_dispatch_limits(state, config["limits"], "plan")
+            planner_receipt = invoke_agent(
+                run, state, config["planner"], "plan", Path(state["repo"]), planner_context,
+                config["limits"],
+            )
+            record_usage(state, planner_receipt)
+            planner_receipts.append(planner_receipt)
+            atomic_json(
+                run / "receipts" / f"planner-{plan_number}-attempt-{attempt}.json",
+                planner_receipt,
+            )
+            save_state(
+                run,
+                state,
+                "planner_attempt_completed",
+                {"revision": plan_number, "attempt": attempt,
+                 "receipt_sha256": planner_receipt["receipt_sha256"]},
+            )
+            if planner_receipt["status"] != "passed" or not isinstance(
+                planner_receipt["output"], dict
+            ):
+                validation_error = "planner did not return a typed plan object"
+            else:
+                plan = planner_receipt["output"]
+                try:
+                    validate_plan(plan, {item["id"] for item in config["implementers"]})
+                    break
+                except FactoryError as error:
+                    validation_error = str(error)
+            if attempt == 2:
+                raise FactoryError(f"planner could not produce a valid plan: {validation_error}")
+            planner_context = {
+                **planner_context,
+                "previous_invalid_plan": planner_receipt.get("output"),
+                "controller_validation_error": validation_error,
+                "repair_instruction": (
+                    "Return a complete corrected plan. Change only what the controller error requires."
+                ),
+            }
+    else:
+        plan = json.loads(Path(args.file).read_text(encoding="utf-8"))
+        validate_plan(plan, {item["id"] for item in config["implementers"]})
     unanswered = [item for item in plan["open_questions"]
                   if item.get("blocking") and item["id"] not in state["answers"]]
     state["plan"] = plan
     state["plan_sha256"] = digest_json(plan)
     state["approved_plan_sha256"] = None
     state["phase"] = "clarification" if unanswered else "awaiting_plan_approval"
+    state["plan_revision"] = plan_number
+    plan_path = run / "plans" / f"plan-{plan_number}.json"
+    atomic_json(plan_path, plan)
+    if planner_receipt is not None:
+        receipt_path = run / "receipts" / f"planner-{plan_number}.json"
+        atomic_json(receipt_path, planner_receipt)
+        state["planner_receipt_sha256"] = digest_json(planner_receipt)
+        state["planner_attempts"] = len(planner_receipts)
     save_state(run, state, "plan_submitted", {
-        "plan_sha256": state["plan_sha256"], "blocking_questions": [x["id"] for x in unanswered]})
+        "plan_sha256": state["plan_sha256"],
+        "blocking_questions": [x["id"] for x in unanswered],
+        "source": source,
+        "revision": plan_number,
+    })
     return {"ok": True, "phase": state["phase"], "plan_sha256": state["plan_sha256"],
-            "open_questions": unanswered}
+            "plan": str(plan_path), "source": source, "open_questions": unanswered}
 
 
 def cmd_answer(args: argparse.Namespace) -> dict[str, Any]:
@@ -242,8 +555,70 @@ def adapter_command() -> list[str]:
     return [sys.executable, str(ROOT / "scripts" / "agent_adapter.py")]
 
 
+def validated_usage(receipt: dict[str, Any]) -> dict[str, int | float | None]:
+    raw = receipt.get("usage")
+    if not isinstance(raw, dict):
+        raise FactoryError(f"{receipt.get('role', 'agent')} adapter usage must be an object")
+    values: dict[str, int | float | None] = {}
+    for key in ("input", "output", "total"):
+        value = raw.get(key)
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+        ):
+            raise FactoryError(
+                f"{receipt.get('role', 'agent')} adapter returned invalid usage {key}: {value!r}"
+            )
+        values[key] = value
+    cost = raw.get("cost")
+    if cost is not None and (
+        isinstance(cost, bool)
+        or not isinstance(cost, (int, float))
+        or not math.isfinite(cost)
+        or cost < 0
+    ):
+        raise FactoryError(
+            f"{receipt.get('role', 'agent')} adapter returned invalid usage cost: {cost!r}"
+        )
+    values["cost"] = cost
+    return values
+
+
+def record_usage(state: dict[str, Any], receipt: dict[str, Any]) -> None:
+    values = validated_usage(receipt)
+    usage = state.setdefault(
+        "usage",
+        {"calls": 0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0,
+         "cost_usd": 0.0, "unknown_calls": 0},
+    )
+    usage["calls"] += 1
+    usage["input_tokens"] += int(values["input"] or 0)
+    usage["output_tokens"] += int(values["output"] or 0)
+    usage["total_tokens"] += int(values["total"] or 0)
+    usage["cost_usd"] += float(values["cost"] or 0)
+    if values["total"] is None or values["cost"] is None:
+        usage["unknown_calls"] += 1
+
+
+def enforce_dispatch_limits(state: dict[str, Any], limits: dict[str, Any], role: str) -> None:
+    usage = state.get("usage", {})
+    if limits["require_usage"] and usage.get("unknown_calls", 0):
+        raise FactoryError(
+            f"cannot dispatch {role}: a prior agent did not report required token and cost usage"
+        )
+    if usage.get("total_tokens", 0) >= limits["max_total_tokens"]:
+        raise FactoryError(
+            f"cannot dispatch {role}: token dispatch limit reached "
+            f"({usage['total_tokens']} >= {limits['max_total_tokens']})"
+        )
+    if usage.get("cost_usd", 0) >= limits["max_total_cost_usd"]:
+        raise FactoryError(
+            f"cannot dispatch {role}: cost dispatch limit reached "
+            f"({usage['cost_usd']:.6f} >= {limits['max_total_cost_usd']:.6f})"
+        )
+
+
 def invoke_agent(run: Path, state: dict[str, Any], agent: dict[str, Any], role: str,
-                 cwd: Path, context: dict[str, Any]) -> dict[str, Any]:
+                 cwd: Path, context: dict[str, Any], limits: dict[str, Any]) -> dict[str, Any]:
     context_path = run / "contexts" / f"{role.replace(':', '-')}.json"
     atomic_json(context_path, context)
     command = [*adapter_command(), "--role", role, "--harness", agent["harness"],
@@ -254,12 +629,39 @@ def invoke_agent(run: Path, state: dict[str, Any], agent: dict[str, Any], role: 
         command.extend(["--skill", skill])
     if agent.get("tools"):
         command.extend(["--tools", ",".join(agent["tools"])])
-    result = subprocess.run(command, cwd=cwd, text=True, capture_output=True, check=False,
-                            env={**os.environ, "WORKFLOW_DIR": str(ROOT)})
-    if result.returncode:
-        raise FactoryError(f"{role} adapter failed: {(result.stderr or result.stdout)[-2000:]}")
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        encoding="utf-8",
+        errors="replace",
+        env={**os.environ, "WORKFLOW_DIR": str(ROOT)},
+        start_new_session=True,
+    )
     try:
-        payload = json.loads(result.stdout)
+        stdout, stderr = process.communicate(timeout=limits["agent_timeout_seconds"])
+    except subprocess.TimeoutExpired as error:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.communicate()
+        raise FactoryError(
+            f"{role} adapter exceeded {limits['agent_timeout_seconds']}s timeout"
+        ) from error
+    if process.returncode:
+        raise FactoryError(f"{role} adapter failed: {(stderr or stdout)[-2000:]}")
+    try:
+        payload = json.loads(stdout)
     except ValueError as error:
         raise FactoryError(f"{role} adapter returned invalid JSON") from error
     required = {"status", "harness", "model", "role", "output", "usage"}
@@ -267,7 +669,16 @@ def invoke_agent(run: Path, state: dict[str, Any], agent: dict[str, Any], role: 
         raise FactoryError(f"{role} adapter receipt missing {sorted(required - set(payload))}")
     if payload["harness"] != agent["harness"] or payload["model"] != agent["model"]:
         raise FactoryError(f"{role} adapter identity drift")
+    usage = validated_usage(payload)
+    if limits["require_usage"] and (usage["total"] is None or usage["cost"] is None):
+        raise FactoryError(f"{role} adapter did not report required token and cost usage")
+    payload["observed_at"] = now()
     payload["receipt_sha256"] = digest_json(payload)
+    safe_role = role.replace(":", "-")
+    atomic_json(
+        run / "receipts" / f"agent-{safe_role}-{payload['receipt_sha256'][:12]}.json",
+        payload,
+    )
     return payload
 
 
@@ -289,6 +700,53 @@ def commit_lane(path: Path, owner: str) -> str:
     return git(path, "rev-parse", "HEAD")
 
 
+def execute_lane(
+    run: Path,
+    state: dict[str, Any],
+    agent: dict[str, Any],
+    owner: str,
+    tasks: list[dict[str, Any]],
+    workspace: Path,
+    branch: str,
+    limits: dict[str, Any],
+) -> dict[str, Any]:
+    receipt = invoke_agent(
+        run,
+        state,
+        agent,
+        f"implement:{owner}",
+        workspace,
+        {"request": state["request"], "plan": state["plan"], "tasks": tasks},
+        limits,
+    )
+    output = receipt["output"]
+    if (
+        receipt["status"] != "passed"
+        or not isinstance(output, dict)
+        or output.get("status") != "pass"
+        or not output.get("checks")
+        or not isinstance(output.get("changed_files"), list)
+    ):
+        raise FactoryError(f"implementer {owner} did not return a passing receipt")
+    git(workspace, "add", "-A")
+    actual = staged_files(workspace)
+    validate_lane_changes(owner, tasks, actual)
+    claimed = sorted(output["changed_files"])
+    if claimed != actual:
+        raise FactoryError(
+            f"implementer {owner} changed-file receipt does not match Git: "
+            f"claimed={claimed}, actual={actual}"
+        )
+    acceptance = run_commands(
+        workspace,
+        acceptance_for_tasks(tasks),
+        f"implementation owner {owner}",
+    )
+    receipt["verification"] = {"changed_files": actual, "acceptance": acceptance}
+    commit = commit_lane(workspace, owner)
+    return {"owner": owner, "branch": branch, "commit": commit, "receipt": receipt}
+
+
 def integrate_lanes(repo: Path, run: Path, state: dict[str, Any], lane_commits: list[str]) -> dict[str, Any]:
     path = run / "worktrees" / "integration"
     branch = f"factory/{state['id']}/integration"
@@ -303,27 +761,36 @@ def integrate_lanes(repo: Path, run: Path, state: dict[str, Any], lane_commits: 
             "changed_files": changed}
 
 
-def file_receipt(path: Path) -> dict[str, Any]:
-    return {"path": str(path), "bytes": path.stat().st_size,
+def evidence_path(root: Path, raw: str) -> Path:
+    if not isinstance(raw, str) or not raw.strip():
+        raise FactoryError("evidence paths must be non-empty repository-relative strings")
+    candidate = (root / raw).resolve()
+    try:
+        candidate.relative_to(root.resolve())
+    except ValueError as error:
+        raise FactoryError(f"evidence path escapes the integration repository: {raw!r}") from error
+    return candidate
+
+
+def file_receipt(root: Path, path: Path) -> dict[str, Any]:
+    return {"path": path.relative_to(root.resolve()).as_posix(), "bytes": path.stat().st_size,
             "sha256": digest_bytes(path.read_bytes())}
 
 
 def capture_evidence(run: Path, state: dict[str, Any], config: dict[str, Any],
                      integration: Path, cycle: int) -> dict[str, Any]:
-    tests = []
-    for command in config["evidence"].get("test_commands", []):
-        result = subprocess.run(["bash", "-c", command], cwd=integration, text=True,
-                                capture_output=True, check=False)
-        tests.append({"command": command, "passed": result.returncode == 0,
-                      "output": (result.stdout + result.stderr)[-2000:]})
+    approved = list(dict.fromkeys(state["plan"]["acceptance"]))
+    configured = list(dict.fromkeys(config["evidence"].get("test_commands", [])))
+    tests = run_commands(integration, approved, "integrated plan")
+    tests.extend(run_commands(integration, configured, "configured evidence"))
     evidence_files = []
     for raw in [*config["evidence"]["screenshots"], config["evidence"].get("video")]:
         if not raw:
             continue
-        path = integration / raw
+        path = evidence_path(integration, raw)
         if not path.is_file() or not path.stat().st_size:
             raise FactoryError(f"required evidence missing: {raw}")
-        evidence_files.append(file_receipt(path))
+        evidence_files.append(file_receipt(integration, path))
     if not tests or not all(item["passed"] for item in tests):
         raise FactoryError("one or more evidence test commands failed")
     source_commit = git(integration, "rev-parse", "HEAD")
@@ -335,7 +802,7 @@ def capture_evidence(run: Path, state: dict[str, Any], config: dict[str, Any],
     return receipt
 
 
-def review_output(receipt: dict[str, Any]) -> dict[str, Any]:
+def review_output(receipt: dict[str, Any], evidence: dict[str, Any]) -> dict[str, Any]:
     output = receipt.get("output")
     if not isinstance(output, dict) or output.get("verdict") not in {"pass", "repair"}:
         raise FactoryError("reviewer output must contain verdict pass|repair")
@@ -343,10 +810,21 @@ def review_output(receipt: dict[str, Any]) -> dict[str, Any]:
         raise FactoryError("reviewer output must contain issues and evidence arrays")
     if not output["evidence"]:
         raise FactoryError("reviewer supplied no evidence")
+    if evidence["sha256"] not in output["evidence"]:
+        raise FactoryError("reviewer did not cite the current evidence receipt")
     if output["verdict"] == "pass" and output["issues"]:
         raise FactoryError("reviewer cannot pass with unresolved issues")
     if output["verdict"] == "repair" and not output["issues"]:
         raise FactoryError("repair verdict requires issues")
+    issue_ids: set[str] = set()
+    for issue in output["issues"]:
+        if not isinstance(issue, dict) or not {"id", "owner", "message"} <= set(issue):
+            raise FactoryError("every review issue needs id, owner, and message")
+        if not isinstance(issue["id"], str) or not issue["id"] or issue["id"] in issue_ids:
+            raise FactoryError("review issue ids must be unique non-empty strings")
+        if not isinstance(issue["message"], str) or not issue["message"].strip():
+            raise FactoryError("review issue messages must be non-empty")
+        issue_ids.add(issue["id"])
     return output
 
 
@@ -361,18 +839,35 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
         grouped.setdefault(owner, []).append(issue)
     receipts = []
     for owner, owned in grouped.items():
+        enforce_dispatch_limits(state, config["limits"], f"repair:{cycle}:{owner}")
+        tasks = [task for task in state["plan"]["tasks"] if task["owner"] == owner]
         receipt = invoke_agent(run, state, agents[owner], f"repair:{cycle}:{owner}", integration,
                                {"request": state["request"], "plan": state["plan"],
-                                "issues": owned, "cycle": cycle})
+                                "issues": owned, "cycle": cycle},
+                               config["limits"])
+        record_usage(state, receipt)
         output = receipt["output"]
-        if receipt["status"] != "passed" or not isinstance(output, dict) or not output.get("checks"):
+        if (
+            receipt["status"] != "passed"
+            or not isinstance(output, dict)
+            or output.get("status") != "pass"
+            or not output.get("checks")
+        ):
             raise FactoryError(f"repair agent {owner} did not return passing checks")
+        expected_issues = {issue["id"] for issue in owned}
+        if set(output.get("addressed", [])) != expected_issues:
+            raise FactoryError(f"repair agent {owner} did not address exactly its assigned issues")
+        git(integration, "add", "-A")
+        actual = staged_files(integration)
+        validate_lane_changes(owner, tasks, actual)
+        acceptance = run_commands(
+            integration,
+            acceptance_for_tasks(tasks),
+            f"repair owner {owner}",
+        )
+        receipt["verification"] = {"changed_files": actual, "acceptance": acceptance}
+        git(integration, "commit", "-m", f"factory: repair cycle {cycle} ({owner})")
         receipts.append(receipt)
-    git(integration, "add", "-A")
-    if git(integration, "status", "--porcelain"):
-        git(integration, "commit", "-m", f"factory: repair cycle {cycle}")
-    else:
-        raise FactoryError("repair cycle produced no repository change")
     return receipts
 
 
@@ -412,20 +907,50 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     tasks_by_owner: dict[str, list[dict[str, Any]]] = {}
     for task in state["plan"]["tasks"]:
         tasks_by_owner.setdefault(task["owner"], []).append(task)
+    enforce_dispatch_limits(state, config["limits"], "implementation batch")
     state["phase"] = "implementing"
     save_state(run, state, "implementation_started", {"owners": sorted(tasks_by_owner)})
-    lane_commits = []
+    lane_specs = []
     for owner, tasks in tasks_by_owner.items():
         workspace, branch = provision_lane(repo, run, state["id"], owner, state["base_commit"])
-        receipt = invoke_agent(run, state, agents[owner], f"implement:{owner}", workspace,
-                               {"request": state["request"], "plan": state["plan"], "tasks": tasks})
-        output = receipt["output"]
-        if receipt["status"] != "passed" or not isinstance(output, dict) or not output.get("checks"):
-            raise FactoryError(f"implementer {owner} did not return a passing receipt")
-        commit = commit_lane(workspace, owner)
-        lane_commits.append(commit)
-        state["lane_receipts"][owner] = {"branch": branch, "commit": commit, "receipt": receipt}
-        save_state(run, state, "lane_completed", {"owner": owner, "commit": commit})
+        lane_specs.append((owner, tasks, workspace, branch))
+    lane_commits_by_owner: dict[str, str] = {}
+    first_failure: Exception | None = None
+    with ThreadPoolExecutor(max_workers=len(lane_specs), thread_name_prefix="factory-lane") as pool:
+        futures = {
+            pool.submit(
+                execute_lane,
+                run,
+                state,
+                agents[owner],
+                owner,
+                tasks,
+                workspace,
+                branch,
+                config["limits"],
+            ): owner
+            for owner, tasks, workspace, branch in lane_specs
+        }
+        for future in as_completed(futures):
+            try:
+                completed = future.result()
+            except Exception as error:
+                if first_failure is None:
+                    first_failure = error
+                continue
+            owner = completed["owner"]
+            lane_commits_by_owner[owner] = completed["commit"]
+            state["lane_receipts"][owner] = {
+                "branch": completed["branch"],
+                "commit": completed["commit"],
+                "receipt": completed["receipt"],
+            }
+            record_usage(state, completed["receipt"])
+            save_state(run, state, "lane_completed", {"owner": owner, "commit": completed["commit"]})
+    if first_failure is not None:
+        raise first_failure
+    enforce_dispatch_limits(state, config["limits"], "review:1")
+    lane_commits = [lane_commits_by_owner[owner] for owner in tasks_by_owner]
     integration = integrate_lanes(repo, run, state, lane_commits)
     state["integration"] = integration
     state["phase"] = "reviewing"
@@ -435,11 +960,15 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     final_review = None
     for cycle in range(1, config["review"]["max_cycles"] + 1):
         evidence = capture_evidence(run, state, config, integration_path, cycle)
+        enforce_dispatch_limits(state, config["limits"], f"review:{cycle}")
         reviewer_receipt = invoke_agent(
             run, state, config["review"], f"review:{cycle}", integration_path,
             {"request": state["request"], "plan": state["plan"],
-             "integration": state["integration"], "evidence": evidence, "cycle": cycle})
-        review = review_output(reviewer_receipt)
+             "integration": state["integration"], "evidence": evidence, "cycle": cycle},
+            config["limits"],
+        )
+        record_usage(state, reviewer_receipt)
+        review = review_output(reviewer_receipt, evidence)
         cycle_record = {"cycle": cycle, "evidence": evidence, "review": review,
                         "review_receipt": reviewer_receipt, "repairs": []}
         state["cycles"].append(cycle_record)
@@ -452,7 +981,7 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
             state["final_review"] = review
             save_state(run, state, "repair_budget_exhausted", {"cycles": cycle})
             return {"ok": False, "phase": state["phase"], "run": str(run),
-                    "cycles": cycle, "issues": review["issues"]}
+                    "cycles": cycle, "issues": review["issues"], "usage": state["usage"]}
         cycle_record["repairs"] = run_repair(run, state, config, integration_path,
                                               cycle, review["issues"])
         state["integration"]["commit"] = git(integration_path, "rev-parse", "HEAD")
@@ -477,14 +1006,42 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
                                         "run": state["id"], "phase": state["phase"],
                                         "plan_sha256": state["approved_plan_sha256"],
                                         "evidence_sha256": final_evidence["sha256"],
-                                        "review": final_review, "merge": merge})
+                                        "review": final_review, "merge": merge,
+                                        "usage": state["usage"]})
     return {"ok": True, "phase": state["phase"], "run": str(run),
-            "cycles": len(state["cycles"]), "merge": merge}
+            "cycles": len(state["cycles"]), "merge": merge, "usage": state["usage"]}
 
 
 def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
     state = load_state(Path(args.run).resolve())
-    return {"ok": state["phase"] not in {"failed", "human_required"}, "state": state}
+    return {
+        "ok": state["phase"] not in {"failed", "human_required"} and not state.get("last_error"),
+        "state": state,
+    }
+
+
+def record_transition_failure(run: Path, error: BaseException) -> None:
+    state = load_state(run)
+    observed = {
+        "calls": 0, "input_tokens": 0, "output_tokens": 0,
+        "total_tokens": 0, "cost_usd": 0.0, "unknown_calls": 0,
+    }
+    for path in (run / "receipts").glob("agent-*.json"):
+        try:
+            receipt = json.loads(path.read_text(encoding="utf-8"))
+            holder = {"usage": observed}
+            record_usage(holder, receipt)
+        except (OSError, ValueError, FactoryError):
+            observed["unknown_calls"] += 1
+    state["usage"] = observed
+    failure = {
+        "at": now(),
+        "phase": state["phase"],
+        "type": type(error).__name__,
+        "message": str(error),
+    }
+    state["last_error"] = failure
+    save_state(run, state, "transition_failed", failure)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -501,7 +1058,9 @@ def parser() -> argparse.ArgumentParser:
     init.add_argument("--out")
     plan = commands.add_parser("plan")
     plan.add_argument("--run", required=True)
-    plan.add_argument("--file", required=True)
+    plan_source = plan.add_mutually_exclusive_group(required=True)
+    plan_source.add_argument("--file")
+    plan_source.add_argument("--generate", action="store_true")
     answer = commands.add_parser("answer")
     answer.add_argument("--run", required=True)
     answer.add_argument("--question", required=True)
@@ -523,7 +1082,17 @@ COMMANDS = {"init": cmd_init, "plan": cmd_plan, "answer": cmd_answer,
 def main() -> int:
     args = parser().parse_args()
     try:
-        payload = COMMANDS[args.command](args)
+        if args.command in {"plan", "answer", "approve", "run"}:
+            run = Path(args.run).resolve()
+            with run_lock(run):
+                try:
+                    payload = COMMANDS[args.command](args)
+                except (FactoryError, OSError, ValueError, json.JSONDecodeError) as error:
+                    if args.command == "run":
+                        record_transition_failure(run, error)
+                    raise
+        else:
+            payload = COMMANDS[args.command](args)
     except (FactoryError, OSError, ValueError, json.JSONDecodeError) as error:
         print(json.dumps({"ok": False, "error": str(error)}, separators=(",", ":")))
         return 2

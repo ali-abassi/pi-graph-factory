@@ -131,6 +131,38 @@ class FactoryLifecycleTests(unittest.TestCase):
             self.root / "plan.json", [])), expected=2)
         self.assertIn("contract drifted", payload["error"])
 
+    def test_configured_planner_generates_a_durable_typed_plan(self) -> None:
+        run = self.initialize(run_id="generated-plan-run")
+        planned = self.command("plan", "--run", str(run), "--generate")
+        self.assertEqual(planned["phase"], "awaiting_plan_approval")
+        self.assertEqual(planned["source"], "planner")
+        plan_path = Path(planned["plan"])
+        self.assertTrue(plan_path.is_file())
+        self.assertEqual(json.loads(plan_path.read_text())["tasks"][0]["owner"], "product")
+        state = json.loads((run / "state.json").read_text())
+        self.assertEqual(state["plan_revision"], 1)
+        self.assertTrue((run / "receipts" / "planner-1.json").is_file())
+        self.assertEqual(subprocess.check_output(
+            ["git", "-C", str(self.repo), "status", "--porcelain"], text=True,
+        ), "")
+
+    def test_new_repository_bootstrap_has_safe_ignore_defaults(self) -> None:
+        target = self.root / "new-repository"
+        initialized = self.command(
+            "init", "--repo", str(target), "--new-repo", "--config", str(self.config),
+            "--request", "Build a new application.", "--id", "new-repository-run",
+        )
+        self.assertEqual(initialized["phase"], "intake")
+        ignored = (target / ".gitignore").read_text(encoding="utf-8")
+        for entry in (".factory/", ".env", "__pycache__/", "*.py[cod]", "node_modules/"):
+            self.assertIn(entry, ignored)
+        self.assertEqual(
+            subprocess.check_output(
+                ["git", "-C", str(target), "status", "--porcelain"], text=True,
+            ),
+            "",
+        )
+
     def test_five_failed_reviews_escalate_without_merge(self) -> None:
         run = self.initialize(run_id="exhausted-run")
         planned = self.command("plan", "--run", str(run), "--file", str(self.write_plan(
@@ -141,6 +173,100 @@ class FactoryLifecycleTests(unittest.TestCase):
         self.assertEqual(completed["phase"], "human_required")
         self.assertEqual(completed["cycles"], 5)
         self.assertEqual(git_head(self.repo), git_head(self.repo, "main"))
+
+    def test_blocked_implementer_receipt_cannot_reach_integration(self) -> None:
+        run = self.initialize(run_id="blocked-implementer-run")
+        planned = self.command("plan", "--run", str(run), "--file", str(self.write_plan(
+            self.root / "blocked-plan.json", [])))
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        self.env["PI_GRAPH_FACTORY_IMPLEMENT_STATUS"] = "blocked"
+        failed = self.command("run", "--run", str(run), expected=2)
+        self.assertIn("did not return a passing receipt", failed["error"])
+        state = json.loads((run / "state.json").read_text())
+        self.assertIsNone(state["integration"])
+        self.assertIn("did not return a passing receipt", state["last_error"]["message"])
+
+    def test_generated_runtime_artifact_cannot_reach_integration(self) -> None:
+        run = self.initialize(run_id="generated-artifact-run")
+        planned = self.command("plan", "--run", str(run), "--file", str(self.write_plan(
+            self.root / "generated-artifact-plan.json", [])))
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        self.env["PI_GRAPH_FACTORY_WRITE_PYC"] = "1"
+        failed = self.command("run", "--run", str(run), expected=2)
+        self.assertIn("generated or secret-bearing artifacts", failed["error"])
+        state = json.loads((run / "state.json").read_text())
+        self.assertIsNone(state["integration"])
+        self.assertEqual(git_head(self.repo), git_head(self.repo, "main"))
+
+    def test_agent_timeout_stops_the_process_group_and_fails_closed(self) -> None:
+        config = yaml.safe_load(self.config.read_text())
+        config["limits"]["agent_timeout_seconds"] = 1
+        config_path = self.root / "timeout-factory.yaml"
+        config_path.write_text(yaml.safe_dump(config, sort_keys=False))
+        run = self.initialize(config_path, "timeout-run")
+        planned = self.command("plan", "--run", str(run), "--file", str(self.write_plan(
+            self.root / "timeout-plan.json", [])))
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        self.env["PI_GRAPH_FACTORY_ADAPTER_SLEEP"] = "2"
+        failed = self.command("run", "--run", str(run), expected=2)
+        self.assertIn("exceeded 1s timeout", failed["error"])
+        state = json.loads((run / "state.json").read_text())
+        self.assertIsNone(state["integration"])
+        self.assertIn("exceeded 1s timeout", state["last_error"]["message"])
+
+    def test_token_limit_stops_dispatch_before_review(self) -> None:
+        config = yaml.safe_load(self.config.read_text())
+        config["limits"]["max_total_tokens"] = 1
+        config_path = self.root / "budget-factory.yaml"
+        config_path.write_text(yaml.safe_dump(config, sort_keys=False))
+        run = self.initialize(config_path, "budget-run")
+        planned = self.command("plan", "--run", str(run), "--file", str(self.write_plan(
+            self.root / "budget-plan.json", [])))
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        self.env["PI_GRAPH_FACTORY_USAGE_TOTAL"] = "2"
+        failed = self.command("run", "--run", str(run), expected=2)
+        self.assertIn("token dispatch limit reached", failed["error"])
+        state = json.loads((run / "state.json").read_text())
+        self.assertEqual(state["usage"]["total_tokens"], 2)
+        self.assertFalse(self.counter.exists(), "reviewer must not start after budget exhaustion")
+
+    def test_planner_usage_limit_stops_implementation_batch(self) -> None:
+        config = yaml.safe_load(self.config.read_text())
+        config["limits"]["max_total_tokens"] = 1
+        config_path = self.root / "planner-budget-factory.yaml"
+        config_path.write_text(yaml.safe_dump(config, sort_keys=False))
+        run = self.initialize(config_path, "planner-budget-run")
+        planned = self.command("plan", "--run", str(run), "--generate")
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        failed = self.command("run", "--run", str(run), expected=2)
+        self.assertIn("cannot dispatch implementation batch", failed["error"])
+        state = json.loads((run / "state.json").read_text())
+        self.assertEqual(state["phase"], "approved")
+        self.assertFalse((run / "worktrees").exists())
+
+    def test_required_usage_rejects_unknown_provider_receipt(self) -> None:
+        config = yaml.safe_load(self.config.read_text())
+        config["limits"]["require_usage"] = True
+        config_path = self.root / "required-usage-factory.yaml"
+        config_path.write_text(yaml.safe_dump(config, sort_keys=False))
+        run = self.initialize(config_path, "required-usage-run")
+        planned = self.command("plan", "--run", str(run), "--file", str(self.write_plan(
+            self.root / "required-usage-plan.json", [])))
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        self.env["PI_GRAPH_FACTORY_USAGE_UNKNOWN"] = "1"
+        failed = self.command("run", "--run", str(run), expected=2)
+        self.assertIn("did not report required token and cost usage", failed["error"])
+        state = json.loads((run / "state.json").read_text())
+        self.assertIsNone(state["integration"])
+
+    def test_plan_rejects_prose_where_executable_commands_are_required(self) -> None:
+        run = self.initialize(run_id="prose-command-run")
+        path = self.write_plan(self.root / "prose-plan.json", [])
+        value = json.loads(path.read_text())
+        value["acceptance"] = ["Run `python3 -m unittest`. "]
+        path.write_text(json.dumps(value))
+        failed = self.command("plan", "--run", str(run), "--file", str(path), expected=2)
+        self.assertIn("raw shell command", failed["error"])
 
 
 def git_head(repo: Path, ref: str = "HEAD") -> str:
