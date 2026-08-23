@@ -44,6 +44,10 @@ the approved plan, so the receipt is evidence—not authority.
    approved research evidence, preserve material terms and reader agency, and
    validate the copy in its real channel. Do not touch a file assigned to the
    copy specialist or invent an external publishing action.
+   If an assigned product file contains a production prompt, tool description,
+   schema, or model-output contract, apply the configured prompt-engineering
+   skill. Keep independently owned prompt assets with the `prompt` specialist.
+   Repeated score-driven search belongs to `optimization`, not this lane.
 4. Run each assigned acceptance command and any focused checks needed to make
    the result credible. Never claim a command you did not observe passing.
 5. Read Git's changed paths and return them exactly, repository-relative.

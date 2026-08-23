@@ -6,6 +6,13 @@ All notable changes to Pi Graph Factory are documented here.
 
 ### Added
 
+- Dedicated `prompt` and `optimization` owners. Prompt work uses a production
+  runtime/trust/schema/host/evaluation contract with six required case kinds.
+  Optimization uses an AutoAgent-shaped but finite controller-owned loop:
+  baseline, one isolated mutation per dispatch, controller scoring and gates,
+  keep/discard, absolute plateau/time bounds, and one run-level promotion.
+  Prompt commands return controller-parsed case receipts; optimization repair
+  requires a newly approved evaluation version instead of reusing promotion.
 - A dedicated `copy` implementation specialist plus a portable adaptation of
   Ali Abassi's `evil-genius-copywriter` discipline for product, UX, website,
   repository, lifecycle, and promotional messaging. Product/UI owners share

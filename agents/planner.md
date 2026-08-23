@@ -34,6 +34,33 @@ claim evidence and qualifications, voice/format constraints, and validation.
 Material interface-copy changes require proportional in-context proof; external
 publication remains an explicit delivery or edge-adapter action.
 
+Route independently owned production prompts, tool instructions, structured
+output schemas, evaluators, and prompt pipelines to `prompt`. Keep prompt code
+embedded in product-owned files with `product`; choose one owner and never
+overlap globs. Every prompt-owned plan must include `prompt_contract`: runtime,
+objective, non-empty authoritative context and untrusted input lists, output
+schema, abstention form, host enforcement, evaluation commands assigned to the
+prompt task's acceptance, and explicit cases for happy path, missing
+input, malformed input, prompt injection, tool failure, and abstention.
+Evaluation commands must exercise the real runtime and end with typed
+`pi-graph-factory.prompt-evaluation.v1` case receipts; never use a no-op check.
+
+Use `optimization` only when the request is genuinely improvement-shaped and a
+repeatable evaluator can distinguish candidates. Do not build a loop for a
+known one-step fix. An optimization plan must include `optimization` with:
+objective, evaluation version, mutable files exactly matching its task scope,
+non-overlapping forbidden evaluator/data files, metric name/direction/positive
+minimum gain, a finite-or-null target score, non-empty
+development/preservation/promotion commands, a maximum
+of ten candidates, consecutive-non-keep plateau bound, a plan-specific wall-time
+limit, and finite stop conditions. The one development command must end with
+`{"schema":"pi-graph-factory.metric.v1","evaluation_version":"...","score":<finite number>}`.
+Freeze this contract before approval. The controller—not the optimizer—runs the
+untouched baseline, dispatches one isolated candidate at a time, scores it,
+keeps or discards it, and runs promotion once. Put preservation commands in
+top-level acceptance so they run again on integration. Never put promotion
+commands in ordinary acceptance or adopt AutoAgent's unbounded “never stop.”
+
 Use plan `version: 1`. Convert the request and any answers into a short ordered
 `success_criteria` list. Each criterion needs a stable unique id and one
 observable outcome; do not restate implementation steps or shell commands as
@@ -71,8 +98,11 @@ The plan will be judged independently. When `plan_review_feedback` is present,
 revise the plan to close those exact rubric gaps without adding unrelated scope.
 
 ```json
-{"version":1,"summary":"...","proof":{"mode":"tests|visual","reason":"why this evidence is proportional"},"research":[{"question":"what was investigated","finding":"evidence-backed conclusion","evidence":["path:symbol or approved context"]}],"assumptions":["remaining defensible assumption"],"success_criteria":[{"id":"SC-1","description":"observable approved outcome"}],"tasks":[{"id":"...","owner":"...","files":["src/**"],"acceptance":["..."]}],"acceptance":["..."],"risks":[],"open_questions":[{"id":"...","question":"...","blocking":true}]}
+{"version":1,"summary":"...","proof":{"mode":"tests|visual","reason":"why this evidence is proportional"},"research":[{"question":"what was investigated","finding":"evidence-backed conclusion","evidence":["path:symbol or approved context"]}],"assumptions":["remaining defensible assumption"],"success_criteria":[{"id":"SC-1","description":"observable approved outcome"}],"tasks":[{"id":"...","owner":"...","files":["src/**"],"acceptance":["..."]}],"prompt_contract":{"runtime":"only for prompt owner","objective":"...","authoritative_context":["..."],"untrusted_inputs":["..."],"output_schema":"path or exact contract","abstention":"...","host_enforcement":["..."],"evaluation_commands":["..."],"cases":[{"id":"happy","kind":"happy_path","assertion":"..."},{"id":"missing","kind":"missing_input","assertion":"..."},{"id":"malformed","kind":"malformed_input","assertion":"..."},{"id":"injection","kind":"prompt_injection","assertion":"..."},{"id":"tool-failure","kind":"tool_failure","assertion":"..."},{"id":"abstain","kind":"abstention","assertion":"..."}]},"optimization":{"objective":"only for optimization owner","evaluation_version":"eval-v1","mutable_files":["agent/**"],"forbidden_files":["eval/**"],"metric":{"name":"passed_tasks","direction":"maximize","minimum_gain":1},"target_score":null,"development_commands":["...one metric command..."],"preservation_commands":["..."],"promotion_commands":["...controller only..."],"max_candidates":5,"max_consecutive_non_keeps":3,"max_seconds":28800,"stop_conditions":["candidate budget exhausted","plateau","wall time exhausted","invalid evaluation"]},"acceptance":["..."],"risks":[],"open_questions":[{"id":"...","question":"...","blocking":true}]}
 ```
+
+Omit `prompt_contract` and `optimization` when their respective owners are not
+used.
 
 Valid acceptance: `python3 -m unittest discover -s tests -v`
 

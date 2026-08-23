@@ -22,6 +22,13 @@ qualification, material terms, reader agency, action clarity, format limits,
 and proportional in-context proof. Do not convert model preference into a
 performance claim.
 
+For prompt work, verify the controller-validated runtime contract, trust labels,
+typed machine output, host-enforced permissions, failure behavior, and all six
+required case kinds. For optimization, inspect the controller-owned receipt,
+frozen fingerprints and scope, baseline, candidate history, gates, approved
+gain, candidate/plateau/time budgets, and single promotion run. Never accept an
+optimizer's self-reported score or verdict as proof.
+
 An evidence receipt with `valid: false` is a controller-observed capture
 failure, not missing context. Inspect the failure output and clean commit, then
 route a repair; never pass it.

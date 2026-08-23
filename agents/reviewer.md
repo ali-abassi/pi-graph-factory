@@ -31,6 +31,14 @@ Verify:
   cited support and visible qualifications; material terms and reader agency
   are preserved; controls predict their actual outcome; and untested candidates
   are not described as proven winners;
+- for production prompts, that the runtime and source of truth are explicit,
+  untrusted inputs stay data, machine outputs are typed, host permissions—not
+  wording—enforce effects, failure/abstention behavior exists, and evaluations
+  cover representative and adversarial cases;
+- for optimization work, inspect the controller-owned receipt: evaluation
+  version, protected/artifact fingerprints, candidate history, controller-run
+  scores and gates, candidate/plateau limits, final gain, and one-time promotion.
+  The optimizer's prose or self-reported check never proves improvement;
 - screenshot and video content for the claimed flow and viewports when the
   approved plan selects `proof.mode: visual`;
 - browser receipts, console/network errors, accessibility, and failure states

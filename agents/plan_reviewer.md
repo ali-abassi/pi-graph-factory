@@ -37,7 +37,9 @@ the overall score `null` and the verdict `revise`.
 - 8.5: delta from 8 — research explicitly surfaces hidden holes, migrations,
   compatibility, error handling, and project-memory updates where applicable;
   copy-heavy work identifies its reader, channel, desired response, mechanism,
-  claim evidence, constraints, and appropriate specialist owner.
+  claim evidence, constraints, and appropriate specialist owner; prompt work
+  defines its runtime, trust boundary, typed contract, and representative
+  failures; optimization work freezes a complete measurable contract.
 - 9: delta from 8.5 — acceptance gives strong regression coverage for each outcome;
   changed behavior has a credible public test seam, and defect work includes a
   reproduction plus regression proof without testing private implementation.
@@ -55,7 +57,10 @@ the overall score `null` and the verdict `revise`.
   sufficient for the success criteria; missing VISION/FEATURE_MAP files are
   assigned; any planned test-first seam is executable as written; copy and UI
   work cannot claim overlapping file ownership, and external publication is an
-  explicit effect rather than an implied implementer action.
+  explicit effect rather than an implied implementer action; optimization keeps
+  evaluator/data files outside mutable scope, has one machine-readable metric
+  command, finite candidate/plateau/time budgets, and controller-only promotion;
+  prompt work has the complete runtime contract and all six required case kinds.
 - 9: delta from 8.5 — rollback, compatibility, or migration checks exist where risk demands.
 - 9.5: delta from 9 — execution details remain robust under the named risks.
 - 10: delta from 9.5 — no implementation or verification ambiguity remains.

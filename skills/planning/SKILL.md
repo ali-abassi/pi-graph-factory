@@ -23,3 +23,14 @@ independently owned files to `copy`; use product or design when reader-facing
 copy shares files they already own. Never create overlapping ownership. Copy
 plans name the reader, channel, desired response, mechanism, claim evidence,
 constraints, and proportional validation.
+
+Route independently owned production prompts and model contracts to `prompt`;
+keep embedded prompt code with its product owner. Prompt-owned plans provide
+the full `prompt_contract`, including all required normal, missing, malformed,
+injection, tool-failure, and abstention cases. Use `optimization` only for
+repeatable measured search, never a known direct fix. Freeze its objective,
+evaluation version, exact mutable and forbidden surfaces, metric, minimum gain,
+finite-or-null target, one machine-readable development metric command,
+preservation and controller-only promotion commands, candidate/plateau/wall-time budgets, and
+finite stop conditions. Repeat preservation—but never promotion—commands in
+top-level acceptance.

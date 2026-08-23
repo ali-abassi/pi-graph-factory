@@ -27,8 +27,8 @@ exact typed-plan SHA-256 approval
       |
       v
        1-10 specialist implementers in isolated Git worktrees
-             product | UI design | copy | configured specialists
-                 |           |          |
+       product | UI design | copy | prompt | optimization | configured
+             |          |        |        |              |
                  +--- deterministic integration
                               |
                   tests + proportional proof
@@ -70,8 +70,9 @@ Read [VISION.md](VISION.md) for the intended product and
 - Approval of the exact canonical plan SHA-256, never a conversational “yes.”
 - One to ten active implementers running concurrently in isolated branches and
   worktrees.
-- Configured specialist ownership: product, UI design, and copywriting by
-  default, with only specialists named in the approved plan dispatched.
+- Configured specialist ownership: product, UI design, copywriting, prompt
+  engineering, and measured optimization by default, with only specialists
+  named in the approved plan dispatched.
 - Pi, Claude Code, and Codex harnesses behind one normalized receipt contract.
 - [Ponytail](https://github.com/DietrichGebert/ponytail)-derived minimal-code
   discipline during implementation and an explicit over-engineering lens during review.
@@ -83,6 +84,11 @@ Read [VISION.md](VISION.md) for the intended product and
   lifecycle, and promotional copy: 80/20 reader diagnosis, one central tension,
   a distinctive mechanism, truthful behavioral leverage, exact constraints,
   and honest performance boundaries.
+- Production prompt engineering with a controller-required runtime, trust,
+  host-enforcement, schema, abstention, and six-case evaluation contract.
+- AutoAgent-shaped hill climbing for genuine optimization tasks: controller-run
+  baseline/scoring/gates, one isolated candidate per dispatch, protected-file
+  fingerprints, candidate/plateau/time budgets, and one promotion run.
 - Conservative plan-time rejection of overlapping owner globs.
 - Git-derived changed-file verification against each owner's approved scope.
 - Mechanical execution of every approved task and integrated acceptance command.
@@ -326,7 +332,8 @@ scope and commands as well as prose.
 
 Edit [`factory.yaml`](factory.yaml) to choose each role's harness, model,
 thinking level, instructions, skills, and tools. The example uses Pi for product,
-copywriting, and independent review, and Claude Code for UI design.
+copywriting, prompt engineering, optimization, and independent review, and
+Claude Code for UI design.
 
 Configured skills are native `--skill` inputs for Pi. For Claude Code and Codex,
 the adapter reads the same trusted local `SKILL.md` files into the role prompt,
@@ -334,13 +341,17 @@ so a configured skill is not silently ignored when a lane changes harness. The
 default product and design lanes include `skills/tdd`,
 `skills/diagnosing-bugs`, and `skills/ponytail`; product, design, copywriter, and
 reviewer receive `skills/evil-genius-copywriter` as a conditional lens for material
-reader-facing messaging. Review also includes `skills/ponytail-review`. Every
-role receives `skills/clear-prose` for its human-readable fields. These are
-conditional disciplines, not extra workflow stages or runtime dependencies.
+reader-facing messaging. Product/prompt owners receive
+`skills/prompt-engineering`; the optimization owner receives the bounded
+`skills/improvement` contract plus `skills/autoagent` patterns. Review receives
+the corresponding lenses and `skills/ponytail-review`. Every role receives
+`skills/clear-prose` for its human-readable fields. These are conditional
+disciplines inside existing roles, not extra controller lifecycles.
 The placement decisions for the broader
 engineering skill set are documented in
 [Engineering skill decisions](docs/ENGINEERING_SKILLS.md); the ten-source prose
-review is in [Prose skill decisions](docs/PROSE_SKILLS.md).
+review is in [Prose skill decisions](docs/PROSE_SKILLS.md), and the bounded
+search contract is in [Prompt and optimization](docs/PROMPT_OPTIMIZATION.md).
 
 Supported harness identifiers are:
 
@@ -541,7 +552,7 @@ Keeping one lifecycle owner avoids two-engine drift.
 .venv/bin/python -m py_compile scripts/*.py tests/*.py
 ```
 
-The deterministic suite currently covers 82 cases, including:
+The deterministic suite currently covers 85 cases, including:
 
 - simple single-owner first-pass work;
 - a two-owner feature with directed design repair;
@@ -573,13 +584,16 @@ The deterministic suite currently covers 82 cases, including:
 - durable direct/interactive/auto intake and cross-harness skill prompt loading;
 - copywriting as a first-class specialist owner, shared conditional capability,
   and ordinary lane in the same integration lifecycle;
+- prompt engineering and optimization as scoped specialists, including refusal
+  of incomplete prompt contracts or missing, overlapping, over-budget,
+  under-gain, self-scored, or unpromoted experiments;
 - exact review-issue target files bound to the routed owner's approved scope;
 - one read-only repair-receipt correction and refusal of correction-time writes;
 - fresh proof after repair, successful merge, target/config drift, and bounded
   human escalation.
 
 CI runs the suite on Ubuntu and macOS with Python 3.10 and 3.14, compiles the
-27-node policy graph, and validates it with the public Pi Graph Core release.
+29-node policy graph, and validates it with the public Pi Graph Core release.
 The measured hill-climb and candidate ledger are in
 [`docs/IMPROVEMENT.md`](docs/IMPROVEMENT.md) and
 [`docs/improvement-ledger.jsonl`](docs/improvement-ledger.jsonl).

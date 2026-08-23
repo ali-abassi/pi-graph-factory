@@ -7,7 +7,7 @@ planner:
   model: openai-codex/gpt-5.6-sol
   thinking: high
   instructions: agents/planner.md
-  skills: [skills/planning, skills/repository-intelligence, skills/clear-prose]
+  skills: [skills/planning, skills/repository-intelligence, skills/prompt-engineering, skills/improvement, skills/clear-prose]
   tools: [read, grep, find, ls, bash]
   timeout_seconds: 7200
 
@@ -16,7 +16,7 @@ plan_review:
   model: openai-codex/gpt-5.6-sol
   thinking: high
   instructions: agents/plan_reviewer.md
-  skills: [skills/clear-prose]
+  skills: [skills/prompt-engineering, skills/improvement, skills/clear-prose]
   tools: [read, grep, find, ls]
   min_score: 8.5
   max_cycles: 3
@@ -42,7 +42,7 @@ implementers:
     model: openai-codex/gpt-5.6-terra
     thinking: medium
     instructions: agents/implementer.md
-    skills: [skills/implementation, skills/tdd, skills/diagnosing-bugs, skills/evil-genius-copywriter, skills/ponytail, skills/clear-prose]
+    skills: [skills/implementation, skills/tdd, skills/diagnosing-bugs, skills/prompt-engineering, skills/evil-genius-copywriter, skills/ponytail, skills/clear-prose]
     tools: [read, edit, write, bash]
     timeout_seconds: 14400
   - id: design
@@ -63,13 +63,31 @@ implementers:
     skills: [skills/implementation, skills/evil-genius-copywriter, skills/ponytail, skills/clear-prose]
     tools: [read, edit, write, bash]
     timeout_seconds: 14400
+  - id: prompt
+    scope: Production prompts, tool instructions, schemas, evaluators, and prompt pipelines
+    harness: pi
+    model: openai-codex/gpt-5.6-terra
+    thinking: high
+    instructions: agents/prompt_engineer.md
+    skills: [skills/implementation, skills/prompt-engineering, skills/ponytail, skills/clear-prose]
+    tools: [read, edit, write, bash]
+    timeout_seconds: 14400
+  - id: optimization
+    scope: Bounded evidence-gated optimization of prompts, agents, code, designs, copy, and workflows
+    harness: pi
+    model: openai-codex/gpt-5.6-sol
+    thinking: high
+    instructions: agents/optimizer.md
+    skills: [skills/implementation, skills/improvement, skills/autoagent, skills/prompt-engineering, skills/ponytail, skills/clear-prose]
+    tools: [read, edit, write, bash]
+    timeout_seconds: null
 
 review:
   harness: pi
   model: openai-codex/gpt-5.6-sol
   thinking: high
   instructions: agents/reviewer.md
-  skills: [skills/review, skills/evil-genius-copywriter, skills/ponytail-review, skills/clear-prose]
+  skills: [skills/review, skills/prompt-engineering, skills/improvement, skills/evil-genius-copywriter, skills/ponytail-review, skills/clear-prose]
   tools: [read, grep, find, ls, bash]
   max_cycles: 5
   timeout_seconds: 7200

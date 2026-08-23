@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import copy
+import json
+import subprocess
 import sys
+import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import yaml
 from jsonschema import Draft202012Validator
@@ -17,8 +23,15 @@ from factory import (  # noqa: E402
     FactoryError,
     enforce_dispatch_limits,
     is_unsafe_repository_artifact,
+    metric_score_from_receipts,
+    run_optimization_search,
+    run_repair,
+    run_commands_before_deadline,
     validate_plan,
     validate_plan_judgment,
+    validate_controller_optimization_receipt,
+    validate_optimization_candidate,
+    validate_prompt_evaluation,
     validated_usage,
 )
 
@@ -34,18 +47,34 @@ class FactoryCompilerTests(unittest.TestCase):
 
     def test_copywriting_is_a_routable_specialist_without_a_second_lifecycle(self) -> None:
         implementers = {item["id"]: item for item in self.factory["implementers"]}
-        self.assertEqual(set(implementers), {"product", "design", "copy"})
+        self.assertEqual(
+            set(implementers), {"product", "design", "copy", "prompt", "optimization"}
+        )
         for owner in ("product", "design", "copy"):
             self.assertIn("skills/evil-genius-copywriter", implementers[owner]["skills"])
         self.assertEqual(implementers["copy"]["instructions"], "agents/copywriter.md")
+        self.assertIn("skills/prompt-engineering", implementers["product"]["skills"])
+        self.assertIn("skills/prompt-engineering", implementers["prompt"]["skills"])
+        self.assertIn("skills/improvement", implementers["optimization"]["skills"])
+        self.assertIn("skills/autoagent", implementers["optimization"]["skills"])
         self.assertIn("skills/evil-genius-copywriter", self.factory["review"]["skills"])
+        self.assertIn("skills/prompt-engineering", self.factory["review"]["skills"])
+        self.assertIn("skills/improvement", self.factory["review"]["skills"])
 
         workflow = compile_factory(self.factory)
         steps = {step["id"]: step for step in workflow["steps"]}
         self.assertEqual(steps["implement-copy"]["needs"], ["plan-review"])
+        self.assertEqual(steps["implement-prompt"]["needs"], ["plan-review"])
+        self.assertEqual(steps["implement-optimization"]["needs"], ["plan-review"])
         self.assertEqual(
             steps["integrate"]["needs"],
-            ["implement-product", "implement-design", "implement-copy"],
+            [
+                "implement-product",
+                "implement-design",
+                "implement-copy",
+                "implement-prompt",
+                "implement-optimization",
+            ],
         )
 
         plan = {
@@ -79,6 +108,433 @@ class FactoryCompilerTests(unittest.TestCase):
             evidence_policy="plan",
         )
 
+    def test_prompt_owner_requires_an_executable_runtime_contract(self) -> None:
+        implementers = {item["id"] for item in self.factory["implementers"]}
+        command = "python3 -m unittest tests.test_prompt_contract -v"
+        plan = {
+            "version": 1,
+            "summary": "Harden a production agent prompt.",
+            "proof": {"mode": "tests", "reason": "prompt contract evaluation"},
+            "research": [{
+                "question": "Where is the prompt consumed?",
+                "finding": "The runtime validates a typed decision object.",
+                "evidence": ["prompts/system.md", "src/runtime.py"],
+            }],
+            "assumptions": [],
+            "success_criteria": [{
+                "id": "SC-PROMPT",
+                "description": "The prompt fails safely across declared cases.",
+            }],
+            "tasks": [{
+                "id": "harden-prompt",
+                "owner": "prompt",
+                "files": ["prompts/**"],
+                "acceptance": [command],
+            }],
+            "prompt_contract": {
+                "runtime": "decision-agent-v2",
+                "objective": "Return a grounded routing decision.",
+                "authoritative_context": ["signed policy supplied by the host"],
+                "untrusted_inputs": ["user request", "retrieved documents", "tool output"],
+                "output_schema": "schemas/decision.schema.json",
+                "abstention": "Return status=insufficient_evidence with missing fields.",
+                "host_enforcement": ["validate schema", "enforce tool allowlist"],
+                "evaluation_commands": [command],
+                "cases": [
+                    {"id": kind.replace("_", "-"), "kind": kind, "assertion": f"verify {kind}"}
+                    for kind in (
+                        "happy_path",
+                        "missing_input",
+                        "malformed_input",
+                        "prompt_injection",
+                        "tool_failure",
+                        "abstention",
+                    )
+                ],
+            },
+            "acceptance": [command],
+            "risks": [],
+            "open_questions": [],
+        }
+        validate_plan(plan, implementers, require_versioned=True, evidence_policy="plan")
+
+        missing = copy.deepcopy(plan)
+        missing.pop("prompt_contract")
+        with self.assertRaisesRegex(FactoryError, "requires a prompt_contract"):
+            validate_plan(missing, implementers, require_versioned=True, evidence_policy="plan")
+
+        no_injection = copy.deepcopy(plan)
+        no_injection["prompt_contract"]["cases"] = [
+            case for case in no_injection["prompt_contract"]["cases"]
+            if case["kind"] != "prompt_injection"
+        ]
+        with self.assertRaisesRegex(FactoryError, "lacks required case kinds"):
+            validate_plan(no_injection, implementers, require_versioned=True, evidence_policy="plan")
+
+        untested = copy.deepcopy(plan)
+        untested["tasks"][0]["acceptance"] = ["true"]
+        untested["acceptance"] = ["true"]
+        with self.assertRaisesRegex(FactoryError, "must be assigned to prompt-task acceptance"):
+            validate_plan(untested, implementers, require_versioned=True, evidence_policy="plan")
+
+        no_op = copy.deepcopy(plan)
+        no_op["prompt_contract"]["evaluation_commands"] = ["true"]
+        no_op["tasks"][0]["acceptance"] = ["true"]
+        no_op["acceptance"] = ["true"]
+        with self.assertRaisesRegex(FactoryError, "cannot be no-op"):
+            validate_plan(no_op, implementers, require_versioned=True, evidence_policy="plan")
+
+        typed = {
+            "schema": "pi-graph-factory.prompt-evaluation.v1",
+            "runtime": plan["prompt_contract"]["runtime"],
+            "cases": [
+                {
+                    "id": case["id"],
+                    "kind": case["kind"],
+                    "passed": True,
+                    "evidence": f"observed {case['kind']}",
+                }
+                for case in plan["prompt_contract"]["cases"]
+            ],
+        }
+        validated = validate_prompt_evaluation(
+            [{"command": command, "output": json.dumps(typed), "passed": True}],
+            plan["prompt_contract"],
+        )
+        self.assertEqual(len(validated["cases"]), 6)
+        with self.assertRaisesRegex(FactoryError, "no typed receipt"):
+            validate_prompt_evaluation(
+                [{"command": command, "output": "", "passed": True}],
+                plan["prompt_contract"],
+            )
+
+    def test_optimization_requires_a_frozen_controller_owned_contract(self) -> None:
+        implementers = {item["id"] for item in self.factory["implementers"]}
+
+        def optimization_plan() -> dict:
+            return {
+                "version": 1,
+                "summary": "Improve the coding-agent harness against a frozen evaluation.",
+                "proof": {"mode": "tests", "reason": "score and preservation gates"},
+                "research": [{
+                    "question": "What may the optimizer change?",
+                    "finding": "The harness is separate from evaluator cases.",
+                    "evidence": ["agent/", "eval/"],
+                }],
+                "assumptions": [],
+                "success_criteria": [{
+                    "id": "SC-OPT",
+                    "description": "A promoted harness clears the declared gain and gates.",
+                }],
+                "tasks": [{
+                    "id": "optimize-harness",
+                    "owner": "optimization",
+                    "files": ["agent/**"],
+                    "acceptance": ["python3 -m unittest discover -s tests -v"],
+                }],
+                "optimization": {
+                    "objective": "Increase passed evaluation tasks without regressions.",
+                    "evaluation_version": "eval-v1",
+                    "mutable_files": ["agent/**"],
+                    "forbidden_files": ["eval/**", "tests/**"],
+                    "metric": {
+                        "name": "passed_tasks",
+                        "direction": "maximize",
+                        "minimum_gain": 1,
+                    },
+                    "target_score": None,
+                    "development_commands": [
+                        "python3 scripts/score.py --format pi-graph-factory.metric.v1"
+                    ],
+                    "preservation_commands": ["python3 -m compileall -q agent"],
+                    "promotion_commands": ["python3 -m unittest discover -s holdout -v"],
+                    "max_candidates": 5,
+                    "max_consecutive_non_keeps": 3,
+                    "max_seconds": 28800,
+                    "stop_conditions": [
+                        "candidate budget exhausted",
+                        "plateau",
+                        "wall time exhausted",
+                        "invalid evaluation",
+                    ],
+                },
+                "acceptance": [
+                    "python3 -m compileall -q agent",
+                ],
+                "risks": ["development score may not generalize"],
+                "open_questions": [],
+            }
+
+        valid = optimization_plan()
+        validate_plan(valid, implementers, require_versioned=True, evidence_policy="plan")
+        fingerprint = "sha256:" + "a" * 64
+        receipt = {
+            "optimization": {
+                "schema": "pi-graph-factory.optimization-receipt.v1",
+                "evaluation_version": "eval-v1",
+                "baseline_score": 12,
+                "final_score": 14,
+                "gain": 2,
+                "decision": "promoted",
+                "protected_fingerprint": fingerprint,
+                "artifact_fingerprint": fingerprint,
+                "candidates": [{
+                    "id": "c1",
+                    "hypothesis": "A typed verification tool reduces silent completion.",
+                    "score": 14,
+                    "status": "keep",
+                    "gates_passed": True,
+                }],
+                "promotion": [{"command": "holdout", "passed": True}],
+                "elapsed_seconds": 120.5,
+            }
+        }
+        validate_controller_optimization_receipt(receipt, valid["optimization"])
+
+        missing = optimization_plan()
+        missing.pop("optimization")
+        with self.assertRaisesRegex(FactoryError, "requires an optimization contract"):
+            validate_plan(missing, implementers, require_versioned=True, evidence_policy="plan")
+
+        overlap = optimization_plan()
+        overlap["optimization"]["forbidden_files"] = ["agent/eval/**"]
+        with self.assertRaisesRegex(FactoryError, "must not overlap"):
+            validate_plan(overlap, implementers, require_versioned=True, evidence_policy="plan")
+
+        mutable_evaluator = optimization_plan()
+        mutable_evaluator["tasks"].append({
+            "id": "rewrite-evaluator",
+            "owner": "product",
+            "files": ["eval/**"],
+            "acceptance": ["python3 -m unittest discover -s eval -v"],
+        })
+        with self.assertRaisesRegex(FactoryError, "forbidden_files must not overlap"):
+            validate_plan(
+                mutable_evaluator,
+                implementers,
+                require_versioned=True,
+                evidence_policy="plan",
+            )
+
+        unobserved = optimization_plan()
+        unobserved["acceptance"].remove("python3 -m compileall -q agent")
+        unobserved["acceptance"].append("true")
+        with self.assertRaisesRegex(FactoryError, "must also be top-level acceptance"):
+            validate_plan(
+                unobserved, implementers, require_versioned=True, evidence_policy="plan"
+            )
+
+        repeated_promotion = optimization_plan()
+        repeated_promotion["acceptance"].append(
+            "python3 -m unittest discover -s holdout -v"
+        )
+        with self.assertRaisesRegex(FactoryError, "controller-owned"):
+            validate_plan(
+                repeated_promotion, implementers, require_versioned=True, evidence_policy="plan"
+            )
+
+        over_budget = optimization_plan()
+        over_budget["optimization"]["max_candidates"] = 11
+        with self.assertRaisesRegex(FactoryError, "between 1 and 10"):
+            validate_plan(
+                over_budget, implementers, require_versioned=True, evidence_policy="plan"
+            )
+
+        no_time_bound = optimization_plan()
+        no_time_bound["optimization"]["max_seconds"] = 0
+        with self.assertRaisesRegex(FactoryError, "max_seconds must be a positive integer"):
+            validate_plan(
+                no_time_bound, implementers, require_versioned=True, evidence_policy="plan"
+            )
+
+        weak = copy.deepcopy(receipt)
+        weak["optimization"]["final_score"] = 12.5
+        weak["optimization"]["gain"] = 0.5
+        with self.assertRaisesRegex(FactoryError, "minimum gain"):
+            validate_controller_optimization_receipt(weak, valid["optimization"])
+
+        stale = copy.deepcopy(receipt)
+        stale["optimization"]["promotion"][0]["passed"] = False
+        with self.assertRaisesRegex(FactoryError, "promotion did not pass"):
+            validate_controller_optimization_receipt(stale, valid["optimization"])
+
+        too_slow = copy.deepcopy(receipt)
+        too_slow["optimization"]["elapsed_seconds"] = 28800.1
+        with self.assertRaisesRegex(FactoryError, "exceeded max_seconds"):
+            validate_controller_optimization_receipt(too_slow, valid["optimization"])
+
+        score = metric_score_from_receipts(
+            [{"output": "trace\n{\"schema\":\"pi-graph-factory.metric.v1\","
+                        "\"evaluation_version\":\"eval-v1\",\"score\":14}\n"}],
+            valid["optimization"],
+        )
+        self.assertEqual(score, 14)
+        with self.assertRaisesRegex(FactoryError, "controller owns scores"):
+            validate_optimization_candidate(
+                {"optimization": {
+                    "candidate_id": "c1",
+                    "hypothesis": "general change",
+                    "score": 999,
+                }},
+                "c1",
+            )
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(FactoryError, "wall-time budget"):
+                run_commands_before_deadline(
+                    Path(directory),
+                    ["sleep 0.1", "sleep 0.1"],
+                    "bounded evaluation",
+                    deadline=time.monotonic() + 0.15,
+                    command_timeout_seconds=1,
+                )
+
+    def test_optimization_controller_scores_and_promotes_an_isolated_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = root / "repo"
+            run = root / "run"
+            workspace = run / "worktrees" / "optimization"
+            (repo / "agent").mkdir(parents=True)
+            (repo / "eval").mkdir()
+            (repo / "agent" / "value.txt").write_text("1\n", encoding="utf-8")
+            (repo / "eval" / "score.py").write_text(
+                "import json, pathlib\n"
+                "score = int(pathlib.Path('agent/value.txt').read_text().strip())\n"
+                "print(json.dumps({'schema':'pi-graph-factory.metric.v1',"
+                "'evaluation_version':'eval-v1','score':score}))\n",
+                encoding="utf-8",
+            )
+            (repo / "eval" / "gate.py").write_text(
+                "import pathlib, sys\n"
+                "sys.exit(0 if int(pathlib.Path('agent/value.txt').read_text()) > 0 else 1)\n",
+                encoding="utf-8",
+            )
+            (repo / "eval" / "promote.py").write_text(
+                "import pathlib, sys\n"
+                "sys.exit(0 if int(pathlib.Path('agent/value.txt').read_text()) >= 2 else 1)\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.name", "Factory Test"], check=True)
+            subprocess.run(
+                ["git", "-C", str(repo), "config", "user.email", "factory@example.invalid"],
+                check=True,
+            )
+            subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+            subprocess.run(["git", "-C", str(repo), "commit", "-qm", "baseline"], check=True)
+            run.mkdir()
+            subprocess.run(
+                ["git", "-C", str(repo), "worktree", "add", "-qb", "factory/test/optimization",
+                 str(workspace), "HEAD"],
+                check=True,
+            )
+            task = {
+                "id": "optimize-value",
+                "owner": "optimization",
+                "files": ["agent/**"],
+                "acceptance": ["python3 eval/gate.py"],
+            }
+            contract = {
+                "objective": "increase the fixture score",
+                "evaluation_version": "eval-v1",
+                "mutable_files": ["agent/**"],
+                "forbidden_files": ["eval/**"],
+                "metric": {"name": "value", "direction": "maximize", "minimum_gain": 1},
+                "target_score": 2,
+                "development_commands": ["python3 eval/score.py"],
+                "preservation_commands": ["python3 eval/gate.py"],
+                "promotion_commands": ["python3 eval/promote.py"],
+                "max_candidates": 1,
+                "max_consecutive_non_keeps": 1,
+                "max_seconds": 60,
+                "stop_conditions": [
+                    "target achieved",
+                    "candidate budget exhausted",
+                    "plateau",
+                    "wall time exhausted",
+                    "invalid evaluation",
+                ],
+            }
+            state = {
+                "repo": str(repo),
+                "request": "improve the fixture",
+                "plan": {"tasks": [task], "optimization": contract},
+                "repository_intelligence": None,
+            }
+            agent = {"harness": "pi", "model": "fixture", "thinking": "low"}
+            limits = {
+                "command_timeout_seconds": 10,
+                "termination_grace_seconds": 1,
+                "require_usage": False,
+            }
+
+            def candidate(*args, **kwargs):
+                cwd = args[4]
+                context = args[5]
+                candidate_id = context["optimization_iteration"]["candidate_id"]
+                (cwd / "agent" / "value.txt").write_text("2\n", encoding="utf-8")
+                return {
+                    "status": "passed",
+                    "harness": "pi",
+                    "model": "fixture",
+                    "role": f"implement:optimization:{candidate_id}",
+                    "output": {
+                        "status": "pass",
+                        "changed_files": ["agent/value.txt"],
+                        "checks": [{"command": "local", "passed": True}],
+                        "summary": "increase one fixture mechanism",
+                        "optimization": {
+                            "candidate_id": candidate_id,
+                            "hypothesis": "raising the value raises the frozen metric",
+                        },
+                    },
+                    "usage": {"input": 1, "output": 1, "total": 2, "cost": 0.0},
+                }
+
+            with patch("factory.invoke_agent", side_effect=candidate):
+                receipt = run_optimization_search(
+                    run,
+                    state,
+                    agent,
+                    [task],
+                    workspace,
+                    limits,
+                    {},
+                )
+
+            result = receipt["output"]["optimization"]
+            self.assertEqual(result["baseline_score"], 1)
+            self.assertEqual(result["final_score"], 2)
+            self.assertEqual(result["candidates"][0]["status"], "keep")
+            self.assertEqual(len(result["promotion"]), 1)
+            self.assertEqual((workspace / "agent" / "value.txt").read_text(), "2\n")
+            staged = subprocess.run(
+                ["git", "-C", str(workspace), "diff", "--cached", "--name-only"],
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout.splitlines()
+            self.assertEqual(staged, ["agent/value.txt"])
+            with self.assertRaisesRegex(FactoryError, "attempt already exists"):
+                run_optimization_search(
+                    run,
+                    state,
+                    agent,
+                    [task],
+                    workspace,
+                    limits,
+                    {},
+                )
+            with self.assertRaisesRegex(FactoryError, "cannot reuse consumed promotion"):
+                run_repair(
+                    run,
+                    state,
+                    {"implementers": [{"id": "optimization"}], "limits": limits},
+                    workspace,
+                    1,
+                    [{"id": "OPT-REPAIR", "owner": "optimization"}],
+                )
+
     def test_compiler_gives_every_review_a_guarded_terminal_exit(self) -> None:
         workflow = compile_factory(self.factory)
         steps = {step["id"]: step for step in workflow["steps"]}
@@ -108,7 +564,11 @@ class FactoryCompilerTests(unittest.TestCase):
         }
         self.assertTrue(agent_steps)
         for step in agent_steps:
-            self.assertEqual(step["timeout"], expected_timeouts[step["id"]])
+            expected = expected_timeouts[step["id"]]
+            if expected is None:
+                self.assertNotIn("timeout", step)
+            else:
+                self.assertEqual(step["timeout"], expected)
         for step_id in ["integrate", "human-required", *[
             f"capture-{cycle}" for cycle in range(1, 6)
         ], *[f"merge-{cycle}" for cycle in range(1, 6)], "repository-intelligence"]:

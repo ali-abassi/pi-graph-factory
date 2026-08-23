@@ -316,3 +316,63 @@
 - **Assurance boundary:** a well-grounded candidate is not proven performance.
   Consequential claims require sources and qualifications; live reader behavior
   or a valid comparison remains the authority for performance claims.
+
+## Prompt and optimization specialist climb v15
+
+- **Trigger:** prompt and harness optimization previously fell into the generic
+  product lane. The factory could ask an agent to “improve” something, but it
+  did not freeze the evaluator boundary, candidate budget, or promotion rule,
+  and could not distinguish a changed artifact from a measured improvement.
+- **Candidate:** add `prompt` for independently owned production prompts and
+  `optimization` for genuine repeated search. Adapt the local prompt-
+  engineering and measured-improvement contracts. Use the useful AutoAgent
+  shape—baseline, trajectory diagnosis, one general harness change, score,
+  keep/restore, ledger—without copying its unlicensed code or its unbounded
+  stop policy.
+- **Mechanical gate:** optimization plans must bind exact mutable and forbidden
+  files, evaluation version, positive minimum gain, finite-or-null target, one
+  machine-readable metric command, preservation/controller-only promotion
+  commands, no more than ten candidates, a plateau bound, wall time, and
+  controller-supported stops. Prompt-owned plans require the runtime/trust/
+  schema/host contract plus all six case kinds.
+- **Result:** prompt and optimization become ordinary scoped owners inside the
+  same worktree, integration, evidence, independent-review, and repair
+  lifecycle. For each candidate, the controller creates a fresh detached
+  worktree, asks the optimizer for one hypothesis and mutation, computes the
+  score, runs gates, keeps or deletes the worktree, and records the result. It
+  applies the best incumbent and invokes promotion once. The inspectable policy
+  projection remains 29 steps because optimization is an owner capability.
+- **Simplicity boundary:** no population service, mutable evaluator, hidden
+  post-verifier rewrite, or second state store. Direct fixes stay direct. If no
+  candidate promotes, the lane blocks with its original worktree unchanged.
+- **Assurance boundary:** the generic route verifies final bytes, controller-run
+  scores, protected-file fingerprints, scope, budget, and promotion evidence,
+  but it is not an OS sandbox and cannot prove an agent never read a visible
+  dataset or invoked a visible command. Pi Graph workflow optimization uses `piw optimize` for durable
+  one-mechanism experiments and private one-use holdout promotion.
+
+## Controller-owned optimization climb v16
+
+- **Trigger:** independent forward testing showed the first v15 candidate still
+  trusted optimizer-reported scores, fingerprints, candidate history, and
+  promotion evidence. Prompt tasks could also pass with a ceremonial `true`
+  check and no runtime contract.
+- **Single mutation:** move generic search authority into deterministic
+  controller code. Require prompt runtime/trust/schema/host fields and all six
+  case kinds. Dispatch one optimizer mutation into a fresh detached worktree,
+  parse one versioned metric result, run frozen preservation gates, keep or
+  delete the candidate, enforce target/candidate/plateau/time stops, reserve the
+  attempt durably, and invoke promotion once in another disposable worktree.
+- **Forward-test correction:** prompt commands now end in controller-parsed
+  typed receipts covering every case; the wall-time deadline is recomputed
+  between commands and checked on the final receipt; promotion is consumed once
+  across the run, so optimization review failures escalate for a new approved
+  evaluation version rather than silently reusing the holdout.
+- **Result:** 85/85 repository tests pass. Focused tests prove weak prompt plans
+  fail, self-scoring candidate output fails, the untouched baseline and final
+  score come from controller commands, only the promoted diff reaches the lane,
+  and an existing optimization attempt cannot be replayed.
+- **Assurance boundary:** generic search is controller-scored and fail-closed,
+  not an OS sandbox or crash-resumable search engine. An agent may still read or
+  invoke resources visible in its environment. Use external isolation for an
+  adversarial agent, and `piw optimize` for durable Pi Graph workflow search.

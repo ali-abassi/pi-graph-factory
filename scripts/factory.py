@@ -86,6 +86,17 @@ PLAN_JUDGE_DIMENSIONS = {
     "minimality": {"weight": 0.15, "critical": False},
     "alignment": {"weight": 0.10, "critical": False},
 }
+PROMPT_OWNER = "prompt"
+OPTIMIZATION_OWNER = "optimization"
+PROMPT_CASE_KINDS = {
+    "happy_path",
+    "missing_input",
+    "malformed_input",
+    "prompt_injection",
+    "tool_failure",
+    "abstention",
+}
+SHA256_FINGERPRINT = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 class FactoryError(RuntimeError):
@@ -199,7 +210,7 @@ def run_commands(
     label: str,
     *,
     raise_on_failure: bool = True,
-    timeout_seconds: int | None = None,
+    timeout_seconds: int | float | None = None,
     termination_grace_seconds: int = 5,
 ) -> list[dict[str, Any]]:
     receipts = []
@@ -260,6 +271,48 @@ def run_commands(
     return receipts
 
 
+def run_commands_before_deadline(
+    cwd: Path,
+    commands: list[str],
+    label: str,
+    *,
+    deadline: float,
+    command_timeout_seconds: int | float,
+    raise_on_failure: bool = True,
+    termination_grace_seconds: int = 5,
+) -> list[dict[str, Any]]:
+    receipts: list[dict[str, Any]] = []
+    for command in commands:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise FactoryError(f"{label} exhausted its approved wall-time budget")
+        command_receipts = run_commands(
+            cwd,
+            [command],
+            label,
+            raise_on_failure=False,
+            timeout_seconds=min(float(command_timeout_seconds), remaining),
+            termination_grace_seconds=termination_grace_seconds,
+        )
+        receipts.extend(command_receipts)
+        if time.monotonic() >= deadline:
+            raise FactoryError(f"{label} exhausted its approved wall-time budget")
+        if receipts[-1]["passed"] is False:
+            if raise_on_failure:
+                receipt = receipts[-1]
+                detail = (
+                    f"exceeded {receipt['timeout_seconds']}s timeout"
+                    if receipt["timed_out"]
+                    else f"exit {receipt['exit_code']}"
+                )
+                raise FactoryError(
+                    f"approved acceptance command failed for {label}: {command!r} "
+                    f"({detail}): {receipt['output'][-500:]}"
+                )
+            break
+    return receipts
+
+
 def validate_repo_pattern(raw: Any) -> str:
     if not isinstance(raw, str) or not raw.strip():
         raise FactoryError("task file patterns must be non-empty strings")
@@ -315,6 +368,438 @@ def patterns_may_overlap(left: str, right: str) -> bool:
     right_prefix = pattern_prefix(right)
     shared = min(len(left_prefix), len(right_prefix))
     return left_prefix[:shared] == right_prefix[:shared] and (left_magic or right_magic)
+
+
+def validate_prompt_contract(plan: dict[str, Any]) -> None:
+    tasks = [task for task in plan["tasks"] if task["owner"] == PROMPT_OWNER]
+    contract = plan.get("prompt_contract")
+    if not tasks:
+        if contract is not None:
+            raise FactoryError("prompt_contract requires a prompt-owned task")
+        return
+    if not isinstance(contract, dict):
+        raise FactoryError("prompt-owned work requires a prompt_contract")
+    required = {
+        "runtime",
+        "objective",
+        "authoritative_context",
+        "untrusted_inputs",
+        "output_schema",
+        "abstention",
+        "host_enforcement",
+        "evaluation_commands",
+        "cases",
+    }
+    if not required <= set(contract):
+        raise FactoryError(
+            "prompt_contract is missing fields: " + repr(sorted(required - set(contract)))
+        )
+    for field in ("runtime", "objective", "output_schema", "abstention"):
+        value = contract[field]
+        if not isinstance(value, str) or not value.strip():
+            raise FactoryError(f"prompt_contract {field} must be a non-empty string")
+        contract[field] = value.strip()
+    for field in ("authoritative_context", "untrusted_inputs", "host_enforcement"):
+        values = contract[field]
+        if not isinstance(values, list) or not values or not all(
+            isinstance(value, str) and value.strip() for value in values
+        ):
+            raise FactoryError(f"prompt_contract {field} must contain non-empty strings")
+        contract[field] = [value.strip() for value in values]
+
+    commands = contract["evaluation_commands"]
+    if not isinstance(commands, list) or not commands:
+        raise FactoryError("prompt_contract evaluation_commands must be a non-empty array")
+    contract["evaluation_commands"] = [
+        validate_acceptance_command(command, "prompt_contract evaluation_commands")
+        for command in commands
+    ]
+    if any(command in {":", "true"} for command in contract["evaluation_commands"]):
+        raise FactoryError("prompt_contract evaluation commands cannot be no-op predicates")
+    assigned_acceptance = {command for task in tasks for command in task["acceptance"]}
+    missing_commands = sorted(set(contract["evaluation_commands"]) - assigned_acceptance)
+    if missing_commands:
+        raise FactoryError(
+            "prompt_contract evaluation commands must be assigned to prompt-task acceptance: "
+            + ", ".join(repr(command) for command in missing_commands)
+        )
+
+    cases = contract["cases"]
+    if not isinstance(cases, list) or not cases:
+        raise FactoryError("prompt_contract cases must be a non-empty array")
+    seen_ids: set[str] = set()
+    seen_kinds: set[str] = set()
+    for case in cases:
+        if not isinstance(case, dict) or set(case) != {"id", "kind", "assertion"}:
+            raise FactoryError("prompt_contract cases need exactly id, kind, and assertion")
+        identifier = case["id"]
+        if (
+            not isinstance(identifier, str)
+            or not TASK_ID.fullmatch(identifier)
+            or identifier in seen_ids
+            or case["kind"] not in PROMPT_CASE_KINDS
+            or not isinstance(case["assertion"], str)
+            or not case["assertion"].strip()
+        ):
+            raise FactoryError("prompt_contract case is invalid")
+        seen_ids.add(identifier)
+        seen_kinds.add(case["kind"])
+    missing_kinds = sorted(PROMPT_CASE_KINDS - seen_kinds)
+    if missing_kinds:
+        raise FactoryError(
+            "prompt_contract lacks required case kinds: " + repr(missing_kinds)
+        )
+
+
+def validate_optimization_contract(plan: dict[str, Any]) -> None:
+    tasks = [task for task in plan["tasks"] if task["owner"] == OPTIMIZATION_OWNER]
+    contract = plan.get("optimization")
+    if not tasks:
+        if contract is not None:
+            raise FactoryError("optimization contract requires an optimization-owned task")
+        return
+    if not isinstance(contract, dict):
+        raise FactoryError("optimization-owned work requires an optimization contract")
+    required = {
+        "objective",
+        "evaluation_version",
+        "mutable_files",
+        "forbidden_files",
+        "metric",
+        "target_score",
+        "development_commands",
+        "preservation_commands",
+        "promotion_commands",
+        "max_candidates",
+        "max_consecutive_non_keeps",
+        "max_seconds",
+        "stop_conditions",
+    }
+    if not required <= set(contract):
+        raise FactoryError(
+            "optimization contract is missing fields: "
+            + repr(sorted(required - set(contract)))
+        )
+    for field in ("objective", "evaluation_version"):
+        if not isinstance(contract[field], str) or not contract[field].strip():
+            raise FactoryError(f"optimization {field} must be a non-empty string")
+        contract[field] = contract[field].strip()
+
+    mutable = contract["mutable_files"]
+    if not isinstance(mutable, list) or not mutable:
+        raise FactoryError("optimization mutable_files must be a non-empty array")
+    contract["mutable_files"] = [validate_repo_pattern(pattern) for pattern in mutable]
+    owned = sorted({pattern for task in tasks for pattern in task["files"]})
+    if sorted(set(contract["mutable_files"])) != owned:
+        raise FactoryError("optimization mutable_files must exactly match optimization task scope")
+
+    forbidden = contract["forbidden_files"]
+    if not isinstance(forbidden, list) or not forbidden:
+        raise FactoryError("optimization forbidden_files must protect evaluator and case data")
+    contract["forbidden_files"] = [validate_repo_pattern(pattern) for pattern in forbidden]
+    for mutable_pattern in contract["mutable_files"]:
+        if any(
+            patterns_may_overlap(mutable_pattern, forbidden_pattern)
+            for forbidden_pattern in contract["forbidden_files"]
+        ):
+            raise FactoryError("optimization mutable_files must not overlap forbidden_files")
+    for task in plan["tasks"]:
+        if any(
+            patterns_may_overlap(task_pattern, forbidden_pattern)
+            for task_pattern in task["files"]
+            for forbidden_pattern in contract["forbidden_files"]
+        ):
+            raise FactoryError("optimization forbidden_files must not overlap any task scope")
+
+    metric = contract["metric"]
+    if not isinstance(metric, dict) or not {"name", "direction", "minimum_gain"} <= set(metric):
+        raise FactoryError("optimization metric needs name, direction, and minimum_gain")
+    if not isinstance(metric["name"], str) or not metric["name"].strip():
+        raise FactoryError("optimization metric name must be non-empty")
+    if metric["direction"] not in {"maximize", "minimize"}:
+        raise FactoryError("optimization metric direction must be maximize|minimize")
+    minimum_gain = metric["minimum_gain"]
+    if (
+        isinstance(minimum_gain, bool)
+        or not isinstance(minimum_gain, (int, float))
+        or not math.isfinite(float(minimum_gain))
+        or minimum_gain <= 0
+    ):
+        raise FactoryError("optimization metric minimum_gain must be finite and positive")
+    target = contract["target_score"]
+    if target is not None and (
+        isinstance(target, bool)
+        or not isinstance(target, (int, float))
+        or not math.isfinite(float(target))
+    ):
+        raise FactoryError("optimization target_score must be a finite number or null")
+
+    for field in ("development_commands", "preservation_commands", "promotion_commands"):
+        commands = contract[field]
+        if not isinstance(commands, list) or not commands:
+            raise FactoryError(f"optimization {field} must be a non-empty array")
+        contract[field] = [
+            validate_acceptance_command(command, f"optimization {field}")
+            for command in commands
+        ]
+    if len(contract["development_commands"]) != 1:
+        raise FactoryError(
+            "optimization development_commands must contain one metric command"
+        )
+    independent_checks = set(contract["preservation_commands"])
+    missing_checks = sorted(independent_checks - set(plan["acceptance"]))
+    if missing_checks:
+        raise FactoryError(
+            "optimization preservation commands must also be top-level "
+            "acceptance checks: " + ", ".join(repr(command) for command in missing_checks)
+        )
+    ordinary_acceptance = set(plan["acceptance"])
+    ordinary_acceptance.update(
+        command for task in plan["tasks"] for command in task["acceptance"]
+    )
+    repeated_promotion = sorted(set(contract["promotion_commands"]) & ordinary_acceptance)
+    if repeated_promotion:
+        raise FactoryError(
+            "optimization promotion commands are controller-owned and must not be ordinary "
+            "acceptance checks: " + ", ".join(repr(command) for command in repeated_promotion)
+        )
+
+    maximum = contract["max_candidates"]
+    if isinstance(maximum, bool) or not isinstance(maximum, int) or not 1 <= maximum <= 10:
+        raise FactoryError("optimization max_candidates must be between 1 and 10")
+    plateau = contract["max_consecutive_non_keeps"]
+    if (
+        isinstance(plateau, bool)
+        or not isinstance(plateau, int)
+        or not 1 <= plateau <= maximum
+    ):
+        raise FactoryError(
+            "optimization max_consecutive_non_keeps must be between 1 and max_candidates"
+        )
+    max_seconds = contract["max_seconds"]
+    if isinstance(max_seconds, bool) or not isinstance(max_seconds, int) or max_seconds < 1:
+        raise FactoryError("optimization max_seconds must be a positive integer")
+    stops = contract["stop_conditions"]
+    supported_stops = {
+        "target achieved",
+        "candidate budget exhausted",
+        "plateau",
+        "wall time exhausted",
+        "invalid evaluation",
+        "user stopped",
+    }
+    required_stops = {
+        "candidate budget exhausted",
+        "plateau",
+        "wall time exhausted",
+        "invalid evaluation",
+    }
+    if (
+        not isinstance(stops, list)
+        or not stops
+        or not all(isinstance(item, str) and item in supported_stops for item in stops)
+        or not required_stops <= set(stops)
+        or (target is not None and "target achieved" not in stops)
+    ):
+        raise FactoryError(
+            "optimization stop_conditions must contain the controller-supported finite stops"
+        )
+
+
+def validate_optimization_candidate(output: dict[str, Any], candidate_id: str) -> str:
+    result = output.get("optimization")
+    if not isinstance(result, dict) or set(result) != {"candidate_id", "hypothesis"}:
+        raise FactoryError(
+            "optimization candidate must return exactly candidate_id and hypothesis; "
+            "the controller owns scores and decisions"
+        )
+    if result["candidate_id"] != candidate_id:
+        raise FactoryError("optimization candidate id does not match the controller iteration")
+    hypothesis = result["hypothesis"]
+    if not isinstance(hypothesis, str) or not hypothesis.strip():
+        raise FactoryError("optimization candidate hypothesis must be non-empty")
+    return hypothesis.strip()
+
+
+def optimization_gain(contract: dict[str, Any], incumbent: float, candidate: float) -> float:
+    if contract["metric"]["direction"] == "maximize":
+        return candidate - incumbent
+    return incumbent - candidate
+
+
+def optimization_target_reached(contract: dict[str, Any], score: float) -> bool:
+    target = contract["target_score"]
+    if target is None:
+        return False
+    if contract["metric"]["direction"] == "maximize":
+        return score >= float(target)
+    return score <= float(target)
+
+
+def metric_score_from_receipts(
+    receipts: list[dict[str, Any]], contract: dict[str, Any]
+) -> float:
+    if len(receipts) != 1:
+        raise FactoryError("optimization evaluation must produce exactly one command receipt")
+    lines = [line.strip() for line in receipts[0]["output"].splitlines() if line.strip()]
+    if not lines:
+        raise FactoryError("optimization metric command returned no output")
+    try:
+        payload = json.loads(lines[-1])
+    except ValueError as error:
+        raise FactoryError(
+            "optimization metric command must end with one JSON object"
+        ) from error
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema") != "pi-graph-factory.metric.v1"
+        or payload.get("evaluation_version") != contract["evaluation_version"]
+    ):
+        raise FactoryError(
+            "optimization metric output must match the factory metric schema and evaluation version"
+        )
+    score = payload.get("score")
+    if (
+        isinstance(score, bool)
+        or not isinstance(score, (int, float))
+        or not math.isfinite(float(score))
+    ):
+        raise FactoryError("optimization metric score must be a finite number")
+    return float(score)
+
+
+def validate_prompt_evaluation(
+    receipts: list[dict[str, Any]], contract: dict[str, Any]
+) -> dict[str, Any]:
+    expected_commands = set(contract["evaluation_commands"])
+    observed = [receipt for receipt in receipts if receipt.get("command") in expected_commands]
+    if {receipt.get("command") for receipt in observed} != expected_commands:
+        raise FactoryError("prompt evaluation did not execute every contract command")
+    declared_cases = {case["id"]: case["kind"] for case in contract["cases"]}
+    results: dict[str, dict[str, Any]] = {}
+    for receipt in observed:
+        lines = [line.strip() for line in receipt["output"].splitlines() if line.strip()]
+        if not lines:
+            raise FactoryError("prompt evaluation command returned no typed receipt")
+        try:
+            payload = json.loads(lines[-1])
+        except ValueError as error:
+            raise FactoryError(
+                "prompt evaluation command must end with one JSON receipt"
+            ) from error
+        if (
+            not isinstance(payload, dict)
+            or payload.get("schema") != "pi-graph-factory.prompt-evaluation.v1"
+            or payload.get("runtime") != contract["runtime"]
+            or not isinstance(payload.get("cases"), list)
+        ):
+            raise FactoryError("prompt evaluation receipt identity or cases are invalid")
+        for case in payload["cases"]:
+            if not isinstance(case, dict) or set(case) != {"id", "kind", "passed", "evidence"}:
+                raise FactoryError("prompt evaluation case result has an invalid shape")
+            identifier = case["id"]
+            if (
+                identifier not in declared_cases
+                or identifier in results
+                or case["kind"] != declared_cases[identifier]
+                or case["passed"] is not True
+                or not isinstance(case["evidence"], str)
+                or not case["evidence"].strip()
+            ):
+                raise FactoryError("prompt evaluation case is unknown, duplicate, failed, or empty")
+            results[identifier] = case
+    if set(results) != set(declared_cases):
+        raise FactoryError("prompt evaluation receipt does not cover every declared case")
+    return {
+        "schema": "pi-graph-factory.prompt-evaluation.v1",
+        "runtime": contract["runtime"],
+        "cases": [results[case["id"]] for case in contract["cases"]],
+    }
+
+
+def repository_fingerprint(repo: Path, patterns: list[str]) -> str:
+    listing = git(repo, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
+    files = sorted(
+        value for value in listing.split("\0") if value and matches_scope(value, patterns)
+    )
+    if not files:
+        raise FactoryError("optimization protected patterns matched no repository files")
+    digest = hashlib.sha256()
+    for relative in files:
+        path = repo / relative
+        if not path.is_file():
+            continue
+        digest.update(relative.encode())
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return "sha256:" + digest.hexdigest()
+
+
+def validate_controller_optimization_receipt(
+    output: dict[str, Any], contract: dict[str, Any], *, commit: str | None = None
+) -> None:
+    result = output.get("optimization")
+    required = {
+        "schema",
+        "evaluation_version",
+        "baseline_score",
+        "final_score",
+        "gain",
+        "decision",
+        "protected_fingerprint",
+        "artifact_fingerprint",
+        "candidates",
+        "promotion",
+        "elapsed_seconds",
+    }
+    if not isinstance(result, dict) or not required <= set(result):
+        raise FactoryError("optimization controller receipt is incomplete")
+    if (
+        result["schema"] != "pi-graph-factory.optimization-receipt.v1"
+        or result["evaluation_version"] != contract["evaluation_version"]
+        or result["decision"] != "promoted"
+    ):
+        raise FactoryError("optimization controller receipt identity or decision is invalid")
+    for field in ("baseline_score", "final_score", "gain", "elapsed_seconds"):
+        value = result[field]
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or (field == "elapsed_seconds" and value < 0)
+        ):
+            raise FactoryError(f"optimization controller receipt has invalid {field}")
+    if float(result["elapsed_seconds"]) > float(contract["max_seconds"]):
+        raise FactoryError("optimization controller receipt exceeded max_seconds")
+    expected_gain = optimization_gain(
+        contract, float(result["baseline_score"]), float(result["final_score"])
+    )
+    if (
+        not math.isclose(float(result["gain"]), expected_gain)
+        or expected_gain < float(contract["metric"]["minimum_gain"])
+    ):
+        raise FactoryError("optimization controller receipt does not clear minimum gain")
+    for field in ("protected_fingerprint", "artifact_fingerprint"):
+        if not isinstance(result[field], str) or not SHA256_FINGERPRINT.fullmatch(result[field]):
+            raise FactoryError(f"optimization controller receipt has invalid {field}")
+    candidates = result["candidates"]
+    if (
+        not isinstance(candidates, list)
+        or not candidates
+        or len(candidates) > contract["max_candidates"]
+        or not any(candidate.get("status") == "keep" for candidate in candidates)
+    ):
+        raise FactoryError("optimization controller candidate history is invalid")
+    promotion = result["promotion"]
+    if (
+        not isinstance(promotion, list)
+        or not promotion
+        or not all(isinstance(item, dict) and item.get("passed") is True for item in promotion)
+    ):
+        raise FactoryError("optimization controller promotion did not pass")
+    if commit is not None and result.get("commit") != commit:
+        raise FactoryError("optimization controller receipt is not bound to the lane commit")
 
 
 def matches_scope(path: str, patterns: list[str]) -> bool:
@@ -807,6 +1292,8 @@ def validate_plan(
                     f"{task['owner']} and {other_owner}"
                 )
             ownership.append((pattern, task["owner"]))
+    validate_prompt_contract(plan)
+    validate_optimization_contract(plan)
     missing_docs = {
         document
         for document in (required_project_docs or set())
@@ -1334,6 +1821,381 @@ def commit_lane(path: Path, owner: str) -> str:
     return git(path, "rev-parse", "HEAD")
 
 
+def aggregate_agent_usage(receipts: list[dict[str, Any]]) -> dict[str, int | float | None]:
+    values = [validated_usage(receipt) for receipt in receipts]
+    return {
+        key: None if any(item[key] is None for item in values) else sum(item[key] for item in values)
+        for key in ("input", "output", "total", "cost")
+    }
+
+
+def apply_commit_diff(repo: Path, base: str, commit: str) -> None:
+    patch = subprocess.run(
+        ["git", "-C", str(repo), "diff", "--binary", "--full-index", f"{base}..{commit}"],
+        capture_output=True,
+        check=False,
+    )
+    if patch.returncode:
+        raise FactoryError(f"cannot export promoted optimization diff: {patch.stderr.decode(errors='replace')}")
+    applied = subprocess.run(
+        ["git", "-C", str(repo), "apply", "--index", "--binary", "-"],
+        input=patch.stdout,
+        capture_output=True,
+        check=False,
+    )
+    if applied.returncode:
+        raise FactoryError(f"cannot apply promoted optimization diff: {applied.stderr.decode(errors='replace')}")
+
+
+def run_optimization_search(
+    run: Path,
+    state: dict[str, Any],
+    agent: dict[str, Any],
+    tasks: list[dict[str, Any]],
+    workspace: Path,
+    limits: dict[str, Any],
+    evidence_spec: dict[str, Any],
+    *,
+    role_prefix: str = "implement:optimization",
+    addressed: list[str] | None = None,
+) -> dict[str, Any]:
+    contract = state["plan"]["optimization"]
+    started = time.monotonic()
+    deadline = started + contract["max_seconds"]
+    attempt_id = re.sub(r"[^A-Za-z0-9_-]", "-", role_prefix)
+    attempt_path = run / "optimization" / f"{attempt_id}.json"
+    if attempt_path.exists():
+        raise FactoryError(
+            "optimization attempt already exists; interrupted generic searches fail closed "
+            "instead of redispatching candidates or promotion"
+        )
+    atomic_json(
+        attempt_path,
+        {
+            "schema": "pi-graph-factory.optimization-attempt.v1",
+            "status": "started",
+            "evaluation_version": contract["evaluation_version"],
+            "started_at": now(),
+        },
+    )
+
+    def remaining_timeout() -> float:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise FactoryError("optimization exhausted its approved wall-time budget")
+        return remaining
+
+    protected = repository_fingerprint(workspace, contract["forbidden_files"])
+    baseline_receipts = run_commands_before_deadline(
+        workspace,
+        contract["development_commands"],
+        "optimization baseline",
+        deadline=deadline,
+        command_timeout_seconds=limits["command_timeout_seconds"],
+        termination_grace_seconds=limits["termination_grace_seconds"],
+    )
+    baseline_score = metric_score_from_receipts(baseline_receipts, contract)
+    baseline_gates = run_commands_before_deadline(
+        workspace,
+        contract["preservation_commands"],
+        "optimization baseline preservation",
+        deadline=deadline,
+        command_timeout_seconds=limits["command_timeout_seconds"],
+        termination_grace_seconds=limits["termination_grace_seconds"],
+    )
+    if worktree_changed_files(workspace):
+        raise FactoryError("optimization baseline commands mutated repository files")
+    if repository_fingerprint(workspace, contract["forbidden_files"]) != protected:
+        raise FactoryError("optimization baseline changed protected evaluator or case data")
+
+    repo = Path(state["repo"])
+    base = git(workspace, "rev-parse", "HEAD")
+    incumbent = base
+    incumbent_score = baseline_score
+    history: list[dict[str, Any]] = []
+    candidate_agent_receipts: list[dict[str, Any]] = []
+    consecutive_non_keeps = 0
+    invalid_evaluation = False
+
+    for number in range(1, contract["max_candidates"] + 1):
+        if consecutive_non_keeps >= contract["max_consecutive_non_keeps"]:
+            break
+        candidate_id = f"c{number}"
+        candidate_path = run / "worktrees" / f"optimization-{role_prefix.replace(':', '-')}-{candidate_id}"
+        if candidate_path.exists():
+            raise FactoryError(f"optimization candidate worktree already exists: {candidate_path}")
+        git(repo, "worktree", "add", "--detach", str(candidate_path), incumbent)
+        try:
+            candidate_agent = {
+                **agent,
+                "timeout_seconds": remaining_timeout(),
+            }
+            receipt = invoke_agent(
+                run,
+                state,
+                candidate_agent,
+                f"{role_prefix}:{candidate_id}",
+                candidate_path,
+                {
+                    "request": state["request"],
+                    "plan": state["plan"],
+                    "tasks": tasks,
+                    "evidence": evidence_spec,
+                    "repository_intelligence": state.get("repository_intelligence"),
+                    "project_memory": durable_project_memory(run),
+                    "optimization_iteration": {
+                        "candidate_id": candidate_id,
+                        "baseline_score": baseline_score,
+                        "incumbent_score": incumbent_score,
+                        "history": history,
+                        "remaining_candidates": contract["max_candidates"] - number + 1,
+                    },
+                },
+                limits,
+            )
+            candidate_agent_receipts.append(receipt)
+            output = receipt["output"]
+            if (
+                receipt["status"] != "passed"
+                or not isinstance(output, dict)
+                or output.get("status") != "pass"
+                or not output.get("checks")
+                or not isinstance(output.get("changed_files"), list)
+            ):
+                raise FactoryError(
+                    f"optimization candidate {candidate_id} did not return a passing receipt"
+                )
+            hypothesis = validate_optimization_candidate(output, candidate_id)
+            git(candidate_path, "add", "-A")
+            actual = staged_files(candidate_path)
+            validate_lane_changes(OPTIMIZATION_OWNER, tasks, actual)
+            if sorted(output["changed_files"]) != actual:
+                raise FactoryError(
+                    f"optimization candidate {candidate_id} changed-file receipt does not match Git"
+                )
+            before_checks = staged_change_digest(candidate_path)
+            if repository_fingerprint(candidate_path, contract["forbidden_files"]) != protected:
+                raise FactoryError(
+                    f"optimization candidate {candidate_id} changed protected evaluator or case data"
+                )
+            evaluation = run_commands_before_deadline(
+                candidate_path,
+                contract["development_commands"],
+                f"optimization candidate {candidate_id}",
+                raise_on_failure=False,
+                deadline=deadline,
+                command_timeout_seconds=limits["command_timeout_seconds"],
+                termination_grace_seconds=limits["termination_grace_seconds"],
+            )
+            gates = run_commands_before_deadline(
+                candidate_path,
+                contract["preservation_commands"],
+                f"optimization candidate {candidate_id} preservation",
+                raise_on_failure=False,
+                deadline=deadline,
+                command_timeout_seconds=limits["command_timeout_seconds"],
+                termination_grace_seconds=limits["termination_grace_seconds"],
+            )
+            git(candidate_path, "add", "-A")
+            if (
+                staged_files(candidate_path) != actual
+                or staged_change_digest(candidate_path) != before_checks
+                or repository_fingerprint(candidate_path, contract["forbidden_files"]) != protected
+            ):
+                raise FactoryError(
+                    f"optimization evaluation for {candidate_id} mutated repository files"
+                )
+            score: float | None = None
+            status = "invalid_eval"
+            if all(item["passed"] for item in evaluation):
+                score = metric_score_from_receipts(evaluation, contract)
+                if all(item["passed"] for item in gates):
+                    gain = optimization_gain(contract, incumbent_score, score)
+                    status = (
+                        "keep"
+                        if gain >= float(contract["metric"]["minimum_gain"])
+                        else "discard"
+                    )
+                else:
+                    status = "gate_failed"
+            history.append(
+                {
+                    "id": candidate_id,
+                    "hypothesis": hypothesis,
+                    "score": score,
+                    "status": status,
+                    "gates_passed": all(item["passed"] for item in gates),
+                    "evaluation": evaluation,
+                    "preservation": gates,
+                }
+            )
+            target_reached = False
+            if status == "keep":
+                git(candidate_path, "commit", "-m", f"factory(optimization): keep {candidate_id}")
+                incumbent = git(candidate_path, "rev-parse", "HEAD")
+                incumbent_score = float(score)
+                consecutive_non_keeps = 0
+                target_reached = optimization_target_reached(contract, incumbent_score)
+            else:
+                consecutive_non_keeps += 1
+                if status == "invalid_eval":
+                    invalid_evaluation = True
+            atomic_json(
+                attempt_path,
+                {
+                    "schema": "pi-graph-factory.optimization-attempt.v1",
+                    "status": "searching",
+                    "evaluation_version": contract["evaluation_version"],
+                    "baseline_score": baseline_score,
+                    "incumbent": incumbent,
+                    "incumbent_score": incumbent_score,
+                    "history": history,
+                    "updated_at": now(),
+                },
+            )
+            if target_reached or invalid_evaluation:
+                break
+        finally:
+            git(repo, "worktree", "remove", "--force", str(candidate_path), check=False)
+
+    if invalid_evaluation:
+        raise FactoryError("optimization stopped because the frozen evaluation failed")
+    if incumbent == base:
+        raise FactoryError("optimization produced no gate-clearing candidate above minimum gain")
+    total_gain = optimization_gain(contract, baseline_score, incumbent_score)
+    if total_gain < float(contract["metric"]["minimum_gain"]):
+        raise FactoryError("optimization incumbent did not improve on the untouched baseline")
+    promotion_path = run / "worktrees" / f"optimization-{role_prefix.replace(':', '-')}-promotion"
+    promotion_consumed_path = run / "optimization" / "promotion-consumed.json"
+    if promotion_consumed_path.exists():
+        raise FactoryError(
+            "optimization promotion was already consumed for this approved run; "
+            "a repair requires human approval and a new evaluation version"
+        )
+    if promotion_path.exists():
+        raise FactoryError(f"optimization promotion worktree already exists: {promotion_path}")
+    git(repo, "worktree", "add", "--detach", str(promotion_path), incumbent)
+    try:
+        atomic_json(
+            attempt_path,
+            {
+                "schema": "pi-graph-factory.optimization-attempt.v1",
+                "status": "promotion_reserved",
+                "evaluation_version": contract["evaluation_version"],
+                "baseline_score": baseline_score,
+                "incumbent": incumbent,
+                "incumbent_score": incumbent_score,
+                "history": history,
+                "reserved_at": now(),
+            },
+        )
+        atomic_json(
+            promotion_consumed_path,
+            {
+                "schema": "pi-graph-factory.promotion-consumed.v1",
+                "status": "reserved",
+                "evaluation_version": contract["evaluation_version"],
+                "attempt": attempt_id,
+                "incumbent": incumbent,
+                "reserved_at": now(),
+            },
+        )
+        promotion = run_commands_before_deadline(
+            promotion_path,
+            contract["promotion_commands"],
+            "optimization one-time promotion",
+            deadline=deadline,
+            command_timeout_seconds=limits["command_timeout_seconds"],
+            termination_grace_seconds=limits["termination_grace_seconds"],
+        )
+        if (
+            worktree_changed_files(promotion_path)
+            or repository_fingerprint(promotion_path, contract["forbidden_files"]) != protected
+        ):
+            raise FactoryError("optimization promotion mutated repository or protected files")
+        atomic_json(
+            attempt_path,
+            {
+                "schema": "pi-graph-factory.optimization-attempt.v1",
+                "status": "promotion_passed",
+                "evaluation_version": contract["evaluation_version"],
+                "baseline_score": baseline_score,
+                "incumbent": incumbent,
+                "incumbent_score": incumbent_score,
+                "history": history,
+                "promotion": promotion,
+                "completed_at": now(),
+            },
+        )
+        atomic_json(
+            promotion_consumed_path,
+            {
+                "schema": "pi-graph-factory.promotion-consumed.v1",
+                "status": "passed",
+                "evaluation_version": contract["evaluation_version"],
+                "attempt": attempt_id,
+                "incumbent": incumbent,
+                "promotion": promotion,
+                "completed_at": now(),
+            },
+        )
+    finally:
+        git(repo, "worktree", "remove", "--force", str(promotion_path), check=False)
+
+    apply_commit_diff(workspace, base, incumbent)
+    actual = staged_files(workspace)
+    validate_lane_changes(OPTIMIZATION_OWNER, tasks, actual)
+    promoted_digest = staged_change_digest(workspace)
+    if time.monotonic() > deadline:
+        raise FactoryError("optimization exhausted its approved wall-time budget")
+
+    elapsed_seconds = time.monotonic() - started
+    if elapsed_seconds > contract["max_seconds"]:
+        raise FactoryError("optimization exhausted its approved wall-time budget")
+    output: dict[str, Any] = {
+        "status": "pass",
+        "changed_files": actual,
+        "checks": promotion,
+        "summary": "controller-scored bounded search promoted the best verified incumbent",
+        "optimization": {
+            "schema": "pi-graph-factory.optimization-receipt.v1",
+            "evaluation_version": contract["evaluation_version"],
+            "baseline_score": baseline_score,
+            "final_score": incumbent_score,
+            "gain": total_gain,
+            "decision": "promoted",
+            "protected_fingerprint": protected,
+            "artifact_fingerprint": "sha256:" + promoted_digest,
+            "candidates": history,
+            "promotion": promotion,
+            "elapsed_seconds": elapsed_seconds,
+        },
+    }
+    if addressed is not None:
+        output["addressed"] = addressed
+    atomic_json(
+        attempt_path,
+        {
+            "schema": "pi-graph-factory.optimization-attempt.v1",
+            "status": "completed",
+            "evaluation_version": contract["evaluation_version"],
+            "output": output,
+            "completed_at": now(),
+        },
+    )
+    return {
+        "status": "passed",
+        "harness": agent["harness"],
+        "model": agent["model"],
+        "role": role_prefix,
+        "output": output,
+        "usage": aggregate_agent_usage(candidate_agent_receipts),
+        "observed_at": now(),
+        "controller_owned": True,
+        "baseline": {"evaluation": baseline_receipts, "preservation": baseline_gates},
+    }
+
+
 def execute_lane(
     run: Path,
     state: dict[str, Any],
@@ -1345,6 +2207,27 @@ def execute_lane(
     limits: dict[str, Any],
     evidence_spec: dict[str, Any],
 ) -> dict[str, Any]:
+    if owner == OPTIMIZATION_OWNER:
+        receipt = run_optimization_search(
+            run,
+            state,
+            agent,
+            tasks,
+            workspace,
+            limits,
+            evidence_spec,
+        )
+        validate_controller_optimization_receipt(
+            receipt["output"], state["plan"]["optimization"]
+        )
+        commit = commit_lane(workspace, owner)
+        receipt["output"]["optimization"]["commit"] = commit
+        receipt["receipt_sha256"] = digest_json(receipt)
+        atomic_json(
+            run / "receipts" / f"agent-implement-optimization-{receipt['receipt_sha256'][:12]}.json",
+            receipt,
+        )
+        return {"owner": owner, "branch": branch, "commit": commit, "receipt": receipt}
     receipt = invoke_agent(
         run,
         state,
@@ -1390,7 +2273,16 @@ def execute_lane(
             f"implementation acceptance for {owner} mutated repository files; "
             "acceptance commands must be read-only predicates"
         )
-    receipt["verification"] = {"changed_files": actual, "acceptance": acceptance}
+    prompt_evaluation = (
+        validate_prompt_evaluation(acceptance, state["plan"]["prompt_contract"])
+        if owner == PROMPT_OWNER
+        else None
+    )
+    receipt["verification"] = {
+        "changed_files": actual,
+        "acceptance": acceptance,
+        "prompt_evaluation": prompt_evaluation,
+    }
     commit = commit_lane(workspace, owner)
     return {"owner": owner, "branch": branch, "commit": commit, "receipt": receipt}
 
@@ -1730,6 +2622,10 @@ def recover_committed_repairs(
             or set(output.get("addressed", [])) != expected_issues
         ):
             raise FactoryError(f"resume found an invalid repair receipt for {owner}")
+        if owner == OPTIMIZATION_OWNER:
+            validate_controller_optimization_receipt(
+                output, state["plan"]["optimization"], commit=commit
+            )
         before = worktree_changed_files(integration)
         acceptance = run_commands(
             integration,
@@ -1742,10 +2638,16 @@ def recover_committed_repairs(
             raise FactoryError(
                 f"recovered repair acceptance for {owner} mutated repository files"
             )
+        prompt_evaluation = (
+            validate_prompt_evaluation(acceptance, state["plan"]["prompt_contract"])
+            if owner == PROMPT_OWNER
+            else None
+        )
         receipt["verification"] = {
             "owner": owner,
             "changed_files": actual,
             "acceptance": acceptance,
+            "prompt_evaluation": prompt_evaluation,
             "commit": commit,
             "recovered": True,
         }
@@ -1788,6 +2690,13 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
     for owner, owned in grouped.items():
         if owner in completed_owners:
             continue
+        if owner == OPTIMIZATION_OWNER and (
+            run / "optimization" / "promotion-consumed.json"
+        ).exists():
+            raise FactoryError(
+                "optimization repair cannot reuse consumed promotion; "
+                "human approval and a new evaluation version are required"
+            )
         enforce_dispatch_limits(state, config["limits"], f"repair:{cycle}:{owner}")
         tasks = [task for task in state["plan"]["tasks"] if task["owner"] == owner]
         expected_issues = {issue["id"] for issue in owned}
@@ -1820,15 +2729,28 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
             if attempt == 2:
                 agent = {**agent, "skills": [], "tools": ["read"]}
                 role += ":protocol-correction"
-            receipt = invoke_agent(
-                run,
-                state,
-                agent,
-                role,
-                integration,
-                repair_context,
-                config["limits"],
-            )
+            if owner == OPTIMIZATION_OWNER:
+                receipt = run_optimization_search(
+                    run,
+                    state,
+                    agents[owner],
+                    tasks,
+                    integration,
+                    config["limits"],
+                    config["evidence"],
+                    role_prefix=role,
+                    addressed=sorted(expected_issues),
+                )
+            else:
+                receipt = invoke_agent(
+                    run,
+                    state,
+                    agent,
+                    role,
+                    integration,
+                    repair_context,
+                    config["limits"],
+                )
             record_usage(state, receipt)
             atomic_json(
                 run / "receipts" / f"repair-{cycle}-{owner}-attempt-{attempt}.json",
@@ -1842,6 +2764,10 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
                 or not output.get("checks")
             ):
                 raise FactoryError(f"repair agent {owner} did not return passing checks")
+            if owner == OPTIMIZATION_OWNER:
+                validate_controller_optimization_receipt(
+                    output, state["plan"]["optimization"]
+                )
             addressed = output.get("addressed")
             validation_error = None
             if not isinstance(addressed, list) or set(addressed) != expected_issues:
@@ -1859,6 +2785,8 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
                     "validation_error": validation_error,
                 },
             )
+            if owner == OPTIMIZATION_OWNER and validation_error is not None:
+                raise FactoryError(validation_error)
             if validation_error is None:
                 break
             git(integration, "add", "-A")
@@ -1903,16 +2831,30 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
                 f"repair acceptance for {owner} mutated repository files; "
                 "acceptance commands must be read-only predicates"
             )
+        prompt_evaluation = (
+            validate_prompt_evaluation(acceptance, state["plan"]["prompt_contract"])
+            if owner == PROMPT_OWNER
+            else None
+        )
         receipt["verification"] = {
             "owner": owner,
             "changed_files": actual,
             "acceptance": acceptance,
+            "prompt_evaluation": prompt_evaluation,
         }
         git(integration, "commit", "-m", f"factory: repair cycle {cycle} ({owner})")
+        repair_commit = git(integration, "rev-parse", "HEAD")
+        if owner == OPTIMIZATION_OWNER:
+            receipt["output"]["optimization"]["commit"] = repair_commit
+            receipt["receipt_sha256"] = digest_json(receipt)
+            atomic_json(
+                run / "receipts" / f"repair-{cycle}-{owner}-attempt-1.json",
+                receipt,
+            )
         receipts.append(receipt)
         if cycle_record is not None:
             cycle_record["repairs"] = receipts
-            state["integration"]["commit"] = git(integration, "rev-parse", "HEAD")
+            state["integration"]["commit"] = repair_commit
             state.pop("operation", None)
             save_state(
                 run,
@@ -2171,6 +3113,10 @@ def recover_committed_lane(
         or sorted(output.get("changed_files", [])) != actual
     ):
         raise FactoryError(f"resume found an invalid durable receipt for committed lane {owner}")
+    if owner == OPTIMIZATION_OWNER:
+        validate_controller_optimization_receipt(
+            output, state["plan"]["optimization"], commit=head
+        )
     acceptance = run_commands(
         workspace,
         acceptance_for_tasks(tasks),
@@ -2180,10 +3126,16 @@ def recover_committed_lane(
     )
     if worktree_changed_files(workspace):
         raise FactoryError(f"recovered acceptance for {owner} mutated repository files")
+    prompt_evaluation = (
+        validate_prompt_evaluation(acceptance, state["plan"]["prompt_contract"])
+        if owner == PROMPT_OWNER
+        else None
+    )
     receipt["verification"] = {
         "owner": owner,
         "changed_files": actual,
         "acceptance": acceptance,
+        "prompt_evaluation": prompt_evaluation,
         "recovered": True,
     }
     return {"owner": owner, "branch": branch, "commit": head, "receipt": receipt}
@@ -2319,6 +3271,34 @@ def continue_review(
     repo: Path,
     integration_path: Path,
 ) -> dict[str, Any]:
+    def optimization_reapproval(review: dict[str, Any], cycle: int) -> dict[str, Any] | None:
+        if not any(issue.get("owner") == OPTIMIZATION_OWNER for issue in review["issues"]):
+            return None
+        marker = run / "optimization" / "promotion-consumed.json"
+        if not marker.exists():
+            return None
+        state["phase"] = "human_required"
+        state["final_review"] = review
+        save_state(
+            run,
+            state,
+            "optimization_reapproval_required",
+            {
+                "cycle": cycle,
+                "evaluation_version": state["plan"]["optimization"]["evaluation_version"],
+                "reason": "promotion evidence is single-use",
+            },
+        )
+        return {
+            "ok": False,
+            "phase": state["phase"],
+            "run": str(run),
+            "cycles": cycle,
+            "issues": review["issues"],
+            "reason": "optimization repair needs a newly approved evaluation version",
+            "usage": state["usage"],
+        }
+
     final_evidence = None
     final_review = None
     start_cycle = 1
@@ -2336,6 +3316,9 @@ def continue_review(
                     "cycles": cycle, "issues": last_cycle["review"]["issues"],
                     "usage": state["usage"]}
         else:
+            reapproval = optimization_reapproval(last_cycle["review"], cycle)
+            if reapproval is not None:
+                return reapproval
             last_cycle["repairs"] = run_repair(
                 run,
                 state,
@@ -2447,6 +3430,9 @@ def continue_review(
             save_state(run, state, "repair_budget_exhausted", {"cycles": cycle})
             return {"ok": False, "phase": state["phase"], "run": str(run),
                     "cycles": cycle, "issues": review["issues"], "usage": state["usage"]}
+        reapproval = optimization_reapproval(review, cycle)
+        if reapproval is not None:
+            return reapproval
         cycle_record["repairs"] = run_repair(
             run, state, config, integration_path, cycle, review["issues"], cycle_record
         )

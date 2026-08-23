@@ -22,6 +22,14 @@ for any individual run.
 - Read `VISION.md` and `FEATURE_MAP.md` as durable project decision context.
 - Generate versioned plans with research, assumptions, success criteria, ownership,
   executable acceptance, proportional proof, risks, and genuinely blocking questions.
+- Require optimization-shaped plans to freeze the objective, evaluation version,
+  exact mutable/forbidden surfaces, metric and minimum gain, development,
+  preservation, controller-only promotion commands, candidate/plateau/wall-time
+  budgets, and stop conditions.
+- Require prompt-owned plans to freeze runtime, authority, untrusted inputs,
+  schema, abstention, host enforcement, executable evaluation, and six required
+  normal/failure/adversarial case kinds; parse typed command receipts that prove
+  every declared case passed.
 - Independently judge generated plans with the `plan-quality-v1` rubric, revise below
   8.5/10, and stop after three unsuccessful quality cycles.
 - Require explicit SHA-256 approval of the exact final plan.
@@ -29,8 +37,9 @@ for any individual run.
 ## Implementation and integration
 
 - Dispatch one to ten configured Pi, Claude Code, or Codex implementers concurrently.
-- Provide product, UI-design, and copywriting specialists by default; launch only
-  owners present in the approved plan and permit additional configured specialists.
+- Provide product, UI-design, copywriting, prompt-engineering, and optimization
+  specialists by default; launch only owners present in the approved plan and
+  permit additional configured specialists.
 - Isolate initial owner work in Git branches and worktrees.
 - Reject overlapping planned scopes and actual out-of-scope or unsafe staged files.
 - Execute approved task checks and integrate passing lane commits deterministically.
@@ -45,6 +54,18 @@ for any individual run.
   repository, lifecycle, and promotional messaging. Product/UI owners use it
   for copy embedded in their files; independent copy files route to `copy`.
 - Keep external copy publication behind an explicit delivery command or edge adapter.
+- Treat prompts as executable interfaces with controller-validated truth, trust,
+  tool, typed output, failure, abstention, and evaluation contracts.
+- Run measured optimization inside one owner lane while the controller creates
+  a fresh detached worktree per candidate, scores the untouched baseline and
+  every mutation, keeps/discards, enforces finite budgets, and runs promotion
+  once. No second lifecycle is introduced.
+- Reserve generic optimization attempts durably; interrupted search refuses
+  candidate or promotion replay instead of guessing, while `piw optimize`
+  remains the crash-resumable route for Pi Graph workflows.
+- Consume promotion once per approved run. An optimization-owned review failure
+  escalates for a new evaluation version and plan approval instead of reusing
+  promotion evidence during automatic repair.
 
 ## Proof and review
 
@@ -52,6 +73,10 @@ for any individual run.
 - Capture declared screenshots, video, and browser artifacts on the integrated commit.
 - Bind proof hashes to the current commit and approved plan.
 - Require an independent read-only review to account for every success criterion.
+- Generate optimization receipts from controller observations: evaluation
+  version, finite scores, protected/artifact SHA-256 fingerprints, bounded
+  candidate history, kept-candidate gain, and one passing promotion run. Rerun
+  preservation—but not promotion—as integrated acceptance.
 - Review the integrated diff for concrete deletable abstractions, wrappers,
   dependencies, and speculative flexibility without weakening correctness or safety.
 - Route concrete failures to the named owner and exact approved target files.
