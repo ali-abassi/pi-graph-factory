@@ -38,6 +38,29 @@ def pi_output(stream: str) -> tuple[str, dict]:
                   "cost": (usage.get("cost") or {}).get("total")}
 
 
+def decode_output(raw: str) -> tuple[str, object]:
+    """Keep malformed model output typed so bounded controller retries can run."""
+
+    try:
+        return "passed", json.loads(raw)
+    except ValueError:
+        stripped = raw.strip()
+        for opening in ("```json", "```JSON", "```"):
+            if not stripped.startswith(opening):
+                continue
+            candidate = stripped[len(opening):].lstrip()
+            if candidate.endswith("```"):
+                candidate = candidate[:-3].rstrip()
+            try:
+                return "passed", json.loads(candidate)
+            except ValueError:
+                break
+        return "invalid", {
+            "error": "model response was not a JSON object",
+            "raw_excerpt": raw[-4000:],
+        }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--role", required=True)
@@ -72,12 +95,8 @@ def main() -> int:
     raw = result.stdout.strip()
     if args.harness == "pi":
         raw, usage = pi_output(raw)
-    try:
-        output = json.loads(raw)
-    except ValueError:
-        print(f"{args.harness} did not return the required JSON object", file=sys.stderr)
-        return 2
-    receipt = {"status": "passed", "harness": args.harness, "model": args.model,
+    status, output = decode_output(raw)
+    receipt = {"status": status, "harness": args.harness, "model": args.model,
                "role": args.role, "output": output, "usage": usage,
                "raw_sha256": hashlib.sha256(raw.encode()).hexdigest()}
     print(json.dumps(receipt, separators=(",", ":")))

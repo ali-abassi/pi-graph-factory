@@ -10,6 +10,8 @@ from pathlib import Path
 
 import yaml
 
+from scripts.factory import FactoryError, review_output
+
 
 ROOT = Path(__file__).resolve().parents[1]
 FACTORY = ROOT / "scripts" / "factory.py"
@@ -130,6 +132,74 @@ class FactoryTraceabilityTests(unittest.TestCase):
             [item["id"] for item in state["final_review"]["criteria"]],
             ["SC-1", "SC-2"],
         )
+
+    def test_versioned_review_issue_requires_exact_target_files(self) -> None:
+        plan = self.plan_value()
+        receipt = {
+            "output": {
+                "verdict": "repair",
+                "issues": [{
+                    "id": "FIX-1",
+                    "owner": "product",
+                    "criterion_id": "SC-1",
+                    "message": "app.txt is incomplete",
+                }],
+                "evidence": ["current-evidence"],
+                "criteria": [
+                    {"id": "SC-1", "status": "fail", "evidence": "app.txt is incomplete"},
+                    {"id": "SC-2", "status": "pass", "evidence": "proof exists"},
+                ],
+            }
+        }
+        with self.assertRaisesRegex(FactoryError, "target_files"):
+            review_output(receipt, {"sha256": "current-evidence"}, plan)
+        receipt["output"]["issues"][0]["target_files"] = [{"path": "app.txt"}]
+        with self.assertRaisesRegex(FactoryError, "exact repository-relative paths"):
+            review_output(receipt, {"sha256": "current-evidence"}, plan)
+
+    def test_versioned_review_issue_targets_must_belong_to_routed_owner(self) -> None:
+        plan = {
+            "version": 1,
+            "summary": "Build a two-lane application",
+            "success_criteria": [{"id": "SC-1", "description": "Validation agrees."}],
+            "tasks": [
+                {
+                    "id": "backend",
+                    "owner": "backend",
+                    "files": ["deploy_gate.py"],
+                    "acceptance": ["test -s deploy_gate.py"],
+                },
+                {
+                    "id": "frontend",
+                    "owner": "frontend",
+                    "files": ["web/**"],
+                    "acceptance": ["test -s web/app.js"],
+                },
+            ],
+            "acceptance": ["test -s deploy_gate.py", "test -s web/app.js"],
+            "risks": [],
+            "open_questions": [],
+        }
+        receipt = {
+            "output": {
+                "verdict": "repair",
+                "issues": [{
+                    "id": "FIX-1",
+                    "owner": "backend",
+                    "criterion_id": "SC-1",
+                    "target_files": ["web/app.js"],
+                    "message": "Frontend validation accepts a version the backend rejects.",
+                }],
+                "evidence": ["current-evidence"],
+                "criteria": [{
+                    "id": "SC-1",
+                    "status": "fail",
+                    "evidence": "web/app.js and deploy_gate.py disagree",
+                }],
+            }
+        }
+        with self.assertRaisesRegex(FactoryError, "outside routed owner backend scope"):
+            review_output(receipt, {"sha256": "current-evidence"}, plan)
 
 
 if __name__ == "__main__":

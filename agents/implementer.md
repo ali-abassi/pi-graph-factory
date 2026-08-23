@@ -35,6 +35,18 @@ Return one JSON object and no prose:
 {"status":"pass","changed_files":["relative/path"],"checks":[{"command":"...","passed":true,"evidence":"concise observed result"}],"summary":"what changed and why"}
 ```
 
+When the context contains review `issues`, this is a repair. Return the same
+object with `addressed`: the exact complete list of assigned issue ids:
+
+```json
+{"status":"pass","addressed":["FIX-1"],"changed_files":["relative/path"],"checks":[{"command":"...","passed":true,"evidence":"concise observed result"}],"summary":"what changed and why"}
+```
+
+When the context also contains `controller_validation_error`, the code change
+is already complete and only the receipt was invalid. Do not edit, create,
+delete, stage, or commit files. Return one corrected repair receipt including
+the exact `addressed` ids.
+
 If implementation or a required check cannot pass, return the same shape with
 `"status":"blocked"`; the controller will stop rather than accepting partial
 work.

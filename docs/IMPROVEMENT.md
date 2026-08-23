@@ -167,3 +167,43 @@
 - **Promotion rule:** one malformed citation followed by a corrected complete
   review succeeds; two malformed attempts fail closed; all prior tests and
   security/graph gates pass; then repeat the clean complex live case.
+
+## Routing and adapter protocol climb v9
+
+- **Trigger:** the v8 complex reviewer correctly identified a frontend/backend
+  contract mismatch but routed it to the backend despite naming `web/app.js` as
+  the defective file. A later high-reasoning planner returned a complete plan
+  inside a JSON fence, which the provider adapter discarded before the
+  controller's existing correction path could run.
+- **Candidate:** every version 1 issue names exact repository-relative
+  `target_files`; each must match the routed owner's approved patterns. Pi model
+  output becomes a usage-bearing typed invalid receipt when it is not JSON; one
+  JSON code fence is normalized, arbitrary surrounding prose remains invalid,
+  and planner validation keeps its existing two-attempt ceiling.
+- **Result:** the frozen wrong-owner and missing-target challenges improved from
+  0/2 to 2/2. The live fenced plan then completed on its first controller
+  attempt, preserved exact approval, and launched three correctly isolated
+  lanes.
+
+## Repair receipt protocol climb v10
+
+- **Trigger:** a complex release repair produced valid screenshots, WebM, and
+  an all-true browser receipt, but its typed response omitted `addressed`; the
+  controller correctly refused to infer accountability. The public implementer
+  prompt showed only the initial implementation shape and never documented the
+  field the controller required.
+- **Candidate:** a structurally passing repair with wrong `addressed` ids gets
+  one receipt-only correction using read tools. The already-produced staged
+  diff is scope-validated and fingerprinted before that call; any file mutation
+  or second invalid receipt fails closed. The implementer instructions now give
+  exact initial-repair and receipt-correction shapes.
+- **Result:** the deterministic recovery and mutation challenges both pass; all
+  54 repository tests pass. A focused existing-repository bug-fix run integrated
+  strict backend/frontend validation and generated valid commit-bound proof.
+  Its reviewer then found whitespace validation drift and incomplete network
+  history coverage. The repair fixed the frontend files but repeated the
+  prompt-driven receipt omission twice, so the pre-prompt-fix live run stopped
+  safely. No complex live `merge_ready` claim is made.
+- **Simplicity boundary:** no resume engine, queue, extra review vote, inferred
+  issue completion, or relaxed evidence rule was added. Interrupted live runs
+  remain inspectable refusals and automatic merge remains off.

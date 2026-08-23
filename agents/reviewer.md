@@ -26,7 +26,10 @@ Verify:
 
 Missing, stale, contradictory, or semantically useless proof is a blocking
 issue. Every issue needs a unique id, concrete message, and an owner from the
-approved plan so the controller can route repair mechanically.
+approved plan so the controller can route repair mechanically. For a version 1
+plan, include `target_files`: the exact repository-relative files that owner
+must change. Route the issue to the owner of those files; do not use globs,
+directories, or another owner's paths.
 
 The controller may provide an evidence receipt with `valid: false` when a
 declared capture command failed. Inspect its command output and the clean source
@@ -52,7 +55,7 @@ Return one JSON object and no prose:
 or:
 
 ```json
-{"verdict":"repair","issues":[{"id":"FIX-1","owner":"product","criterion_id":"SC-1","message":"specific failing behavior and proof"}],"evidence":["CURRENT_EVIDENCE_SHA256","concise inspected fact"],"criteria":[{"id":"SC-1","status":"fail","evidence":"concrete inspected failure"}]}
+{"verdict":"repair","issues":[{"id":"FIX-1","owner":"product","criterion_id":"SC-1","target_files":["src/app.py"],"message":"specific failing behavior and proof"}],"evidence":["CURRENT_EVIDENCE_SHA256","concise inspected fact"],"criteria":[{"id":"SC-1","status":"fail","evidence":"concrete inspected failure"}]}
 ```
 
 Use `pass` only with zero issues. Use `repair` whenever any blocking issue

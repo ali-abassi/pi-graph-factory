@@ -1016,6 +1016,7 @@ def review_output(
         raise FactoryError("repair verdict requires issues")
     failed_criteria: set[str] = set()
     approved_criterion_ids: set[str] = set()
+    owner_patterns: dict[str, list[str]] = {}
     if plan.get("version") == 1:
         expected = [item["id"] for item in plan["success_criteria"]]
         criteria = output.get("criteria")
@@ -1036,6 +1037,8 @@ def review_output(
                 failed_criteria.add(item["id"])
         if output["verdict"] == "pass" and failed_criteria:
             raise FactoryError("reviewer cannot pass with failed success criteria")
+        for task in plan["tasks"]:
+            owner_patterns.setdefault(task["owner"], []).extend(task["files"])
     issue_ids: set[str] = set()
     cited_failed_criteria: set[str] = set()
     for issue in output["issues"]:
@@ -1050,6 +1053,38 @@ def review_output(
             if criterion_id not in approved_criterion_ids:
                 raise FactoryError(f"review issue cites unknown success criterion: {criterion_id!r}")
             cited_failed_criteria.add(criterion_id)
+        if plan.get("version") == 1:
+            target_files = issue.get("target_files")
+            if not isinstance(target_files, list) or not target_files:
+                raise FactoryError("every version 1 review issue needs target_files")
+            if not all(isinstance(target, str) for target in target_files):
+                raise FactoryError(
+                    "review issue target_files must be exact repository-relative paths"
+                )
+            if len(set(target_files)) != len(target_files):
+                raise FactoryError("review issue target_files must be unique")
+            for target in target_files:
+                normalized = target.replace("\\", "/")
+                if (
+                    not normalized
+                    or normalized != target
+                    or normalized.startswith("/")
+                    or GLOB_MAGIC.search(normalized)
+                    or any(part in {"", ".", ".."} for part in normalized.split("/"))
+                ):
+                    raise FactoryError(
+                        "review issue target_files must be exact repository-relative paths"
+                    )
+            owner = issue.get("owner")
+            patterns = owner_patterns.get(owner)
+            if not patterns:
+                raise FactoryError(f"review issue has unknown owner: {owner!r}")
+            outside = [target for target in target_files if not matches_scope(target, patterns)]
+            if outside:
+                raise FactoryError(
+                    f"review issue target_files outside routed owner {owner} scope: "
+                    + ", ".join(outside)
+                )
         issue_ids.add(issue["id"])
     if failed_criteria - cited_failed_criteria:
         raise FactoryError("every failed success criterion requires a routed review issue")
@@ -1069,24 +1104,89 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
     for owner, owned in grouped.items():
         enforce_dispatch_limits(state, config["limits"], f"repair:{cycle}:{owner}")
         tasks = [task for task in state["plan"]["tasks"] if task["owner"] == owner]
-        receipt = invoke_agent(run, state, agents[owner], f"repair:{cycle}:{owner}", integration,
-                               {"request": state["request"], "plan": state["plan"],
-                                "issues": owned, "cycle": cycle},
-                               config["limits"])
-        record_usage(state, receipt)
-        output = receipt["output"]
-        if (
-            receipt["status"] != "passed"
-            or not isinstance(output, dict)
-            or output.get("status") != "pass"
-            or not output.get("checks")
-        ):
-            raise FactoryError(f"repair agent {owner} did not return passing checks")
         expected_issues = {issue["id"] for issue in owned}
-        if set(output.get("addressed", [])) != expected_issues:
-            raise FactoryError(f"repair agent {owner} did not address exactly its assigned issues")
+        repair_context = {
+            "request": state["request"],
+            "plan": state["plan"],
+            "issues": owned,
+            "cycle": cycle,
+        }
+        receipt = None
+        correction_files: list[str] | None = None
+        correction_digest: str | None = None
+        for attempt in range(1, 3):
+            agent = agents[owner]
+            role = f"repair:{cycle}:{owner}"
+            if attempt == 2:
+                agent = {**agent, "skills": [], "tools": ["read"]}
+                role += ":protocol-correction"
+            receipt = invoke_agent(
+                run,
+                state,
+                agent,
+                role,
+                integration,
+                repair_context,
+                config["limits"],
+            )
+            record_usage(state, receipt)
+            atomic_json(
+                run / "receipts" / f"repair-{cycle}-{owner}-attempt-{attempt}.json",
+                receipt,
+            )
+            output = receipt["output"]
+            if (
+                receipt["status"] != "passed"
+                or not isinstance(output, dict)
+                or output.get("status") != "pass"
+                or not output.get("checks")
+            ):
+                raise FactoryError(f"repair agent {owner} did not return passing checks")
+            addressed = output.get("addressed")
+            validation_error = None
+            if not isinstance(addressed, list) or set(addressed) != expected_issues:
+                validation_error = (
+                    f"repair agent {owner} did not address exactly its assigned issues"
+                )
+            save_state(
+                run,
+                state,
+                "repair_protocol_attempt_completed",
+                {
+                    "cycle": cycle,
+                    "owner": owner,
+                    "attempt": attempt,
+                    "validation_error": validation_error,
+                },
+            )
+            if validation_error is None:
+                break
+            git(integration, "add", "-A")
+            current_files = staged_files(integration)
+            validate_lane_changes(owner, tasks, current_files)
+            if attempt == 2:
+                raise FactoryError(validation_error)
+            correction_files = current_files
+            correction_digest = staged_change_digest(integration)
+            repair_context = {
+                **repair_context,
+                "previous_invalid_receipt": output,
+                "controller_validation_error": validation_error,
+                "repair_instruction": (
+                    "Return a complete corrected receipt for work already performed. "
+                    "Do not edit, create, delete, stage, or commit any file."
+                ),
+            }
+        if receipt is None:
+            raise FactoryError(f"repair agent {owner} ended without a typed receipt")
         git(integration, "add", "-A")
         actual = staged_files(integration)
+        if correction_files is not None and (
+            actual != correction_files or staged_change_digest(integration) != correction_digest
+        ):
+            raise FactoryError(
+                f"repair receipt correction for {owner} mutated repository files"
+            )
         validate_lane_changes(owner, tasks, actual)
         before_acceptance = staged_change_digest(integration)
         acceptance = run_commands(

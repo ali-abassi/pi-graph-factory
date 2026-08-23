@@ -164,7 +164,9 @@ cycle.
 Version 1 plans make approved outcomes explicit. The reviewer must return one
 pass/fail entry with concrete inspected evidence for every success criterion in
 the original order; missing, duplicate, unknown, or failed-but-unrouted criteria
-cannot authorize merge. Unversioned plan files remain accepted only for legacy
+cannot authorize merge. Each issue must name exact `target_files` inside its
+routed owner's approved scope, preventing a valid-looking issue from dispatching
+the wrong lane. Unversioned plan files remain accepted only for legacy
 compatibility. Generated plans always use version 1.
 
 Plan commands are executable code. Approval therefore means reviewing file
@@ -253,6 +255,12 @@ same five-cycle budget. Partial proof can never authorize merge.
 Malformed reviewer JSON gets one controller-guided validation retry against the
 same commit, evidence, and review cycle. Both attempts are durable; a second
 invalid response fails closed rather than consuming repair cycles or looping.
+Malformed planner JSON is normalized into a usage-bearing invalid receipt and
+gets the same two-attempt bound; a single JSON code fence is accepted, while
+arbitrary surrounding prose is not. A repair that completed its code change but
+returned the wrong `addressed` ids gets one receipt-only correction with read
+tools and an exact staged-diff fingerprint. Any correction-time mutation or
+second invalid receipt fails closed.
 
 ## Merge policy
 
@@ -303,7 +311,7 @@ the two-engine drift this repository previously had.
 .venv/bin/python -m py_compile scripts/*.py tests/*.py
 ```
 
-The deterministic suite currently covers 45 cases, including:
+The deterministic suite currently covers 54 cases, including:
 
 - simple single-owner first-pass work;
 - a two-owner feature with directed design repair;
@@ -324,6 +332,9 @@ The deterministic suite currently covers 45 cases, including:
   reviewer pass against invalid proof;
 - one corrected reviewer-protocol retry and bounded refusal after two malformed
   reviewer responses;
+- planner JSON normalization and one bounded typed-plan correction;
+- exact review-issue target files bound to the routed owner's approved scope;
+- one read-only repair-receipt correction and refusal of correction-time writes;
 - fresh proof after repair, successful merge, target/config drift, and bounded
   human escalation.
 

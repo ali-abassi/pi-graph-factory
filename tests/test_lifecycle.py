@@ -137,6 +137,42 @@ class FactoryLifecycleTests(unittest.TestCase):
         self.assertEqual(state["cycles"][0]["review"]["verdict"], "repair")
         self.assertEqual(state["cycles"][1]["review"]["verdict"], "pass")
 
+    def test_malformed_repair_receipt_gets_one_read_only_correction(self) -> None:
+        run = self.initialize(run_id="repair-protocol-correction-run")
+        planned = self.command(
+            "plan",
+            "--run",
+            str(run),
+            "--file",
+            str(self.write_plan(self.root / "repair-protocol-plan.json", [])),
+        )
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        marker = self.root / "invalid-repair-observed"
+        self.env["PI_GRAPH_FACTORY_INVALID_REPAIR_MARKER"] = str(marker)
+        completed = self.command("run", "--run", str(run))
+        self.assertEqual(completed["phase"], "merged")
+        self.assertEqual((self.repo / "app.txt").read_text(encoding="utf-8"),
+                         "implemented\nreviewed 1\n")
+        self.assertTrue((run / "receipts" / "repair-1-product-attempt-1.json").is_file())
+        self.assertTrue((run / "receipts" / "repair-1-product-attempt-2.json").is_file())
+
+    def test_repair_receipt_correction_cannot_mutate_the_worktree(self) -> None:
+        run = self.initialize(run_id="repair-protocol-mutation-run")
+        planned = self.command(
+            "plan",
+            "--run",
+            str(run),
+            "--file",
+            str(self.write_plan(self.root / "repair-protocol-mutation.json", [])),
+        )
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        self.env["PI_GRAPH_FACTORY_INVALID_REPAIR_MARKER"] = str(
+            self.root / "invalid-repair-mutation-observed"
+        )
+        self.env["PI_GRAPH_FACTORY_REPAIR_CORRECTION_MUTATION"] = "1"
+        failed = self.command("run", "--run", str(run), expected=2)
+        self.assertIn("receipt correction for product mutated", failed["error"])
+
     def test_conflicting_file_ownership_is_rejected_before_approval(self) -> None:
         config = yaml.safe_load(self.config.read_text())
         second = dict(config["implementers"][0])
@@ -180,6 +216,17 @@ class FactoryLifecycleTests(unittest.TestCase):
         self.assertEqual(subprocess.check_output(
             ["git", "-C", str(self.repo), "status", "--porcelain"], text=True,
         ), "")
+
+    def test_malformed_planner_output_gets_one_bounded_retry(self) -> None:
+        run = self.initialize(run_id="planner-protocol-retry-run")
+        marker = self.root / "invalid-plan-observed"
+        self.env["PI_GRAPH_FACTORY_INVALID_PLAN_MARKER"] = str(marker)
+        planned = self.command("plan", "--run", str(run), "--generate")
+        self.assertEqual(planned["phase"], "awaiting_plan_approval")
+        state = json.loads((run / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["planner_attempts"], 2)
+        self.assertTrue((run / "receipts" / "planner-1-attempt-1.json").is_file())
+        self.assertTrue((run / "receipts" / "planner-1-attempt-2.json").is_file())
 
     def test_new_repository_bootstrap_has_safe_ignore_defaults(self) -> None:
         target = self.root / "new-repository"

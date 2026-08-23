@@ -43,7 +43,7 @@ alpha from an unattended production service.
 
 ## Evidence
 
-- 45 deterministic repository tests across simple, medium, complex, refusal,
+- 54 deterministic repository tests across simple, medium, complex, refusal,
   lifecycle, concurrency, and graph cases.
 - Versioned approved outcomes must receive exact independent-review coverage
   with concrete inspected evidence; failed outcomes require routed ownership.
@@ -69,6 +69,20 @@ alpha from an unattended production service.
   exposed a one-character evidence-hash transcription error from the reviewer.
   Review protocol validation now gets one durable correction attempt; a second
   malformed response fails closed.
+- A clean two-lane Luna/xhigh medium run reached `merge_ready` in one cycle with
+  12/12 reviewed success criteria, six passing target tests, clean desktop and
+  mobile screenshots, and a readable 36.2-second WebM. It used 240,052
+  accounted tokens and $0.01878568; automatic merge was disabled and target
+  `main` remained untouched.
+- Later three-lane and existing-repository bug-fix runs produced valid
+  commit-bound screenshots/video and exposed three additional protocol gaps:
+  issue ownership was not bound to exact files, fenced planner JSON stopped at
+  the adapter, and repair receipts omitted `addressed` because the public prompt
+  did not specify it. The promoted candidate binds issue target files to owner
+  scopes, normalizes one JSON fence with a two-attempt planner bound, and gives
+  repair receipts one read-only fingerprinted correction. The final live
+  bug-fix run still stopped after two invalid repair receipts; it is refusal
+  evidence, not a `merge_ready` claim.
 - Pi Graph Core v0.1.0 and Pi Graph v0.3.0 validation of the 24-node topology.
 - Full risk register: [`risk-register.json`](risk-register.json).
 
@@ -76,5 +90,7 @@ alpha from an unattended production service.
 
 The next high-value work is explicit inspect-and-resume for interrupted
 worktrees and a frozen Luna-driven application corpus with stronger browser or
-native proof scoring. Sandboxing and provider-side budgets are deployment
-adapters, not reasons to inflate the core controller.
+native proof scoring. Agent-created background processes also remain inside the
+trusted OS boundary; the live corpus exposed and manually terminated three
+stale debug servers from a timed-out repair. Sandboxing and provider-side
+budgets are deployment adapters, not reasons to inflate the core controller.

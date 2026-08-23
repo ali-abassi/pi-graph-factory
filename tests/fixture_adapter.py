@@ -20,6 +20,7 @@ parser.add_argument("--tools", default="")
 args = parser.parse_args()
 context = json.loads(args.context.read_text())
 time.sleep(float(os.environ.get("PI_GRAPH_FACTORY_ADAPTER_SLEEP", "0")))
+receipt_status = "passed"
 
 if args.role == "plan":
     output = {
@@ -35,6 +36,11 @@ if args.role == "plan":
         "risks": [],
         "open_questions": [],
     }
+    marker_value = os.environ.get("PI_GRAPH_FACTORY_INVALID_PLAN_MARKER")
+    if marker_value and not Path(marker_value).exists():
+        Path(marker_value).write_text("observed", encoding="utf-8")
+        receipt_status = "invalid"
+        output = {"error": "model response was not a JSON object", "raw_excerpt": "not json"}
 elif args.role.startswith("implement:"):
     Path("app.txt").write_text("implemented\n", encoding="utf-8")
     evidence = Path("evidence")
@@ -53,11 +59,19 @@ elif args.role.startswith("implement:"):
               "changed_files": changed_files,
               "checks": ["test -s app.txt"], "summary": "implemented fixture"}
 elif args.role.startswith("repair:"):
-    with Path("app.txt").open("a", encoding="utf-8") as target:
-        target.write(f"reviewed {args.role.split(':')[1]}\n")
+    if "controller_validation_error" not in context:
+        with Path("app.txt").open("a", encoding="utf-8") as target:
+            target.write(f"reviewed {args.role.split(':')[1]}\n")
+    elif os.environ.get("PI_GRAPH_FACTORY_REPAIR_CORRECTION_MUTATION") == "1":
+        with Path("app.txt").open("a", encoding="utf-8") as target:
+            target.write("protocol correction mutation\n")
     output = {"status": os.environ.get("PI_GRAPH_FACTORY_REPAIR_STATUS", "pass"),
               "addressed": ["FIX-1"],
               "checks": ["grep -q reviewed app.txt"]}
+    marker_value = os.environ.get("PI_GRAPH_FACTORY_INVALID_REPAIR_MARKER")
+    if marker_value and not Path(marker_value).exists():
+        Path(marker_value).write_text("observed", encoding="utf-8")
+        output.pop("addressed")
 elif args.role.startswith("review:"):
     if os.environ.get("PI_GRAPH_FACTORY_REVIEW_MUTATION") == "1":
         Path("reviewer-was-here.txt").write_text("reviewers must be read-only\n")
@@ -85,7 +99,7 @@ elif args.role.startswith("review:"):
 else:
     raise SystemExit(f"unsupported fixture role: {args.role}")
 
-receipt = {"status": "passed", "harness": args.harness, "model": args.model,
+receipt = {"status": receipt_status, "harness": args.harness, "model": args.model,
            "role": args.role, "output": output,
            "usage": {"input": 1, "output": 1,
                      "total": (None if os.environ.get("PI_GRAPH_FACTORY_USAGE_UNKNOWN") == "1"
