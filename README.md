@@ -20,7 +20,7 @@ planner -> blocking questions -> revised typed plan -> SHA-256 approval
                  |       |       |
                  +--- deterministic integration
                               |
-                     tests + screenshot/video hashes
+                  tests + proportional proof
                               |
                       independent review
                          |            |
@@ -30,10 +30,13 @@ planner -> blocking questions -> revised typed plan -> SHA-256 approval
                                       |
                                fresh proof again
                          (five reviews maximum)
+                         |
+                  optional deploy + health
 ```
 
-This repository is an alpha. It proves the local factory contract; it is not a
-hosted sandbox or an unattended deployment service.
+This repository is a public alpha for trusted local or Railway-hosted trials.
+Read [VISION.md](VISION.md) for the intended product and
+[docs/RAILWAY.md](docs/RAILWAY.md) for the off-laptop execution model.
 
 ## What works now
 
@@ -50,18 +53,24 @@ hosted sandbox or an unattended deployment service.
 - Git-derived changed-file verification against each owner's approved scope.
 - Mechanical execution of every approved task and integrated acceptance command.
 - Deterministic lane integration with `git cherry-pick` and `git diff --check`.
-- Screenshot, video, browser, and test receipts bound to the current commit and
+- Plan-selected proof: tests for non-UI work, or screenshot/video/browser
+  artifacts for UI and interaction work, all bound to the current commit and
   approved plan.
 - Independent review that must cite the current evidence receipt hash.
 - Review findings routed only to their named owners, with fresh checks and proof
   after every repair.
 - Five review attempts maximum, then an explicit `human_required` terminal.
-- One-writer run locking and durable `transition_failed` events.
-- Configured process-group timeouts plus token and cost dispatch ceilings.
+- One-writer run locking, durable `transition_failed` events, inspectable active
+  processes, and checkpointed `resume` across interrupted lanes, repairs,
+  capture, review, integration, and the post-merge state-save window.
+- Per-role configurable or disabled process-group timeouts. Token and cost
+  ceilings are optional and disabled in the subscription-friendly default.
 - Safe fresh-repository ignore defaults and pre-integration rejection of
   caches, bytecode, dependency trees, and likely secret-bearing `.env` files.
 - Fast-forward-only merge after target, plan, repository, tests, evidence, and
   final review all still match.
+- An explicit optional delivery command with configured deploy, health, and
+  rollback receipts.
 
 ## Quick start
 
@@ -117,9 +126,26 @@ Inspect the emitted `plans/plan-N.json`. Approval is deliberately separate:
 .venv/bin/python scripts/factory.py run \
   --run /path/to/project/.factory/runs/RUN_ID
 
-.venv/bin/python scripts/factory.py status \
+.venv/bin/python scripts/factory.py inspect \
   --run /path/to/project/.factory/runs/RUN_ID
 ```
+
+If the controller or its agent process is interrupted, inspect first and then
+continue validated checkpoints:
+
+```bash
+.venv/bin/python scripts/factory.py resume \
+  --run /path/to/project/.factory/runs/RUN_ID
+
+# Only after inspecting a still-live factory-owned process:
+.venv/bin/python scripts/factory.py resume \
+  --run /path/to/project/.factory/runs/RUN_ID \
+  --terminate-active
+```
+
+`status` returns the full machine-readable state. `inspect` is the concise
+operator view: current operation, active agents, lane/worktree status, last
+error, and paths to every plan, context, receipt, event, and evidence record.
 
 Use `plan --file plan.json` when another trusted system produces the plan. Use
 `init --new-repo` when the target path does not exist.
@@ -137,6 +163,10 @@ The planner and controller share a small contract:
 {
   "version": 1,
   "summary": "Add CSV export",
+  "proof": {
+    "mode": "tests",
+    "reason": "This backend-only change has no user interface behavior."
+  },
   "success_criteria": [
     {"id": "SC-1", "description": "A user can export the current dataset as CSV."}
   ],
@@ -160,6 +190,12 @@ actual staged paths—not the model's claim—must match the approved owner scop
 The controller then runs each task's approved commands before committing its
 lane, and reruns top-level acceptance on the integrated commit every review
 cycle.
+
+With the default `evidence.policy: plan`, version 1 plans must choose
+`proof.mode: tests|visual` and explain why. The planner is instructed to use
+visual proof for UI, interaction, responsive, or explicitly demonstrated
+features—not for documentation, refactors, backend-only work, or tiny non-UI
+changes.
 
 Version 1 plans make approved outcomes explicit. The reviewer must return one
 pass/fail entry with concrete inspected evidence for every success criterion in
@@ -194,29 +230,43 @@ not invent token or cost numbers.
 
 ## Limits and usage
 
-`limits` in `factory.yaml` bounds each agent call and later dispatches:
+Timeouts may be configured globally or per role. Use `null` to disable a
+timeout. Optional dispatch ceilings are also `null` by default because Codex
+and Claude Code subscription sessions are not API-metered factory budgets:
 
 ```yaml
+planner:
+  timeout_seconds: 7200
+implementers:
+  - id: product
+    timeout_seconds: 14400
 limits:
-  agent_timeout_seconds: 1800
-  max_total_tokens: 500000
-  max_total_cost_usd: 10
+  agent_timeout_seconds: 14400
+  command_timeout_seconds: 3600
+  termination_grace_seconds: 30
+  max_total_tokens: null
+  max_total_cost_usd: null
   require_usage: false
 ```
 
-An expired agent is terminated as a process group. Every normalized call
-receipt is durable, and aggregate usage appears in state and the final receipt.
-The controller refuses the next planner, reviewer, or repair dispatch once a
-configured token or cost ceiling is reached. Initial implementers start as one
-approved parallel batch, so already-running lanes can collectively cross a
-ceiling before the controller stops subsequent work. Set `require_usage: true`
-to refuse further dispatch after a harness returns unknown token or cost usage;
-provider-side budgets remain the only hard external spend cap.
+An expired agent or approved shell command is terminated as a process group
+after the configured grace period. Set either timeout to `null` when the
+environment should allow unbounded runtime. Every normalized call receipt is
+durable, and aggregate usage appears in state and the final receipt.
+When a ceiling is explicitly configured, the controller refuses the next
+planner, reviewer, or repair dispatch after it is reached. Initial implementers
+start as one approved parallel batch, so already-running lanes can collectively
+cross a ceiling before subsequent work stops. Set `require_usage: true` to
+refuse further dispatch after a harness reports unknown usage; provider-side
+budgets remain the only hard external spend cap.
 
 ## Evidence and review
 
-The target project owns meaningful capture automation. Configure screenshot,
-video, browser-receipt, and test paths under `evidence` in `factory.yaml`.
+The target project owns meaningful capture automation. Under the default
+`policy: plan`, test-only plans skip capture commands and do not require media.
+Visual plans run the configured screenshot, video, and browser capture.
+`policy: always` forces visual proof; `policy: never` forces tests only.
+Configure capture and test paths under `evidence` in `factory.yaml`.
 Proof paths must survive lane commits and integration, so keep them in a
 project-owned tracked directory such as `evidence/factory/`, never under the
 controller's ignored `.factory/` run-state directory.
@@ -235,9 +285,10 @@ the integration tree they judge.
 
 For every review cycle the controller:
 
-1. runs approved integrated acceptance and configured evidence commands;
-2. rejects missing, empty, absolute, or repository-escaping proof paths;
-3. hashes each proof file;
+1. runs approved integrated acceptance and configured evidence tests;
+2. for visual plans, captures and rejects missing, empty, absolute, or
+   repository-escaping proof paths;
+3. hashes each visual proof file;
 4. binds the manifest to the integration commit and approved plan;
 5. asks the independent reviewer for a typed `pass` or `repair` verdict; and
 6. requires the reviewer to cite that exact manifest hash.
@@ -279,6 +330,35 @@ Merge is refused unless:
 6. the target branch has not moved and its checkout is clean; and
 7. `git diff --check` passes.
 
+## Delivery policy
+
+Delivery is disabled by default. To enable it, automatic merge must also be
+enabled and the frozen contract must provide non-empty deploy and health
+commands:
+
+```yaml
+merge:
+  target: main
+  apply: true
+delivery:
+  enabled: true
+  deploy_commands: ["railway up --detach"]
+  health_commands: ["curl --fail --retry 12 https://example.com/health"]
+  rollback_commands: ["./scripts/rollback-production"]
+```
+
+A successful run stops at `delivery_ready`; production mutation is a separate,
+explicit action:
+
+```bash
+.venv/bin/python scripts/factory.py deliver --run /path/to/RUN_ID
+```
+
+The controller records deploy and health output and attempts the configured
+rollback after failure. Commands must be designed to be idempotent: an abrupt
+machine death during an arbitrary external command cannot be made exactly-once
+by local state alone.
+
 ## Pi Graph contract
 
 The canonical repository-mutation path today is `scripts/factory.py`. The
@@ -311,7 +391,7 @@ the two-engine drift this repository previously had.
 .venv/bin/python -m py_compile scripts/*.py tests/*.py
 ```
 
-The deterministic suite currently covers 54 cases, including:
+The deterministic suite currently covers 67 cases, including:
 
 - simple single-owner first-pass work;
 - a two-owner feature with directed design repair;
@@ -320,6 +400,8 @@ The deterministic suite currently covers 54 cases, including:
 - wrong-plan approval, scope escape, overlapping ownership, forged receipts,
   stale evidence citations, and failed approved commands;
 - real concurrent lanes, second-writer exclusion, durable caught failures;
+- interrupted-agent termination, committed-lane and committed-repair recovery,
+  and recovery of a reviewed fast-forward applied before state persistence;
 - agent process-group timeout, token-limit refusal, safe new-repository
   bootstrap, and generated/secret-bearing artifact refusal;
 - versioned success-criteria requirements, exact review coverage, and refusal
@@ -346,20 +428,25 @@ The measured hill-climb and candidate ledger are in
 
 ## Deliberate boundaries
 
-- Agent and approved test commands execute with the invoking user's local
-  permissions. This is not an untrusted-code sandbox.
-- Caught controller failures are durable and fail `status` closed. Automatic
-  recovery of dirty partial agent work, cancellation, and remote worker recovery
-  are not implemented yet; inspect the run and worktrees before retrying.
-- A killed controller releases its OS lock, but a partially executing child
-  harness may need operator cleanup.
+- Agent and approved test commands execute with the invoking account's
+  permissions. Local mode intentionally supports broad trusted permissions; use
+  the Railway execution mode to move builds off the laptop, not as a claim of a
+  hostile-code sandbox.
+- Validated checkpoints recover interrupted lane work, owner-scoped partial
+  repairs, declared capture artifacts, committed repairs, and an already-applied
+  reviewed fast-forward. Ambiguous changes, cross-owner conflicts, and unknown
+  processes still stop for an operator.
+- `--terminate-active` kills only a recorded process group whose live command
+  still matches the factory role. Child-created background daemons outside that
+  process group remain an execution-environment concern.
 - GitHub issue/webhook ingestion and a hosted clarification UI are adapters, not
   bundled services.
 - Cross-lane cherry-pick conflicts stop for a human; the factory does not let a
   model invent conflict resolution across owners.
 - Screenshot semantics, video duration, accessibility, console/network quality,
   deployment, rollback, and production health must be expressed by the target
-  project's approved commands and reviewer policy.
+  project's approved commands and reviewer policy. External delivery commands
+  are not transactionally exactly-once across machine death.
 - Provider behavior and credentials are external dependencies. Never place
   secrets in requests, plans, prompts, command arguments, or committed evidence.
 
@@ -369,6 +456,8 @@ before allowing agents to modify a sensitive repository.
 ## Project
 
 - [Changelog](CHANGELOG.md)
+- [Vision](VISION.md)
+- [Railway Cloud Agents](docs/RAILWAY.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security](SECURITY.md)
 - [MIT license](LICENSE)

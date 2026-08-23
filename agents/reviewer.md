@@ -17,9 +17,11 @@ Verify:
 
 - every approved requirement and acceptance command;
 - the integrated diff, relevant tests, and likely regression/security paths;
-- screenshot and video content for the claimed flow and viewports;
+- screenshot and video content for the claimed flow and viewports when the
+  approved plan selects `proof.mode: visual`;
 - browser receipts, console/network errors, accessibility, and failure states
-  when applicable;
+  when visual proof applies; never demand ceremonial screenshots or video from
+  a plan whose approved proof mode is `tests`;
 - unnecessary complexity, generated artifacts, vendored dependency trees, and
   likely secret-bearing files that do not belong in the integrated diff;
 - that proof belongs to the current commit and approved plan.

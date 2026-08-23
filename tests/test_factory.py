@@ -13,7 +13,12 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 from compile_factory import SCHEMA, compile_factory  # noqa: E402
-from factory import FactoryError, is_unsafe_repository_artifact, validated_usage  # noqa: E402
+from factory import (  # noqa: E402
+    FactoryError,
+    enforce_dispatch_limits,
+    is_unsafe_repository_artifact,
+    validated_usage,
+)
 
 
 class FactoryCompilerTests(unittest.TestCase):
@@ -36,8 +41,31 @@ class FactoryCompilerTests(unittest.TestCase):
         agent_steps = [steps["plan"], *[steps[item] for item in ids
                                        if item.startswith(("implement-", "review-", "repair-"))]]
         self.assertTrue(agent_steps)
-        self.assertTrue(all(item["timeout"] == self.factory["limits"]["agent_timeout_seconds"]
-                            for item in agent_steps))
+        expected_timeouts = {
+            "plan": self.factory["planner"]["timeout_seconds"],
+            **{
+                f"implement-{agent['id']}": agent["timeout_seconds"]
+                for agent in self.factory["implementers"]
+            },
+            **{
+                f"review-{cycle}": self.factory["review"]["timeout_seconds"]
+                for cycle in range(1, 6)
+            },
+            **{
+                f"repair-{cycle}": self.factory["implementers"][0]["timeout_seconds"]
+                for cycle in range(1, 5)
+            },
+        }
+        self.assertTrue(agent_steps)
+        for step in agent_steps:
+            self.assertEqual(step["timeout"], expected_timeouts[step["id"]])
+        for step_id in ["integrate", "human-required", *[
+            f"capture-{cycle}" for cycle in range(1, 6)
+        ], *[f"merge-{cycle}" for cycle in range(1, 6)]]:
+            self.assertEqual(
+                steps[step_id]["timeout"],
+                self.factory["limits"]["command_timeout_seconds"],
+            )
         for cycle in range(1, 6):
             merge = steps[f"merge-{cycle}"]
             self.assertEqual(merge["needs"], [f"review-{cycle}"])
@@ -55,6 +83,38 @@ class FactoryCompilerTests(unittest.TestCase):
         too_long = yaml.safe_load((ROOT / "factory.yaml").read_text())
         too_long["review"]["max_cycles"] = 6
         self.assertTrue(list(Draft202012Validator(SCHEMA).iter_errors(too_long)))
+
+    def test_role_timeout_can_be_disabled_and_subscription_limits_are_optional(self) -> None:
+        value = yaml.safe_load((ROOT / "factory.yaml").read_text())
+        value["planner"]["timeout_seconds"] = None
+        workflow = compile_factory(value)
+        plan = next(step for step in workflow["steps"] if step["id"] == "plan")
+        self.assertNotIn("timeout", plan)
+        enforce_dispatch_limits(
+            {"usage": {"total_tokens": 10**9, "cost_usd": 10**9, "unknown_calls": 0}},
+            value["limits"],
+            "subscription-backed agent",
+        )
+
+    def test_enabled_delivery_adds_guarded_post_merge_nodes(self) -> None:
+        value = yaml.safe_load((ROOT / "factory.yaml").read_text())
+        value["merge"]["apply"] = True
+        value["delivery"] = {
+            "enabled": True,
+            "deploy_commands": ["true"],
+            "health_commands": ["true"],
+            "rollback_commands": ["true"],
+        }
+        workflow = compile_factory(value)
+        steps = {step["id"]: step for step in workflow["steps"]}
+        deliveries = [step for step in steps.values() if step["id"].startswith("deliver-")]
+        self.assertEqual(len(deliveries), 5)
+        for cycle, delivery in enumerate(deliveries, start=1):
+            self.assertEqual(delivery["needs"], [f"merge-{cycle}"])
+            self.assertEqual(
+                delivery["when"],
+                {"op": "equals", "path": "/status", "value": "merged"},
+            )
 
     def test_generated_and_secret_bearing_artifacts_are_classified_conservatively(self) -> None:
         for path in (

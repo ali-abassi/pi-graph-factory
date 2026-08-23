@@ -53,6 +53,7 @@ class FactoryReliabilityTests(unittest.TestCase):
         config["implementers"] = [
             {**base, "id": owner, "scope": owner} for owner in owners
         ]
+        config["limits"]["termination_grace_seconds"] = 1
         config["evidence"] = {
             "screenshots": ["evidence/desktop.png"], "video": "evidence/flow.webm",
             "test_commands": ["test -f evidence/browser-receipt.json"],
@@ -123,6 +124,34 @@ class FactoryReliabilityTests(unittest.TestCase):
         self.assertIn("already active", refused["error"])
         self.assertEqual(first.returncode, 0, stdout + stderr)
         self.assertEqual(json.loads(stdout)["phase"], "merged")
+
+    def test_abrupt_controller_death_can_terminate_and_resume_its_lane(self) -> None:
+        run = self.approved_run(["product"])
+        self.env["PI_GRAPH_FACTORY_EXPECTED_LANES"] = "1"
+        self.env["PI_GRAPH_FACTORY_RELIABILITY_MODE"] = "hold"
+        first = subprocess.Popen(
+            [sys.executable, str(FACTORY), "run", "--run", str(run)],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=self.env,
+        )
+        deadline = time.monotonic() + 10
+        while not (self.ready / "product").exists() or not list((run / "active").glob("*.json")):
+            if time.monotonic() >= deadline:
+                first.kill()
+                self.fail("factory did not reach the interruptible lane checkpoint")
+            time.sleep(0.02)
+        first.kill()
+        first.communicate(timeout=5)
+        inspected = self.cli("inspect", "--run", str(run))
+        self.assertEqual(inspected["phase"], "implementing")
+        self.assertTrue(inspected["resumable"])
+        self.assertTrue(any(item["alive"] for item in inspected["active_agents"]))
+        self.env["PI_GRAPH_FACTORY_RELIABILITY_MODE"] = "barrier"
+        resumed = self.cli("resume", "--run", str(run), "--terminate-active")
+        self.assertEqual(resumed["phase"], "merged")
+        self.assertFalse(list((run / "active").glob("*.json")))
 
 
 if __name__ == "__main__":

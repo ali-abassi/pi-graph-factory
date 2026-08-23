@@ -78,6 +78,7 @@ class FactoryTraceabilityTests(unittest.TestCase):
         value = {
             "version": 1,
             "summary": "Build the traceable application",
+            "proof": {"mode": "visual", "reason": "prove the user-facing application"},
             "tasks": [{
                 "id": "build",
                 "owner": "product",

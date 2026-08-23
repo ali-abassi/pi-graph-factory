@@ -21,6 +21,12 @@ All notable changes to Pi Graph Factory are documented here.
   same evidence and cycle.
 - Simple, medium, complex, adversarial, and concurrency benchmark suites.
 - Public security, contribution, improvement, and release documentation.
+- A product-level `VISION.md` and Railway Cloud Agent operating guide.
+- `inspect` and checkpoint-validating `resume` commands for interrupted runs.
+- Plan-selected test or visual proof, with media reserved for UI and interaction
+  changes.
+- Explicit post-merge delivery with deploy, health, rollback, and final receipt
+  recording.
 
 ### Changed
 
@@ -37,6 +43,12 @@ All notable changes to Pi Graph Factory are documented here.
   `evidence/factory/` directory so proof survives isolated-lane integration.
 - Acceptance commands are enforced as read-only predicates and cannot repeat
   configured evidence capture commands.
+- Role timeouts and termination grace are configurable; timeouts may be
+  disabled. Token and dollar ceilings are optional and disabled by default for
+  subscription-backed harnesses.
+- Interrupted lanes, declared capture writes, owner-scoped repairs, committed
+  repair checkpoints, and a reviewed fast-forward can resume without restarting
+  the factory.
 
 ### Security
 
@@ -47,3 +59,8 @@ All notable changes to Pi Graph Factory are documented here.
 - Ignored/untracked evidence, post-capture acceptance writes, and reviewer
   mutations are rejected before merge authorization.
 - Automatic merge remains disabled by default.
+- Resume refuses unknown processes, unrecognized commits, undeclared capture
+  writes, out-of-scope partial repairs, and target-branch drift.
+- Delivery remains explicit and fails closed unless the applied merge, clean
+  repository, deploy result, and production health result match the frozen
+  contract.

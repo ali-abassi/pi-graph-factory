@@ -17,6 +17,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from pathlib import Path
@@ -25,10 +26,15 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 
+try:
+    from delivery import execute_delivery
+except ModuleNotFoundError:  # imported as scripts.factory in the test/package path
+    from scripts.delivery import execute_delivery
+
 
 ROOT = Path(__file__).resolve().parent.parent
 FACTORY_SCHEMA = json.loads((ROOT / "schemas" / "factory.schema.json").read_text())
-TERMINAL = {"human_required", "merge_ready", "merged", "failed"}
+TERMINAL = {"human_required", "merge_ready", "merged", "delivered", "delivery_failed", "failed"}
 GLOB_MAGIC = re.compile(r"[*?\[]")
 TASK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 GENERATED_DIRECTORIES = {
@@ -170,31 +176,63 @@ def run_commands(
     label: str,
     *,
     raise_on_failure: bool = True,
+    timeout_seconds: int | None = None,
+    termination_grace_seconds: int = 5,
 ) -> list[dict[str, Any]]:
     receipts = []
     for command in commands:
-        result = subprocess.run(
+        process = subprocess.Popen(
             ["bash", "-c", command],
             cwd=cwd,
             text=True,
             encoding="utf-8",
             errors="replace",
-            capture_output=True,
-            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
         )
-        receipt = {
-            "command": command,
-            "passed": result.returncode == 0,
-            "exit_code": result.returncode,
-            "output": (result.stdout + result.stderr)[-2000:],
-        }
+        try:
+            stdout, stderr = process.communicate(timeout=timeout_seconds)
+            receipt = {
+                "command": command,
+                "passed": process.returncode == 0,
+                "exit_code": process.returncode,
+                "output": (stdout + stderr)[-2000:],
+                "timed_out": False,
+            }
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                stdout, stderr = process.communicate(timeout=termination_grace_seconds)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                stdout, stderr = process.communicate()
+            receipt = {
+                "command": command,
+                "passed": False,
+                "exit_code": None,
+                "output": (stdout + stderr)[-2000:],
+                "timed_out": True,
+                "timeout_seconds": timeout_seconds,
+            }
         receipts.append(receipt)
-        if result.returncode and raise_on_failure:
+        if not receipt["passed"] and raise_on_failure:
+            detail = (
+                f"exceeded {timeout_seconds}s timeout"
+                if receipt["timed_out"]
+                else f"exit {receipt['exit_code']}"
+            )
             raise FactoryError(
                 f"approved acceptance command failed for {label}: {command!r} "
-                f"(exit {result.returncode}): {receipt['output'][-500:]}"
+                f"({detail}): {receipt['output'][-500:]}"
             )
-        if result.returncode:
+        if not receipt["passed"]:
             break
     return receipts
 
@@ -295,6 +333,17 @@ def validate_lane_changes(owner: str, tasks: list[dict[str, Any]], actual: list[
 
 def load_config(path: Path) -> dict[str, Any]:
     value = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise FactoryError("invalid factory contract: root must be an object")
+    value.setdefault("delivery", {
+        "enabled": False,
+        "deploy_commands": [],
+        "health_commands": [],
+        "rollback_commands": [],
+    })
+    value.setdefault("evidence", {}).setdefault("policy", "always")
+    value.setdefault("limits", {}).setdefault("termination_grace_seconds", 5)
+    value["limits"].setdefault("command_timeout_seconds", None)
     errors = sorted(Draft202012Validator(FACTORY_SCHEMA).iter_errors(value),
                     key=lambda error: [str(x) for x in error.absolute_path])
     if errors:
@@ -313,6 +362,18 @@ def load_config(path: Path) -> dict[str, Any]:
         raise FactoryError(
             "evidence test_commands must not repeat state-changing capture_commands: "
             + ", ".join(repr(command) for command in overlap)
+        )
+    for field in ("deploy_commands", "health_commands", "rollback_commands"):
+        value["delivery"][field] = [
+            validate_acceptance_command(command, f"delivery {field}")
+            for command in value["delivery"][field]
+        ]
+    if value["delivery"]["enabled"] and (
+        not value["delivery"]["deploy_commands"]
+        or not value["delivery"]["health_commands"]
+    ):
+        raise FactoryError(
+            "enabled delivery requires non-empty deploy_commands and health_commands"
         )
     return value
 
@@ -373,6 +434,7 @@ def validate_plan(
     *,
     require_versioned: bool = False,
     evidence_capture_commands: set[str] | None = None,
+    evidence_policy: str = "always",
 ) -> None:
     required = {"summary", "tasks", "acceptance", "risks", "open_questions"}
     if not isinstance(plan, dict):
@@ -383,6 +445,17 @@ def validate_plan(
     if version is not None and version != 1:
         raise FactoryError(f"unsupported plan version: {version!r}")
     if version == 1:
+        proof = plan.get("proof")
+        if evidence_policy == "plan":
+            if not isinstance(proof, dict) or not {"mode", "reason"} <= set(proof):
+                raise FactoryError(
+                    "version 1 plans require proof mode and reason when evidence policy is plan"
+                )
+            if proof["mode"] not in {"tests", "visual"}:
+                raise FactoryError("plan proof mode must be tests|visual")
+            if not isinstance(proof["reason"], str) or not proof["reason"].strip():
+                raise FactoryError("plan proof reason must be non-empty")
+            proof["reason"] = proof["reason"].strip()
         criteria = plan.get("success_criteria")
         if not isinstance(criteria, list) or not criteria:
             raise FactoryError("version 1 plans require non-empty success_criteria")
@@ -580,6 +653,7 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
                         evidence_capture_commands=set(
                             config["evidence"].get("capture_commands", [])
                         ),
+                        evidence_policy=config["evidence"]["policy"],
                     )
                     break
                 except FactoryError as error:
@@ -600,6 +674,7 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
             plan,
             {item["id"] for item in config["implementers"]},
             evidence_capture_commands=set(config["evidence"].get("capture_commands", [])),
+            evidence_policy=config["evidence"]["policy"],
         )
     unanswered = [item for item in plan["open_questions"]
                   if item.get("blocking") and item["id"] not in state["answers"]]
@@ -715,15 +790,17 @@ def enforce_dispatch_limits(state: dict[str, Any], limits: dict[str, Any], role:
         raise FactoryError(
             f"cannot dispatch {role}: a prior agent did not report required token and cost usage"
         )
-    if usage.get("total_tokens", 0) >= limits["max_total_tokens"]:
+    token_limit = limits.get("max_total_tokens")
+    if token_limit is not None and usage.get("total_tokens", 0) >= token_limit:
         raise FactoryError(
             f"cannot dispatch {role}: token dispatch limit reached "
-            f"({usage['total_tokens']} >= {limits['max_total_tokens']})"
+            f"({usage['total_tokens']} >= {token_limit})"
         )
-    if usage.get("cost_usd", 0) >= limits["max_total_cost_usd"]:
+    cost_limit = limits.get("max_total_cost_usd")
+    if cost_limit is not None and usage.get("cost_usd", 0) >= cost_limit:
         raise FactoryError(
             f"cannot dispatch {role}: cost dispatch limit reached "
-            f"({usage['cost_usd']:.6f} >= {limits['max_total_cost_usd']:.6f})"
+            f"({usage['cost_usd']:.6f} >= {cost_limit:.6f})"
         )
 
 
@@ -732,7 +809,7 @@ def invoke_agent(run: Path, state: dict[str, Any], agent: dict[str, Any], role: 
     context_path = run / "contexts" / f"{role.replace(':', '-')}.json"
     atomic_json(context_path, context)
     command = [*adapter_command(), "--role", role, "--harness", agent["harness"],
-               "--model", agent["model"], "--thinking", agent["thinking"],
+               "--model", agent["model"], "--thinking", agent.get("thinking", "medium"),
                "--instructions", agent["instructions"],
                "--context", str(context_path)]
     for skill in agent.get("skills", []):
@@ -750,15 +827,32 @@ def invoke_agent(run: Path, state: dict[str, Any], agent: dict[str, Any], role: 
         env={**os.environ, "WORKFLOW_DIR": str(ROOT)},
         start_new_session=True,
     )
+    timeout = (
+        agent["timeout_seconds"]
+        if "timeout_seconds" in agent
+        else limits.get("agent_timeout_seconds")
+    )
+    active_path = run / "active" / f"{role.replace(':', '-')}.json"
+    atomic_json(
+        active_path,
+        {
+            "role": role,
+            "pid": process.pid,
+            "process_group": process.pid,
+            "started_at": now(),
+            "cwd": str(cwd),
+            "timeout_seconds": timeout,
+        },
+    )
     try:
-        stdout, stderr = process.communicate(timeout=limits["agent_timeout_seconds"])
+        stdout, stderr = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired as error:
         try:
             os.killpg(process.pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
         try:
-            process.communicate(timeout=5)
+            process.communicate(timeout=limits["termination_grace_seconds"])
         except subprocess.TimeoutExpired:
             try:
                 os.killpg(process.pid, signal.SIGKILL)
@@ -766,8 +860,10 @@ def invoke_agent(run: Path, state: dict[str, Any], agent: dict[str, Any], role: 
                 pass
             process.communicate()
         raise FactoryError(
-            f"{role} adapter exceeded {limits['agent_timeout_seconds']}s timeout"
+            f"{role} adapter exceeded {timeout}s timeout"
         ) from error
+    finally:
+        active_path.unlink(missing_ok=True)
     if process.returncode:
         raise FactoryError(f"{role} adapter failed: {(stderr or stdout)[-2000:]}")
     try:
@@ -854,6 +950,8 @@ def execute_lane(
         workspace,
         acceptance_for_tasks(tasks),
         f"implementation owner {owner}",
+        timeout_seconds=limits["command_timeout_seconds"],
+        termination_grace_seconds=limits["termination_grace_seconds"],
     )
     git(workspace, "add", "-A")
     after_acceptance_files = staged_files(workspace)
@@ -897,6 +995,21 @@ def file_receipt(root: Path, path: Path) -> dict[str, Any]:
             "sha256": digest_bytes(path.read_bytes())}
 
 
+def selected_proof(state: dict[str, Any], config: dict[str, Any]) -> dict[str, str]:
+    policy = config["evidence"].get("policy", "always")
+    if policy == "always":
+        return {"mode": "visual", "reason": "factory evidence policy requires visual proof"}
+    if policy == "never":
+        return {"mode": "tests", "reason": "factory evidence policy disables visual proof"}
+    planned = state["plan"].get("proof") if isinstance(state.get("plan"), dict) else None
+    if isinstance(planned, dict) and planned.get("mode") in {"tests", "visual"}:
+        return {"mode": planned["mode"], "reason": planned["reason"]}
+    return {
+        "mode": "tests",
+        "reason": "legacy plan without a visual-proof requirement",
+    }
+
+
 def restore_declared_capture_changes(integration: Path, changed: list[str]) -> None:
     tracked = []
     untracked = []
@@ -925,17 +1038,24 @@ def capture_evidence(run: Path, state: dict[str, Any], config: dict[str, Any],
                      integration: Path, cycle: int) -> dict[str, Any]:
     if worktree_changed_files(integration):
         raise FactoryError("integration worktree must be clean before evidence capture")
-    declared = [
+    proof = selected_proof(state, config)
+    visual = proof["mode"] == "visual"
+    declared = ([
         *config["evidence"]["screenshots"],
         config["evidence"].get("video"),
         *config["evidence"].get("artifacts", []),
-    ]
+    ] if visual else [])
     declared = [value for value in declared if value]
+    limits = config.get("limits", {})
+    command_timeout = limits.get("command_timeout_seconds")
+    termination_grace = limits.get("termination_grace_seconds", 5)
     capture = run_commands(
         integration,
-        list(dict.fromkeys(config["evidence"].get("capture_commands", []))),
+        list(dict.fromkeys(config["evidence"].get("capture_commands", []))) if visual else [],
         "configured evidence capture",
         raise_on_failure=False,
+        timeout_seconds=command_timeout,
+        termination_grace_seconds=termination_grace,
     )
     changed = worktree_changed_files(integration)
     unexpected = [value for value in changed if value not in declared]
@@ -952,6 +1072,7 @@ def capture_evidence(run: Path, state: dict[str, Any], config: dict[str, Any],
             "captured_at": now(),
             "source_commit": source_commit,
             "approved_plan_sha256": state["approved_plan_sha256"],
+            "proof": proof,
             "capture": capture,
             "files": [],
             "tests": [],
@@ -965,8 +1086,22 @@ def capture_evidence(run: Path, state: dict[str, Any], config: dict[str, Any],
         git(integration, "commit", "-m", f"factory: capture evidence cycle {cycle}")
     approved = list(dict.fromkeys(state["plan"]["acceptance"]))
     configured = list(dict.fromkeys(config["evidence"].get("test_commands", [])))
-    tests = run_commands(integration, approved, "integrated plan")
-    tests.extend(run_commands(integration, configured, "configured evidence"))
+    tests = run_commands(
+        integration,
+        approved,
+        "integrated plan",
+        timeout_seconds=command_timeout,
+        termination_grace_seconds=termination_grace,
+    )
+    tests.extend(
+        run_commands(
+            integration,
+            configured,
+            "configured evidence",
+            timeout_seconds=command_timeout,
+            termination_grace_seconds=termination_grace,
+        )
+    )
     test_changes = worktree_changed_files(integration)
     if test_changes:
         raise FactoryError(
@@ -990,7 +1125,7 @@ def capture_evidence(run: Path, state: dict[str, Any], config: dict[str, Any],
     source_commit = git(integration, "rev-parse", "HEAD")
     receipt = {"valid": True, "cycle": cycle, "captured_at": now(), "source_commit": source_commit,
                "approved_plan_sha256": state["approved_plan_sha256"],
-               "capture": capture, "files": evidence_files, "tests": tests}
+               "proof": proof, "capture": capture, "files": evidence_files, "tests": tests}
     receipt["sha256"] = digest_json(receipt)
     atomic_json(run / "evidence" / f"cycle-{cycle}.json", receipt)
     return receipt
@@ -1091,8 +1226,116 @@ def review_output(
     return output
 
 
+def recover_committed_repairs(
+    run: Path,
+    state: dict[str, Any],
+    integration: Path,
+    limits: dict[str, Any],
+    cycle: int,
+    grouped: dict[str, list[dict[str, Any]]],
+    cycle_record: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Rebuild repair checkpoints when Git committed before state was persisted."""
+    receipts = list(cycle_record.get("repairs", []))
+    completed = {
+        receipt.get("verification", {}).get("owner")
+        for receipt in receipts
+        if isinstance(receipt, dict)
+    }
+    source_commit = cycle_record["evidence"]["source_commit"]
+    raw = git(
+        integration,
+        "log",
+        "--reverse",
+        "--format=%H%x00%s",
+        f"{source_commit}..HEAD",
+    )
+    committed: list[tuple[str, str]] = []
+    pattern = re.compile(rf"^factory: repair cycle {cycle} \(([^)]+)\)$")
+    for line in raw.splitlines() if raw else []:
+        commit, separator, subject = line.partition("\0")
+        match = pattern.fullmatch(subject) if separator else None
+        if match is None or match.group(1) not in grouped:
+            raise FactoryError(
+                f"resume found an unrecognized commit after review cycle {cycle}: {subject!r}"
+            )
+        committed.append((commit, match.group(1)))
+    expected_order = list(grouped)
+    committed_order = [owner for _, owner in committed]
+    if committed_order != expected_order[:len(committed_order)]:
+        raise FactoryError(
+            f"resume found out-of-order repair commits for cycle {cycle}: {committed_order}"
+        )
+    for commit, owner in committed:
+        tasks = [task for task in state["plan"]["tasks"] if task["owner"] == owner]
+        actual = sorted(
+            git(
+                integration,
+                "diff-tree",
+                "--no-commit-id",
+                "--name-only",
+                "-r",
+                commit,
+            ).splitlines()
+        )
+        validate_lane_changes(owner, tasks, actual)
+        if owner in completed:
+            continue
+        candidates = sorted(
+            (run / "receipts").glob(f"repair-{cycle}-{owner}-attempt-*.json"),
+            reverse=True,
+        )
+        if not candidates:
+            raise FactoryError(
+                f"resume found committed repair work for {owner} without a durable receipt"
+            )
+        receipt = json.loads(candidates[0].read_text(encoding="utf-8"))
+        output = receipt.get("output")
+        expected_issues = {issue["id"] for issue in grouped[owner]}
+        if (
+            receipt.get("status") != "passed"
+            or not isinstance(output, dict)
+            or output.get("status") != "pass"
+            or not output.get("checks")
+            or set(output.get("addressed", [])) != expected_issues
+        ):
+            raise FactoryError(f"resume found an invalid repair receipt for {owner}")
+        before = worktree_changed_files(integration)
+        acceptance = run_commands(
+            integration,
+            acceptance_for_tasks(tasks),
+            f"recovered repair owner {owner}",
+            timeout_seconds=limits["command_timeout_seconds"],
+            termination_grace_seconds=limits["termination_grace_seconds"],
+        )
+        if worktree_changed_files(integration) != before:
+            raise FactoryError(
+                f"recovered repair acceptance for {owner} mutated repository files"
+            )
+        receipt["verification"] = {
+            "owner": owner,
+            "changed_files": actual,
+            "acceptance": acceptance,
+            "commit": commit,
+            "recovered": True,
+        }
+        receipts.append(receipt)
+        completed.add(owner)
+        cycle_record["repairs"] = receipts
+        state["integration"]["commit"] = commit
+        state.pop("operation", None)
+        save_state(
+            run,
+            state,
+            "repair_owner_recovered",
+            {"cycle": cycle, "owner": owner, "commit": commit},
+        )
+    return receipts
+
+
 def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integration: Path,
-               cycle: int, issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
+               cycle: int, issues: list[dict[str, Any]],
+               cycle_record: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     agents = {item["id"]: item for item in config["implementers"]}
     grouped: dict[str, list[dict[str, Any]]] = {}
     for issue in issues:
@@ -1100,8 +1343,21 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
         if owner not in agents:
             raise FactoryError(f"review issue has unknown owner: {owner!r}")
         grouped.setdefault(owner, []).append(issue)
-    receipts = []
+    receipts = (
+        recover_committed_repairs(
+            run, state, integration, config["limits"], cycle, grouped, cycle_record
+        )
+        if cycle_record is not None
+        else []
+    )
+    completed_owners = {
+        receipt.get("verification", {}).get("owner")
+        for receipt in receipts
+        if isinstance(receipt, dict)
+    }
     for owner, owned in grouped.items():
+        if owner in completed_owners:
+            continue
         enforce_dispatch_limits(state, config["limits"], f"repair:{cycle}:{owner}")
         tasks = [task for task in state["plan"]["tasks"] if task["owner"] == owner]
         expected_issues = {issue["id"] for issue in owned}
@@ -1115,6 +1371,18 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
         correction_files: list[str] | None = None
         correction_digest: str | None = None
         for attempt in range(1, 3):
+            state["operation"] = {
+                "kind": "repair",
+                "cycle": cycle,
+                "owner": owner,
+                "attempt": attempt,
+            }
+            save_state(
+                run,
+                state,
+                "repair_owner_started",
+                {"cycle": cycle, "owner": owner, "attempt": attempt},
+            )
             agent = agents[owner]
             role = f"repair:{cycle}:{owner}"
             if attempt == 2:
@@ -1193,6 +1461,8 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
             integration,
             acceptance_for_tasks(tasks),
             f"repair owner {owner}",
+            timeout_seconds=config["limits"]["command_timeout_seconds"],
+            termination_grace_seconds=config["limits"]["termination_grace_seconds"],
         )
         git(integration, "add", "-A")
         after_acceptance_files = staged_files(integration)
@@ -1201,9 +1471,23 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
                 f"repair acceptance for {owner} mutated repository files; "
                 "acceptance commands must be read-only predicates"
             )
-        receipt["verification"] = {"changed_files": actual, "acceptance": acceptance}
+        receipt["verification"] = {
+            "owner": owner,
+            "changed_files": actual,
+            "acceptance": acceptance,
+        }
         git(integration, "commit", "-m", f"factory: repair cycle {cycle} ({owner})")
         receipts.append(receipt)
+        if cycle_record is not None:
+            cycle_record["repairs"] = receipts
+            state["integration"]["commit"] = git(integration, "rev-parse", "HEAD")
+            state.pop("operation", None)
+            save_state(
+                run,
+                state,
+                "repair_owner_completed",
+                {"cycle": cycle, "owner": owner, "commit": state["integration"]["commit"]},
+            )
     return receipts
 
 
@@ -1243,12 +1527,7 @@ def verify_merge_preconditions(repo: Path, state: dict[str, Any], evidence: dict
     git(integration, "diff", "--check", f"{state['base_commit']}..HEAD")
 
 
-def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
-    run = Path(args.run).resolve()
-    state = load_state(run)
-    if state["phase"] != "approved" or state["approved_plan_sha256"] != state["plan_sha256"]:
-        raise FactoryError("factory run requires the current plan to be explicitly approved")
-    config = load_frozen_config(run, state)
+def validate_run_repository(state: dict[str, Any]) -> Path:
     repo = Path(state["repo"])
     if git(repo, "rev-parse", "--show-toplevel") != str(repo.resolve()):
         raise FactoryError("run repository identity no longer matches its frozen target")
@@ -1256,63 +1535,397 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         raise FactoryError("target repository is not checked out on the approved merge branch")
     if git(repo, "rev-parse", "HEAD") != state["base_commit"]:
         raise FactoryError("repository HEAD drifted after plan approval")
-    agents = {item["id"]: item for item in config["implementers"]}
-    tasks_by_owner: dict[str, list[dict[str, Any]]] = {}
+    return repo
+
+
+def prepare_review_workspace_for_resume(
+    run: Path,
+    state: dict[str, Any],
+    config: dict[str, Any],
+    integration: Path,
+) -> None:
+    expected_branch = f"factory/{state['id']}/integration"
+    if not integration.exists():
+        raise FactoryError("resume requires the existing integration worktree")
+    if git(integration, "branch", "--show-current") != expected_branch:
+        raise FactoryError("resume found an unexpected integration branch")
+    changed = worktree_changed_files(integration)
+    if not changed:
+        return
+    operation = state.get("operation") or {}
+    if operation.get("kind") == "capture":
+        proof = selected_proof(state, config)
+        declared = (
+            [
+                *config["evidence"]["screenshots"],
+                config["evidence"].get("video"),
+                *config["evidence"].get("artifacts", []),
+            ]
+            if proof["mode"] == "visual"
+            else []
+        )
+        declared = {path for path in declared if path}
+        unexpected = [path for path in changed if path not in declared]
+        if unexpected:
+            raise FactoryError(
+                "interrupted evidence capture changed undeclared files: "
+                + ", ".join(unexpected)
+            )
+        restore_declared_capture_changes(integration, changed)
+        state.pop("operation", None)
+        save_state(
+            run,
+            state,
+            "interrupted_capture_cleaned",
+            {"changed_files": changed},
+        )
+        return
+    if operation.get("kind") == "repair":
+        owner = operation.get("owner")
+        tasks = [
+            task for task in state["plan"]["tasks"] if task["owner"] == owner
+        ]
+        if not tasks:
+            raise FactoryError("interrupted repair references an unknown owner")
+        validate_lane_changes(str(owner), tasks, changed)
+        return
+    raise FactoryError(
+        "resume found ambiguous integration changes outside a checkpointed capture or repair"
+    )
+
+
+def recover_applied_merge(
+    run: Path,
+    state: dict[str, Any],
+    config: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Recover the narrow crash window after a fast-forward but before state save."""
+    if state["phase"] != "reviewing" or not config["merge"]["apply"]:
+        return None
+    repo = Path(state["repo"])
+    if git(repo, "branch", "--show-current") != state["target_branch"]:
+        raise FactoryError("target repository is not checked out on the approved merge branch")
+    target_commit = git(repo, "rev-parse", "HEAD")
+    if target_commit == state["base_commit"]:
+        return None
+    integration_record = state.get("integration") or {}
+    integration_commit = integration_record.get("commit")
+    if target_commit != integration_commit:
+        raise FactoryError("target repository drifted to an unreviewed commit")
+    if not state.get("cycles"):
+        raise FactoryError("target moved before a durable review checkpoint existed")
+    final_cycle = state["cycles"][-1]
+    review = final_cycle.get("review") or {}
+    evidence = final_cycle.get("evidence") or {}
+    if review.get("verdict") != "pass" or review.get("issues"):
+        raise FactoryError("target moved without a clean durable final review")
+    if (
+        not evidence.get("valid", True)
+        or evidence.get("source_commit") != target_commit
+        or evidence.get("approved_plan_sha256") != state["approved_plan_sha256"]
+        or not evidence.get("tests")
+        or not all(item.get("passed") for item in evidence["tests"])
+    ):
+        raise FactoryError("target moved without valid current-commit evidence")
+    integration = Path(integration_record["path"])
+    if not integration.exists() or git(integration, "rev-parse", "HEAD") != target_commit:
+        raise FactoryError("reviewed integration worktree no longer matches the applied merge")
+    if worktree_changed_files(integration):
+        raise FactoryError("reviewed integration worktree changed after the applied merge")
+    for item in evidence.get("files", []):
+        path = evidence_path(integration, item["path"])
+        if not path.is_file() or digest_bytes(path.read_bytes()) != item["sha256"]:
+            raise FactoryError(f"reviewed evidence hash no longer matches: {item['path']}")
+    ensure_clean(repo)
+    git(integration, "diff", "--check", f"{state['base_commit']}..HEAD")
+    merge = {
+        "status": "merged",
+        "target": state["target_branch"],
+        "commit": target_commit,
+        "approved_plan_sha256": state["approved_plan_sha256"],
+        "evidence_sha256": evidence["sha256"],
+        "recovered": True,
+    }
+    state["final_review"] = review
+    state["final_evidence_sha256"] = evidence["sha256"]
+    state["merge"] = merge
+    state["phase"] = "delivery_ready" if config["delivery"]["enabled"] else "merged"
+    state.pop("operation", None)
+    save_state(run, state, "merge_recovered", merge)
+    atomic_json(
+        run / "receipt.json",
+        {
+            "schema": "pi-graph-factory.receipt.v1",
+            "run": state["id"],
+            "phase": state["phase"],
+            "plan_sha256": state["approved_plan_sha256"],
+            "evidence_sha256": evidence["sha256"],
+            "review": review,
+            "merge": merge,
+            "usage": state["usage"],
+        },
+    )
+    return {
+        "ok": True,
+        "phase": state["phase"],
+        "run": str(run),
+        "cycles": len(state["cycles"]),
+        "merge": merge,
+        "usage": state["usage"],
+    }
+
+
+def tasks_by_owner(state: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
     for task in state["plan"]["tasks"]:
-        tasks_by_owner.setdefault(task["owner"], []).append(task)
-    enforce_dispatch_limits(state, config["limits"], "implementation batch")
-    state["phase"] = "implementing"
-    save_state(run, state, "implementation_started", {"owners": sorted(tasks_by_owner)})
+        grouped.setdefault(task["owner"], []).append(task)
+    return grouped
+
+
+def ensure_lane_workspace(repo: Path, run: Path, state: dict[str, Any], owner: str) -> tuple[Path, str]:
+    workspace = run / "worktrees" / owner
+    branch = f"factory/{state['id']}/{owner}"
+    if workspace.exists():
+        if git(workspace, "branch", "--show-current") != branch:
+            raise FactoryError(f"resume found unexpected branch in {owner} worktree")
+        return workspace, branch
+    if git(repo, "rev-parse", "--verify", branch, check=False):
+        workspace.parent.mkdir(parents=True, exist_ok=True)
+        git(repo, "worktree", "add", str(workspace), branch)
+        return workspace, branch
+    return provision_lane(repo, run, state["id"], owner, state["base_commit"])
+
+
+def latest_agent_receipt(run: Path, role: str) -> dict[str, Any] | None:
+    matches = []
+    for path in (run / "receipts").glob("agent-*.json"):
+        try:
+            receipt = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if receipt.get("role") == role:
+            matches.append((path.stat().st_mtime_ns, receipt))
+    return max(matches, default=(0, None), key=lambda item: item[0])[1]
+
+
+def recover_committed_lane(
+    run: Path,
+    state: dict[str, Any],
+    owner: str,
+    tasks: list[dict[str, Any]],
+    workspace: Path,
+    branch: str,
+    limits: dict[str, Any],
+) -> dict[str, Any] | None:
+    if worktree_changed_files(workspace):
+        return None
+    head = git(workspace, "rev-parse", "HEAD")
+    if head == state["base_commit"]:
+        return None
+    if git(workspace, "log", "-1", "--format=%s") != f"factory({owner}): implement approved task":
+        raise FactoryError(f"resume found an unrecognized commit in {owner} lane")
+    actual = sorted(
+        git(workspace, "diff", "--name-only", f"{state['base_commit']}..{head}").splitlines()
+    )
+    validate_lane_changes(owner, tasks, actual)
+    receipt = latest_agent_receipt(run, f"implement:{owner}")
+    if receipt is None:
+        raise FactoryError(f"resume found committed {owner} work without its durable agent receipt")
+    output = receipt.get("output")
+    if (
+        receipt.get("status") != "passed"
+        or not isinstance(output, dict)
+        or output.get("status") != "pass"
+        or sorted(output.get("changed_files", [])) != actual
+    ):
+        raise FactoryError(f"resume found an invalid durable receipt for committed lane {owner}")
+    acceptance = run_commands(
+        workspace,
+        acceptance_for_tasks(tasks),
+        f"recovered owner {owner}",
+        timeout_seconds=limits["command_timeout_seconds"],
+        termination_grace_seconds=limits["termination_grace_seconds"],
+    )
+    if worktree_changed_files(workspace):
+        raise FactoryError(f"recovered acceptance for {owner} mutated repository files")
+    receipt["verification"] = {
+        "owner": owner,
+        "changed_files": actual,
+        "acceptance": acceptance,
+        "recovered": True,
+    }
+    return {"owner": owner, "branch": branch, "commit": head, "receipt": receipt}
+
+
+def continue_implementation(
+    run: Path,
+    state: dict[str, Any],
+    config: dict[str, Any],
+    repo: Path,
+) -> Path:
+    agents = {item["id"]: item for item in config["implementers"]}
+    grouped = tasks_by_owner(state)
+    if state["phase"] == "approved":
+        enforce_dispatch_limits(state, config["limits"], "implementation batch")
+        state["phase"] = "implementing"
+        save_state(run, state, "implementation_started", {"owners": sorted(grouped)})
     lane_specs = []
-    for owner, tasks in tasks_by_owner.items():
-        workspace, branch = provision_lane(repo, run, state["id"], owner, state["base_commit"])
-        lane_specs.append((owner, tasks, workspace, branch))
     lane_commits_by_owner: dict[str, str] = {}
-    first_failure: Exception | None = None
-    with ThreadPoolExecutor(max_workers=len(lane_specs), thread_name_prefix="factory-lane") as pool:
-        futures = {
-            pool.submit(
-                execute_lane,
+    for owner, tasks in grouped.items():
+        completed = state["lane_receipts"].get(owner)
+        if completed:
+            commit = completed.get("commit")
+            if not commit or git(repo, "rev-parse", "--verify", f"{commit}^{{commit}}", check=False) != commit:
+                raise FactoryError(f"resume cannot resolve completed lane commit for {owner}")
+            lane_commits_by_owner[owner] = commit
+            continue
+        workspace, branch = ensure_lane_workspace(repo, run, state, owner)
+        recovered = recover_committed_lane(
+            run, state, owner, tasks, workspace, branch, config["limits"]
+        )
+        if recovered is not None:
+            state["lane_receipts"][owner] = {
+                "branch": branch,
+                "commit": recovered["commit"],
+                "receipt": recovered["receipt"],
+            }
+            lane_commits_by_owner[owner] = recovered["commit"]
+            save_state(
                 run,
                 state,
-                agents[owner],
-                owner,
-                tasks,
-                workspace,
-                branch,
-                config["limits"],
-                config["evidence"],
-            ): owner
-            for owner, tasks, workspace, branch in lane_specs
-        }
-        for future in as_completed(futures):
-            try:
-                completed = future.result()
-            except Exception as error:
-                if first_failure is None:
-                    first_failure = error
-                continue
-            owner = completed["owner"]
-            lane_commits_by_owner[owner] = completed["commit"]
-            state["lane_receipts"][owner] = {
-                "branch": completed["branch"],
-                "commit": completed["commit"],
-                "receipt": completed["receipt"],
+                "lane_recovered",
+                {"owner": owner, "commit": recovered["commit"]},
+            )
+            continue
+        lane_specs.append((owner, tasks, workspace, branch))
+    first_failure: Exception | None = None
+    if lane_specs:
+        enforce_dispatch_limits(state, config["limits"], "implementation batch")
+        with ThreadPoolExecutor(max_workers=len(lane_specs), thread_name_prefix="factory-lane") as pool:
+            futures = {
+                pool.submit(
+                    execute_lane,
+                    run,
+                    state,
+                    agents[owner],
+                    owner,
+                    tasks,
+                    workspace,
+                    branch,
+                    config["limits"],
+                    config["evidence"],
+                ): owner
+                for owner, tasks, workspace, branch in lane_specs
             }
-            record_usage(state, completed["receipt"])
-            save_state(run, state, "lane_completed", {"owner": owner, "commit": completed["commit"]})
+            for future in as_completed(futures):
+                try:
+                    completed = future.result()
+                except Exception as error:
+                    if first_failure is None:
+                        first_failure = error
+                    continue
+                owner = completed["owner"]
+                lane_commits_by_owner[owner] = completed["commit"]
+                state["lane_receipts"][owner] = {
+                    "branch": completed["branch"],
+                    "commit": completed["commit"],
+                    "receipt": completed["receipt"],
+                }
+                record_usage(state, completed["receipt"])
+                save_state(
+                    run,
+                    state,
+                    "lane_completed",
+                    {"owner": owner, "commit": completed["commit"]},
+                )
     if first_failure is not None:
         raise first_failure
     enforce_dispatch_limits(state, config["limits"], "review:1")
-    lane_commits = [lane_commits_by_owner[owner] for owner in tasks_by_owner]
-    integration = integrate_lanes(repo, run, state, lane_commits)
+    lane_commits = [lane_commits_by_owner[owner] for owner in grouped]
+    integration_path = run / "worktrees" / "integration"
+    integration_branch = f"factory/{state['id']}/integration"
+    if state.get("integration"):
+        integration = state["integration"]
+        integration_path = Path(integration["path"])
+    elif integration_path.exists() or git(
+        repo, "rev-parse", "--verify", integration_branch, check=False
+    ):
+        if not integration_path.exists():
+            git(repo, "worktree", "add", str(integration_path), integration_branch)
+        if git(integration_path, "branch", "--show-current") != integration_branch:
+            raise FactoryError("resume found an unexpected integration branch")
+        if worktree_changed_files(integration_path):
+            raise FactoryError("resume found ambiguous uncommitted integration changes")
+        for commit in lane_commits:
+            ancestor = subprocess.run(
+                ["git", "-C", str(integration_path), "merge-base", "--is-ancestor", commit, "HEAD"],
+                check=False,
+            )
+            if ancestor.returncode:
+                git(integration_path, "cherry-pick", commit)
+        changed = git(
+            integration_path, "diff", "--name-only", f"{state['base_commit']}..HEAD"
+        ).splitlines()
+        integration = {
+            "path": str(integration_path),
+            "branch": integration_branch,
+            "commit": git(integration_path, "rev-parse", "HEAD"),
+            "changed_files": changed,
+        }
+    else:
+        integration = integrate_lanes(repo, run, state, lane_commits)
     state["integration"] = integration
     state["phase"] = "reviewing"
     save_state(run, state, "integration_completed", {"commit": integration["commit"]})
-    integration_path = Path(integration["path"])
+    return Path(integration["path"])
+
+
+def continue_review(
+    run: Path,
+    state: dict[str, Any],
+    config: dict[str, Any],
+    repo: Path,
+    integration_path: Path,
+) -> dict[str, Any]:
     final_evidence = None
     final_review = None
-    for cycle in range(1, config["review"]["max_cycles"] + 1):
+    start_cycle = 1
+    if state["cycles"]:
+        last_cycle = state["cycles"][-1]
+        cycle = last_cycle["cycle"]
+        if last_cycle["review"]["verdict"] == "pass":
+            final_evidence = last_cycle["evidence"]
+            final_review = last_cycle["review"]
+        elif cycle == config["review"]["max_cycles"]:
+            state["phase"] = "human_required"
+            state["final_review"] = last_cycle["review"]
+            save_state(run, state, "repair_budget_exhausted", {"cycles": cycle})
+            return {"ok": False, "phase": state["phase"], "run": str(run),
+                    "cycles": cycle, "issues": last_cycle["review"]["issues"],
+                    "usage": state["usage"]}
+        else:
+            last_cycle["repairs"] = run_repair(
+                run,
+                state,
+                config,
+                integration_path,
+                cycle,
+                last_cycle["review"]["issues"],
+                last_cycle,
+            )
+            state["integration"]["commit"] = git(integration_path, "rev-parse", "HEAD")
+            save_state(
+                run,
+                state,
+                "repair_completed",
+                {"cycle": cycle, "commit": state["integration"]["commit"]},
+            )
+            start_cycle = cycle + 1
+    for cycle in range(start_cycle, config["review"]["max_cycles"] + 1):
+        if final_evidence is not None:
+            break
+        state["operation"] = {"kind": "capture", "cycle": cycle}
+        save_state(run, state, "evidence_capture_started", {"cycle": cycle})
         try:
             evidence = capture_evidence(run, state, config, integration_path, cycle)
         except EvidenceFailure as failure:
@@ -1329,6 +1942,17 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         review = None
         for attempt in range(1, 3):
             enforce_dispatch_limits(state, config["limits"], f"review:{cycle}:attempt:{attempt}")
+            state["operation"] = {
+                "kind": "review",
+                "cycle": cycle,
+                "attempt": attempt,
+            }
+            save_state(
+                run,
+                state,
+                "reviewer_started",
+                {"cycle": cycle, "attempt": attempt},
+            )
             reviewer_receipt = invoke_agent(
                 run,
                 state,
@@ -1379,6 +2003,7 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         cycle_record = {"cycle": cycle, "evidence": evidence, "review": review,
                         "review_receipt": reviewer_receipt, "repairs": []}
         state["cycles"].append(cycle_record)
+        state.pop("operation", None)
         save_state(run, state, "review_completed", {"cycle": cycle, "verdict": review["verdict"]})
         if review["verdict"] == "pass":
             final_evidence, final_review = evidence, review
@@ -1389,13 +2014,21 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
             save_state(run, state, "repair_budget_exhausted", {"cycles": cycle})
             return {"ok": False, "phase": state["phase"], "run": str(run),
                     "cycles": cycle, "issues": review["issues"], "usage": state["usage"]}
-        cycle_record["repairs"] = run_repair(run, state, config, integration_path,
-                                              cycle, review["issues"])
+        cycle_record["repairs"] = run_repair(
+            run, state, config, integration_path, cycle, review["issues"], cycle_record
+        )
         state["integration"]["commit"] = git(integration_path, "rev-parse", "HEAD")
         save_state(run, state, "repair_completed", {"cycle": cycle,
                                                      "commit": state["integration"]["commit"]})
     if final_evidence is None or final_review is None:
         raise FactoryError("review loop ended without a final evidence-backed verdict")
+    state["operation"] = {"kind": "merge"}
+    save_state(
+        run,
+        state,
+        "merge_started",
+        {"commit": git(integration_path, "rev-parse", "HEAD")},
+    )
     verify_merge_preconditions(repo, state, final_evidence, final_review, integration_path)
     state["final_review"] = final_review
     state["final_evidence_sha256"] = final_evidence["sha256"]
@@ -1407,8 +2040,9 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     if config["merge"]["apply"]:
         git(repo, "merge", "--ff-only", integration_commit)
         merge["status"] = "merged"
-        state["phase"] = "merged"
+        state["phase"] = "delivery_ready" if config["delivery"]["enabled"] else "merged"
     state["merge"] = merge
+    state.pop("operation", None)
     save_state(run, state, "merge_authorized" if merge["status"] == "approved" else "merged", merge)
     atomic_json(run / "receipt.json", {"schema": "pi-graph-factory.receipt.v1",
                                         "run": state["id"], "phase": state["phase"],
@@ -1420,6 +2054,177 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
             "cycles": len(state["cycles"]), "merge": merge, "usage": state["usage"]}
 
 
+def active_agent_records(run: Path) -> list[dict[str, Any]]:
+    records = []
+    for path in sorted((run / "active").glob("*.json")):
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+            pid = int(record["pid"])
+            os.kill(pid, 0)
+            record["alive"] = True
+        except ProcessLookupError:
+            record["alive"] = False
+        except (OSError, ValueError, KeyError):
+            record = {"path": str(path), "alive": False, "invalid": True}
+        record["path"] = str(path)
+        records.append(record)
+    return records
+
+
+def reconcile_active_agents(run: Path, terminate: bool, grace_seconds: int) -> None:
+    for record in active_agent_records(run):
+        path = Path(record["path"])
+        if not record.get("alive"):
+            path.unlink(missing_ok=True)
+            continue
+        if not terminate:
+            raise FactoryError(
+                f"factory-owned adapter is still active for {record.get('role')}; "
+                "retry resume with --terminate-active after inspection"
+            )
+        pid = int(record["pid"])
+        role = str(record.get("role", ""))
+        command = subprocess.check_output(
+            ["ps", "-p", str(pid), "-o", "command="], text=True, encoding="utf-8"
+        ).strip()
+        if os.getpgid(pid) != int(record.get("process_group", -1)) or "--role" not in command or role not in command:
+            raise FactoryError(f"refusing to terminate unverified process {pid} for {role}")
+        os.killpg(pid, signal.SIGTERM)
+        deadline = time.monotonic() + grace_seconds
+        while time.monotonic() < deadline:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.05)
+        else:
+            os.killpg(pid, signal.SIGKILL)
+        path.unlink(missing_ok=True)
+
+
+def continue_factory(run: Path, state: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+    if state["approved_plan_sha256"] != state["plan_sha256"]:
+        raise FactoryError("factory run requires the current plan to be explicitly approved")
+    recovered_merge = recover_applied_merge(run, state, config)
+    if recovered_merge is not None:
+        return recovered_merge
+    repo = validate_run_repository(state)
+    if state["phase"] in {"approved", "implementing"}:
+        integration_path = continue_implementation(run, state, config, repo)
+    elif state["phase"] == "reviewing" and state.get("integration"):
+        integration_path = Path(state["integration"]["path"])
+        prepare_review_workspace_for_resume(run, state, config, integration_path)
+    else:
+        raise FactoryError(f"factory cannot continue during phase {state['phase']}")
+    return continue_review(run, state, config, repo, integration_path)
+
+
+def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
+    run = Path(args.run).resolve()
+    state = load_state(run)
+    if state["phase"] != "approved":
+        raise FactoryError("factory run requires the current plan to be explicitly approved")
+    return continue_factory(run, state, load_frozen_config(run, state))
+
+
+def cmd_resume(args: argparse.Namespace) -> dict[str, Any]:
+    run = Path(args.run).resolve()
+    state = load_state(run)
+    if state["phase"] not in {"implementing", "reviewing"}:
+        raise FactoryError(f"factory run is not resumable during phase {state['phase']}")
+    config = load_frozen_config(run, state)
+    reconcile_active_agents(
+        run,
+        terminate=args.terminate_active,
+        grace_seconds=config["limits"]["termination_grace_seconds"],
+    )
+    state["usage"] = observed_usage(run)
+    state.pop("last_error", None)
+    save_state(run, state, "resume_started", {"phase": state["phase"]})
+    return continue_factory(run, state, config)
+
+
+def cmd_inspect(args: argparse.Namespace) -> dict[str, Any]:
+    run = Path(args.run).resolve()
+    state = load_state(run)
+    lanes = {}
+    for owner in tasks_by_owner(state) if state.get("plan") else []:
+        workspace = run / "worktrees" / owner
+        lanes[owner] = {
+            "checkpointed": owner in state.get("lane_receipts", {}),
+            "worktree": str(workspace),
+            "exists": workspace.exists(),
+            "changed_files": worktree_changed_files(workspace) if workspace.exists() else [],
+        }
+    resumable = state["phase"] in {"implementing", "reviewing"}
+    return {
+        "ok": True,
+        "run": str(run),
+        "phase": state["phase"],
+        "operation": state.get("operation"),
+        "resumable": resumable,
+        "next_command": f"factory resume --run {run}" if resumable else None,
+        "last_error": state.get("last_error"),
+        "active_agents": active_agent_records(run),
+        "lanes": lanes,
+        "integration": state.get("integration"),
+        "completed_cycles": len(state.get("cycles", [])),
+        "artifacts": {
+            "state": str(run / "state.json"),
+            "events": str(run / "events.jsonl"),
+            "plans": [str(path) for path in sorted((run / "plans").glob("*.json"))],
+            "contexts": [str(path) for path in sorted((run / "contexts").glob("*.json"))],
+            "receipts": [str(path) for path in sorted((run / "receipts").glob("*.json"))],
+            "evidence": [str(path) for path in sorted((run / "evidence").glob("*.json"))],
+        },
+    }
+
+
+def cmd_deliver(args: argparse.Namespace) -> dict[str, Any]:
+    run = Path(args.run).resolve()
+    state = load_state(run)
+    if state["phase"] not in {"delivery_ready", "delivery_failed"}:
+        raise FactoryError(f"delivery cannot run during phase {state['phase']}")
+    config = load_frozen_config(run, state)
+    if not config["delivery"]["enabled"]:
+        raise FactoryError("delivery is disabled in the frozen factory contract")
+    if not state.get("merge") or state["merge"].get("status") != "merged":
+        raise FactoryError("delivery requires an applied guarded merge")
+    repo = Path(state["repo"])
+    if git(repo, "rev-parse", "HEAD") != state["merge"]["commit"]:
+        raise FactoryError("target repository drifted after guarded merge")
+    ensure_clean(repo)
+    result = execute_delivery(
+        repo,
+        config["delivery"],
+        command_timeout_seconds=config["limits"]["command_timeout_seconds"],
+        termination_grace_seconds=config["limits"]["termination_grace_seconds"],
+    )
+    state["delivery"] = result
+    if result["status"] == "deployed":
+        state["phase"] = "delivered"
+        state.pop("last_error", None)
+        event = "delivery_completed"
+    else:
+        state["phase"] = "delivery_failed"
+        state["last_error"] = {
+            "at": now(),
+            "phase": "delivery",
+            "type": "DeliveryFailure",
+            "message": result["failure"],
+        }
+        event = "delivery_failed"
+    atomic_json(run / "delivery.json", result)
+    receipt_path = run / "receipt.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["phase"] = state["phase"]
+    receipt["delivery"] = result
+    atomic_json(receipt_path, receipt)
+    save_state(run, state, event, result)
+    return {"ok": result["status"] == "deployed", "phase": state["phase"],
+            "run": str(run), "delivery": result}
+
+
 def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
     state = load_state(Path(args.run).resolve())
     return {
@@ -1428,8 +2233,7 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
-def record_transition_failure(run: Path, error: BaseException) -> None:
-    state = load_state(run)
+def observed_usage(run: Path) -> dict[str, Any]:
     observed = {
         "calls": 0, "input_tokens": 0, "output_tokens": 0,
         "total_tokens": 0, "cost_usd": 0.0, "unknown_calls": 0,
@@ -1441,7 +2245,12 @@ def record_transition_failure(run: Path, error: BaseException) -> None:
             record_usage(holder, receipt)
         except (OSError, ValueError, FactoryError):
             observed["unknown_calls"] += 1
-    state["usage"] = observed
+    return observed
+
+
+def record_transition_failure(run: Path, error: BaseException) -> None:
+    state = load_state(run)
+    state["usage"] = observed_usage(run)
     failure = {
         "at": now(),
         "phase": state["phase"],
@@ -1478,25 +2287,33 @@ def parser() -> argparse.ArgumentParser:
     approve.add_argument("--sha256", required=True)
     execute = commands.add_parser("run")
     execute.add_argument("--run", required=True)
+    resume = commands.add_parser("resume")
+    resume.add_argument("--run", required=True)
+    resume.add_argument("--terminate-active", action="store_true")
+    inspect = commands.add_parser("inspect")
+    inspect.add_argument("--run", required=True)
+    deliver = commands.add_parser("deliver")
+    deliver.add_argument("--run", required=True)
     status = commands.add_parser("status")
     status.add_argument("--run", required=True)
     return root
 
 
 COMMANDS = {"init": cmd_init, "plan": cmd_plan, "answer": cmd_answer,
-            "approve": cmd_approve, "run": cmd_run, "status": cmd_status}
+            "approve": cmd_approve, "run": cmd_run, "resume": cmd_resume,
+            "inspect": cmd_inspect, "deliver": cmd_deliver, "status": cmd_status}
 
 
 def main() -> int:
     args = parser().parse_args()
     try:
-        if args.command in {"plan", "answer", "approve", "run"}:
+        if args.command in {"plan", "answer", "approve", "run", "resume", "deliver"}:
             run = Path(args.run).resolve()
             with run_lock(run):
                 try:
                     payload = COMMANDS[args.command](args)
                 except (FactoryError, OSError, ValueError, json.JSONDecodeError) as error:
-                    if args.command == "run":
+                    if args.command in {"run", "resume", "deliver"}:
                         record_transition_failure(run, error)
                     raise
         else:

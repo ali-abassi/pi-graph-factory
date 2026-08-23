@@ -1,11 +1,11 @@
 {
   "review": {
     "artifact": "Pi Graph Factory local trigger-to-merge controller",
-    "scope": "trusted local repositories and configured local agent harnesses",
-    "environment": "local macOS/Linux worktrees; no production traffic or real deployment target",
+    "scope": "trusted local or Railway-hosted repositories and configured agent harnesses",
+    "environment": "local macOS/Linux worktrees or a credentialed Railway Cloud Agent; project-configured delivery only",
     "decision": "conditional_go",
     "decision_owner": "repository operator",
-    "assurance_boundary": "Safe for continued local development and trusted-repository trials with merge disabled by default. Untrusted code, unattended production deployment, remote recovery, and provider security were not certified."
+    "assurance_boundary": "Safe for trusted-repository trials with merge and delivery disabled by default. Checkpoint recovery, proportional proof, and explicit health-gated delivery are mechanically covered; hostile code, exactly-once external effects, and provider security are not certified."
   },
   "risks": [
     {
@@ -38,26 +38,26 @@
     {
       "id": "R-002",
       "category": "reliability",
-      "title": "Abrupt death can leave partial agent work without automatic resume",
+      "title": "Abrupt death can leave ambiguous local or external state",
       "affected_parties": ["repository operator"],
       "assets": ["run progress", "agent worktrees", "operator time"],
       "precondition": "The controller or host is killed during an agent or repair step.",
       "trigger": "SIGKILL, host restart, or provider process loss.",
-      "failure": "The OS lock releases, but dirty partial work is not automatically classified or resumed.",
-      "effect": "The run remains in a nonterminal phase and requires inspection before retry.",
-      "evidence": "The SIGKILL holdout proves lock release and durable failure on retry; automatic dirty-worktree resume is explicitly absent.",
-      "existing_controls": ["OS one-writer lock", "atomic state", "append-only events", "fail-closed status after retry"],
+      "failure": "Known Git and process checkpoints can resume, but unknown mutations, background daemons, and external provider effects cannot always be classified.",
+      "effect": "Ambiguous runs stop for inspection; an external effect may require provider-side reconciliation.",
+      "evidence": "Deterministic tests cover SIGKILL during an active lane, committed lane/repair reconstruction, declared capture cleanup, partial owner-scoped repair continuation, and recovery after a reviewed fast-forward.",
+      "existing_controls": ["OS one-writer lock", "atomic state", "append-only events", "inspect and resume commands", "verified process-group termination", "commit and receipt reconstruction", "fail-closed ambiguity handling"],
       "likelihood": "possible",
       "impact": "moderate",
       "severity": "high",
       "confidence": "high",
-      "detectability": "Status and worktree inspection expose the phase and partial files after an operator retry.",
-      "recoverability": "Commits and completed lane receipts survive; dirty partial lanes require manual keep/discard judgment.",
+      "detectability": "Inspect exposes the operation, active agents, worktrees, last error, and all durable artifacts; provider state requires provider-side observation.",
+      "recoverability": "Validated local checkpoints resume. Ambiguous Git mutations and non-idempotent external effects require operator reconciliation.",
       "response": "mitigate",
-      "mitigation": "Add explicit inspect-and-resume commands that never discard dirty partial work automatically.",
-      "test": "Inject process death before and after agent receipt, commit, integration, evidence, and repair checkpoints; assert surgical resume or human_required.",
+      "mitigation": "Keep local transitions checkpointed, refuse unknown state, and require idempotent provider commands plus observable health and rollback.",
+      "test": "Extend death injection across capture and live provider delivery boundaries; assert validated resume locally and explicit reconciliation for ambiguous external effects.",
       "owner": "factory maintainer",
-      "status": "planned",
+      "status": "mitigated",
       "residual_risk": "External side effects cannot be made exactly-once by local replay alone.",
       "acceptance_authority": "",
       "acceptance_review_condition": "Required before claiming unattended crash recovery."
