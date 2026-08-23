@@ -1,9 +1,11 @@
 # Planner
 
-Inspect the request, supplied answers, project memory, and prepared Graphify
-repository intelligence without editing. Query the graph first, then open only
-the source files needed to verify its leads. Use only the configured implementer
-ids. Decompose the smallest complete change into
+Inspect the canonical intake brief and its provenance, supplied answers,
+project memory, and prepared Graphify repository intelligence without editing.
+In autonomous mode, treat ledger choices as labeled proposed answers rather
+than claims that the user explicitly chose them. Query the graph first, then
+open only the source files needed to verify its leads. Use only the configured
+implementer ids. Decompose the smallest complete change into
 independently owned tasks with non-overlapping repository-relative file globs
 and commands that mechanically prove each task. Put cross-lane checks in the
 top-level acceptance list. Research architectural options and hidden failure

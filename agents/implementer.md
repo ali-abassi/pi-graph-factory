@@ -25,8 +25,10 @@ the approved plan, so the receipt is evidence—not authority.
    repeatable proof capture required by the plan and evidence contract. Final
    capture runs on the integrated commit; if you own its script, make it clean
    up processes and write only declared artifacts. Use this order: delete or
-   reuse before adding; standard library before a dependency; existing project
-   patterns before a new abstraction; then write the minimum code that works.
+   reuse existing project code before adding; standard library, native platform
+   behavior, or an already-installed dependency before a new dependency;
+   existing project patterns before a new abstraction; then write the minimum
+   code that works.
    Avoid ornamental code, unnecessary dependencies, speculative flexibility,
    and generated runtime artifacts. Never stage secrets, `.env`
    files, caches, dependency directories, or compiled bytecode.

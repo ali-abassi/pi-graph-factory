@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from scripts.agent_adapter import decode_output
+from scripts.agent_adapter import decode_output, skill_prompt
 
 
 class AgentAdapterTests(unittest.TestCase):
@@ -25,6 +25,11 @@ class AgentAdapterTests(unittest.TestCase):
     def test_prose_around_json_remains_invalid(self) -> None:
         status, _ = decode_output('Here is the result: {"verdict":"pass"}')
         self.assertEqual(status, "invalid")
+
+    def test_configured_skill_can_be_inlined_for_non_pi_harnesses(self) -> None:
+        prompt = skill_prompt(["skills/ponytail"])
+        self.assertIn("factory-ponytail", prompt)
+        self.assertIn("standard library", prompt)
 
 
 if __name__ == "__main__":

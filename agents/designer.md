@@ -23,9 +23,11 @@ error, transition, and persisted state visible long enough for a human reviewer
 to read in the recorded video.
 
 Use the smallest coherent implementation that satisfies the approved design.
-Avoid ornamental code, unnecessary dependencies, and generated runtime
-artifacts. Never stage secrets, `.env` files, caches, dependency directories,
-or compiled bytecode.
+Reuse existing project code, then prefer native platform behavior, the standard
+library, or an already-installed dependency before adding machinery. Avoid
+ornamental code, single-use abstractions, unnecessary dependencies, and
+generated runtime artifacts. Never stage secrets, `.env` files, caches,
+dependency directories, or compiled bytecode.
 
 Return exactly the standard implementer JSON object:
 

@@ -7,6 +7,12 @@ for any individual run.
 ## Intake and planning
 
 - Initialize durable runs for existing repositories or create a new Git repository.
+- Select direct, interactive, or autonomous intake without forking the downstream
+  lifecycle.
+- Preserve human-led goal briefs and autonomous self-grill briefs/decision ledgers
+  with readiness and content hashes in the run ledger.
+- Reject autonomous intake with missing decision coverage, unsafe low-confidence
+  assumptions, or unresolved human-only decisions.
 - Store the request, frozen factory contract, base commit, target branch, and run ledger.
 - Build or refresh ignored local Graphify repository intelligence when code exists.
 - Defer Graphify for a code-free new project, then create it after implementation.
@@ -24,6 +30,8 @@ for any individual run.
 - Reject overlapping planned scopes and actual out-of-scope or unsafe staged files.
 - Execute approved task checks and integrate passing lane commits deterministically.
 - Apply a smallest-complete-change policy through implementer instructions and skills.
+- Apply the Ponytail solution ladder in product and design lanes across Pi,
+  Claude Code, and Codex harnesses.
 
 ## Proof and review
 
@@ -31,6 +39,8 @@ for any individual run.
 - Capture declared screenshots, video, and browser artifacts on the integrated commit.
 - Bind proof hashes to the current commit and approved plan.
 - Require an independent read-only review to account for every success criterion.
+- Review the integrated diff for concrete deletable abstractions, wrappers,
+  dependencies, and speculative flexibility without weakening correctness or safety.
 - Route concrete failures to the named owner and exact approved target files.
 - Recheck, recapture, and rereview repairs for at most five total review cycles.
 

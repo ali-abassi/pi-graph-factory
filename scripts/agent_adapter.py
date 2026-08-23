@@ -19,6 +19,17 @@ def resolve(path: str) -> Path:
     return candidate if candidate.is_absolute() else ROOT / candidate
 
 
+def skill_prompt(paths: list[str]) -> str:
+    """Inline trusted configured skills for harnesses without a skill flag."""
+
+    blocks = []
+    for raw in paths:
+        path = resolve(raw)
+        path = path / "SKILL.md" if path.is_dir() else path
+        blocks.append(f"<skill path={raw!r}>\n{path.read_text(encoding='utf-8')}\n</skill>")
+    return "\n".join(blocks)
+
+
 def pi_output(stream: str) -> tuple[str, dict]:
     final = None
     for line in stream.splitlines():
@@ -75,6 +86,8 @@ def main() -> int:
     context = json.loads(args.context.read_text(encoding="utf-8"))
     instructions = resolve(args.instructions).read_text(encoding="utf-8")
     prompt = instructions + "\n\n<context>\n" + json.dumps(context, indent=2) + "\n</context>"
+    if args.harness != "pi" and args.skill:
+        prompt += "\n\n<configured_skills>\n" + skill_prompt(args.skill) + "\n</configured_skills>"
     if args.harness == "pi":
         command = ["pi", "-p", "--mode", "json", "--no-session", "--model", args.model,
                    "--thinking", args.thinking, "--no-extensions", "--no-skills"]
@@ -98,6 +111,7 @@ def main() -> int:
     status, output = decode_output(raw)
     receipt = {"status": status, "harness": args.harness, "model": args.model,
                "role": args.role, "output": output, "usage": usage,
+               "skills": args.skill,
                "raw_sha256": hashlib.sha256(raw.encode()).hexdigest()}
     print(json.dumps(receipt, separators=(",", ":")))
     return 0

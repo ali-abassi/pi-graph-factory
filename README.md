@@ -12,6 +12,9 @@ authority.
 request or issue
       |
       v
+interactive grill | autonomous self-grill | direct ready request
+      |
+      v
 Graphify + VISION.md + FEATURE_MAP.md
       |
       v
@@ -48,8 +51,10 @@ Read [VISION.md](VISION.md) for the intended product and
 ## What works now
 
 - Existing Git repositories and newly initialized repositories.
-- Manual requests today; issue and webhook adapters can call the same `init`
-  command.
+- Direct, interactive, and autonomous intake with durable, hashed artifacts.
+  Issue and webhook adapters can call the same `init` command.
+- Interactive intake accepts a ready `goal-brief.md`; autonomous intake accepts
+  and validates a `self-grilled-brief.md` plus its structured decision ledger.
 - Automatic Graphify setup and commit-aware refresh for code repositories;
   code-free new projects defer indexing until implementation creates code.
 - Durable `VISION.md` and `FEATURE_MAP.md` project memory. Generated plans must
@@ -64,6 +69,8 @@ Read [VISION.md](VISION.md) for the intended product and
 - One to ten active implementers running concurrently in isolated branches and
   worktrees.
 - Pi, Claude Code, and Codex harnesses behind one normalized receipt contract.
+- [Ponytail](https://github.com/DietrichGebert/ponytail)-derived minimal-code
+  discipline during implementation and an explicit over-engineering lens during review.
 - Conservative plan-time rejection of overlapping owner globs.
 - Git-derived changed-file verification against each owner's approved scope.
 - Mechanical execution of every approved task and integrated acceptance command.
@@ -124,6 +131,18 @@ printf '%s\n' 'Add CSV export and prove it with tests.' > request.md
   --generate
 ```
 
+For a broad new idea, choose intake before initialization:
+
+- `interactive` preserves a human-led `goal-brief.md` produced by `/grill-me`
+  (phone) or `goal-grill` (text).
+- `auto` validates a `/grill-yourself` brief and decision ledger, including
+  coverage, confidence, reversibility, and the absence of unresolved human-only
+  decisions.
+- `direct` remains the default for an already-specific issue or request.
+
+See [Intake modes](docs/INTAKE.md) for the exact commands and contracts. All
+three paths converge on the same planner and independent plan-quality gate.
+
 If the result contains blocking questions, answer them and generate a revised
 plan:
 
@@ -177,7 +196,7 @@ and the LLM plan judge while preserving implementation, proof, review, and merge
 gates. Use `init --new-repo` when the target path does not exist.
 
 Every command emits one JSON object. The run directory contains frozen config,
-plan revisions, normalized agent receipts, contexts, isolated worktrees,
+preserved intake, plan revisions, normalized agent receipts, contexts, isolated worktrees,
 append-only events, evidence manifests, state, and—only after every gate
 passes—`receipt.json`.
 
@@ -278,6 +297,12 @@ scope and commands as well as prose.
 Edit [`factory.yaml`](factory.yaml) to choose each role's harness, model,
 thinking level, instructions, skills, and tools. The example uses Pi for product
 work and independent review, and Claude Code for design work.
+
+Configured skills are native `--skill` inputs for Pi. For Claude Code and Codex,
+the adapter reads the same trusted local `SKILL.md` files into the role prompt,
+so a configured skill is not silently ignored when a lane changes harness. The
+default product and design lanes include `skills/ponytail`; review includes
+`skills/ponytail-review`. This adds no workflow stage or runtime dependency.
 
 Supported harness identifiers are:
 
@@ -466,7 +491,7 @@ Keeping one lifecycle owner avoids two-engine drift.
 .venv/bin/python -m py_compile scripts/*.py tests/*.py
 ```
 
-The deterministic suite currently covers 73 cases, including:
+The deterministic suite currently covers 79 cases, including:
 
 - simple single-owner first-pass work;
 - a two-owner feature with directed design repair;
@@ -493,6 +518,7 @@ The deterministic suite currently covers 73 cases, including:
 - one corrected reviewer-protocol retry and bounded refusal after two malformed
   reviewer responses;
 - planner JSON normalization and one bounded typed-plan correction;
+- durable direct/interactive/auto intake and cross-harness skill prompt loading;
 - exact review-issue target files bound to the routed owner's approved scope;
 - one read-only repair-receipt correction and refusal of correction-time writes;
 - fresh proof after repair, successful merge, target/config drift, and bounded

@@ -28,12 +28,14 @@ from jsonschema import Draft202012Validator
 
 try:
     from delivery import execute_delivery
+    from intake import INTAKE_MODES, IntakeError, resolve_intake
     from repository_intelligence import (
         IntelligenceError,
         ensure_repository_intelligence,
     )
 except ModuleNotFoundError:  # imported as scripts.factory in the test/package path
     from scripts.delivery import execute_delivery
+    from scripts.intake import INTAKE_MODES, IntakeError, resolve_intake
     from scripts.repository_intelligence import (
         IntelligenceError,
         ensure_repository_intelligence,
@@ -854,12 +856,16 @@ def validate_plan(
 def cmd_init(args: argparse.Namespace) -> dict[str, Any]:
     config_path = Path(args.config).expanduser().resolve()
     config = load_config(config_path)
-    request = args.request
-    if args.request_file:
-        request = Path(args.request_file).read_text(encoding="utf-8")
-    if not request or not request.strip():
-        raise FactoryError("request must not be empty")
-    repo = ensure_repo(Path(args.repo), args.new_repo, request)
+    try:
+        request, intake, intake_ledger = resolve_intake(
+            args.intake_mode,
+            args.request,
+            args.request_file,
+            args.intake_ledger,
+        )
+    except IntakeError as error:
+        raise FactoryError(str(error)) from error
+    repo = ensure_repo(Path(args.repo), args.new_repo, intake["summary"])
     base = git(repo, "rev-parse", "HEAD")
     identifier = args.id or f"factory-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d-%H%M%S')}"
     run = Path(args.out).expanduser().resolve() if args.out else repo / ".factory" / "runs" / identifier
@@ -867,12 +873,21 @@ def cmd_init(args: argparse.Namespace) -> dict[str, Any]:
         raise FactoryError(f"run already exists: {run}")
     run.mkdir(parents=True)
     shutil.copy2(config_path, run / "factory.yaml")
+    intake_path = run / "intake" / intake["artifact"]
+    intake_path.parent.mkdir(parents=True)
+    intake_path.write_text(request + "\n", encoding="utf-8")
+    intake["artifact_sha256"] = digest_bytes(intake_path.read_bytes())
+    if intake_ledger is not None:
+        ledger_path = run / "intake" / intake["ledger"]
+        atomic_json(ledger_path, intake_ledger)
+        intake["ledger_sha256"] = digest_bytes(ledger_path.read_bytes())
     state = {
         "schema": "pi-graph-factory.run.v1", "id": identifier, "phase": "intake",
         "created_at": now(), "updated_at": now(), "sequence": 0,
         "repo": str(repo), "new_repo": args.new_repo, "base_commit": base,
         "target_branch": config["merge"]["target"], "request": request.strip(),
         "request_sha256": digest_bytes(request.strip().encode()),
+        "intake": intake,
         "config_sha256": digest_bytes((run / "factory.yaml").read_bytes()),
         "plan": None, "plan_sha256": None, "approved_plan_sha256": None,
         "answers": {}, "cycles": [], "lane_receipts": {}, "integration": None,
@@ -880,8 +895,17 @@ def cmd_init(args: argparse.Namespace) -> dict[str, Any]:
         "usage": {"calls": 0, "input_tokens": 0, "output_tokens": 0,
                   "total_tokens": 0, "cost_usd": 0.0, "unknown_calls": 0},
     }
-    save_state(run, state, "trigger_received", {"request_sha256": state["request_sha256"]})
-    return {"ok": True, "run": str(run), "phase": state["phase"], "base_commit": base}
+    save_state(run, state, "trigger_received", {
+        "request_sha256": state["request_sha256"],
+        "intake": intake,
+    })
+    return {
+        "ok": True,
+        "run": str(run),
+        "phase": state["phase"],
+        "base_commit": base,
+        "intake": intake,
+    }
 
 
 def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
@@ -900,6 +924,7 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
         intelligence, memory = prepare_repository_context(run, state, config)
         planner_context = {
             "request": state["request"],
+            "intake": state.get("intake", {"mode": "direct", "status": "ready"}),
             "answers": state["answers"],
             "base_commit": state["base_commit"],
             "target_branch": state["target_branch"],
@@ -975,6 +1000,7 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
             )
             judge_context = {
                 "request": state["request"],
+                "intake": state.get("intake", {"mode": "direct", "status": "ready"}),
                 "answers": state["answers"],
                 "plan": plan,
                 "repository_intelligence": intelligence,
@@ -2579,6 +2605,7 @@ def cmd_inspect(args: argparse.Namespace) -> dict[str, Any]:
         "artifacts": {
             "state": str(run / "state.json"),
             "events": str(run / "events.jsonl"),
+            "intake": [str(path) for path in sorted((run / "intake").glob("*"))],
             "plans": [str(path) for path in sorted((run / "plans").glob("*.json"))],
             "contexts": [str(path) for path in sorted((run / "contexts").glob("*.json"))],
             "receipts": [str(path) for path in sorted((run / "receipts").glob("*.json"))],
@@ -2680,6 +2707,8 @@ def parser() -> argparse.ArgumentParser:
     request = init.add_mutually_exclusive_group(required=True)
     request.add_argument("--request")
     request.add_argument("--request-file")
+    init.add_argument("--intake-mode", choices=INTAKE_MODES, default="direct")
+    init.add_argument("--intake-ledger")
     init.add_argument("--new-repo", action="store_true")
     init.add_argument("--id")
     init.add_argument("--out")

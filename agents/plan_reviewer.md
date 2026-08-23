@@ -57,7 +57,9 @@ the overall score `null` and the verdict `revise`.
 
 - 7: works but contains avoidable tasks, abstractions, or broad file scopes.
 - 7.5: delta from 7 — removes the largest unnecessary unit of work.
-- 8: delta from 7.5 — uses existing platform/project capabilities before new machinery.
+- 8: delta from 7.5 — follows the Ponytail ladder: reuse existing project code,
+  then standard library, native platform behavior, or an installed dependency
+  before new machinery.
 - 8.5: delta from 8 — this is the smallest complete change; tasks are independently
   useful, non-overlapping, and bias implementation toward clean working code.
 - 9: delta from 8.5 — complexity is explicitly justified by a concrete requirement.
