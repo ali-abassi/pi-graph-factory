@@ -219,6 +219,13 @@ Proof paths must survive lane commits and integration, so keep them in a
 project-owned tracked directory such as `evidence/factory/`, never under the
 controller's ignored `.factory/` run-state directory.
 
+`capture_commands` run on the clean integrated worktree before evidence tests
+and again after every repair. They may change only declared screenshots, video,
+and `artifacts`; the controller commits those exact proof files, rejects stray
+writes, and binds review to the resulting commit. This lets frontend capture
+exercise backend or product work from other lanes without weakening lane
+isolation.
+
 For every review cycle the controller:
 
 1. runs approved integrated acceptance and configured evidence commands;
@@ -282,7 +289,7 @@ the two-engine drift this repository previously had.
 .venv/bin/python -m py_compile scripts/*.py tests/*.py
 ```
 
-The deterministic suite currently covers 32 cases, including:
+The deterministic suite currently covers 34 cases, including:
 
 - simple single-owner first-pass work;
 - a two-owner feature with directed design repair;
@@ -295,6 +302,8 @@ The deterministic suite currently covers 32 cases, including:
   bootstrap, and generated/secret-bearing artifact refusal;
 - versioned success-criteria requirements, exact review coverage, and refusal
   of omitted or partial outcome accounting;
+- post-integration capture refresh, capture-command failure, and declared-only
+  proof writes;
 - fresh proof after repair, successful merge, target/config drift, and bounded
   human escalation.
 

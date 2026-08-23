@@ -33,6 +33,7 @@ class FactoryLifecycleTests(unittest.TestCase):
         value["implementers"] = [value["implementers"][0]]
         value["review"]["max_cycles"] = 5
         value["evidence"] = {
+            "capture_commands": ["cp app.txt evidence/flow.webm"],
             "screenshots": ["evidence/desktop.png"],
             "video": "evidence/flow.webm",
             "test_commands": ["test -s app.txt", "test -f evidence/browser-receipt.json"],
@@ -100,6 +101,12 @@ class FactoryLifecycleTests(unittest.TestCase):
         self.assertEqual(len(state["cycles"]), 2)
         self.assertNotEqual(state["cycles"][0]["evidence"]["source_commit"],
                             state["cycles"][1]["evidence"]["source_commit"])
+        first_video = next(item for item in state["cycles"][0]["evidence"]["files"]
+                           if item["path"] == "evidence/flow.webm")
+        second_video = next(item for item in state["cycles"][1]["evidence"]["files"]
+                            if item["path"] == "evidence/flow.webm")
+        self.assertNotEqual(first_video["sha256"], second_video["sha256"])
+        self.assertTrue(state["cycles"][1]["evidence"]["capture"][0]["passed"])
         receipt = json.loads((run / "receipt.json").read_text())
         self.assertEqual(receipt["merge"]["status"], "merged")
         self.assertEqual(receipt["evidence_sha256"], state["final_evidence_sha256"])

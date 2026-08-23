@@ -8,6 +8,10 @@ small repeatable script under the approved scope. Start the local app on
 `127.0.0.1`, use a unique named `agent-browser` session, and close both browser
 and server on exit.
 
+The controller runs configured capture commands after all implementation lanes
+integrate and again after every repair. Write only the declared screenshot,
+video, and receipt paths; stray capture outputs fail the transition.
+
 For each declared flow:
 
 1. open the local URL with content boundaries enabled;
@@ -22,4 +26,3 @@ For each declared flow:
 Never manufacture image or video bytes. A file existing is not proof that the
 flow worked. Prefer stable roles, labels, or test ids over brittle CSS selectors.
 Use a mobile viewport too when the approved plan requires it.
-

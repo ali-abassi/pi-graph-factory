@@ -87,8 +87,9 @@ def compile_factory(spec: dict[str, Any]) -> dict[str, Any]:
                 f'--cycle {cycle} --config "$WORKFLOW_DIR/factory.yaml" --out "$OUT"'
             ),
             "schema": {"status": {"type": "string", "enum": ["pass"]},
-                       "screenshots": "array", "video": "string", "tests": "array"},
-            "gate": gate_json("assert x['status']=='pass' and x['tests']"),
+                       "capture": "array", "screenshots": "array", "video": "string",
+                       "artifacts": "array", "tests": "array"},
+            "gate": gate_json("assert x['status']=='pass' and x['capture'] and x['tests']"),
         })
         steps.append({
             "id": review, "needs": [capture],

@@ -90,3 +90,20 @@
   validators, then fresh unknown-id/failed-without-routing challenges and live
   medium/complex Luna runs. No loosening of scope, evidence, budget, or merge
   controls.
+
+## Integrated capture climb v5
+
+- **Trigger:** multi-owner live-case design showed that a design lane cannot
+  prove behavior owned by another isolated lane before integration.
+- **Frozen evaluator:** `tests/test_capture_freshness.py` after the baseline.
+- **Baseline:** 0/2. Configured capture commands were ignored, stale proof was
+  hashed, and a failing capture command did not stop review.
+- **Candidate:** run configured capture commands on a clean integrated
+  worktree, reject writes outside declared proof artifacts, commit the exact
+  proof state, run acceptance, and repeat after every repair. Planner and
+  implementer contexts now include the frozen evidence contract.
+- **Result:** 2/2 development cases, 34/34 full tests, both graph validators,
+  and 2/2 fresh stray-write/clean-boundary challenges pass.
+- **Assurance boundary:** capture provenance and freshness are mechanical;
+  whether a screenshot or video proves the intended behavior remains a semantic
+  reviewer and target-test responsibility.

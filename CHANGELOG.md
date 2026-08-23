@@ -13,6 +13,8 @@ All notable changes to Pi Graph Factory are documented here.
 - One-writer controller locking and durable caught-failure receipts.
 - Per-agent process-group timeouts, durable normalized receipts, and aggregate
   token/cost dispatch ceilings.
+- Post-integration evidence capture commands with declared-output confinement,
+  proof commits, and automatic recapture after every repair.
 - Simple, medium, complex, adversarial, and concurrency benchmark suites.
 - Public security, contribution, improvement, and release documentation.
 

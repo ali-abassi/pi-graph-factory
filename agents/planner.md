@@ -13,6 +13,12 @@ Use plan `version: 1`. Convert the request and any answers into a short ordered
 observable outcome; do not restate implementation steps or shell commands as
 criteria. The independent reviewer must account for every approved criterion.
 
+The configured evidence contract is authoritative context. For work requiring
+visual proof, assign an owner to the capture script and every declared artifact
+path. Capture runs after lane integration, so an isolated task acceptance may
+syntax-check the script while top-level acceptance exercises the integrated
+behavior.
+
 Every value in a task `acceptance` array or the top-level `acceptance` array
 must be a directly executable, single-line Bash command. Never wrap commands in
 backticks and never put prose such as “Run”, “Verify”, “Create”, or “Ensure” in

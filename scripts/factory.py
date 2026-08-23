@@ -137,6 +137,14 @@ def staged_files(repo: Path) -> list[str]:
     return sorted(os.fsdecode(raw) for raw in result.stdout.split(b"\0") if raw)
 
 
+def worktree_changed_files(repo: Path) -> list[str]:
+    tracked = set(git(repo, "diff", "--name-only").splitlines())
+    tracked.update(git(repo, "diff", "--cached", "--name-only").splitlines())
+    untracked = git(repo, "ls-files", "--others", "--exclude-standard", "-z")
+    tracked.update(value for value in untracked.split("\0") if value)
+    return sorted(tracked)
+
+
 def run_commands(cwd: Path, commands: list[str], label: str) -> list[dict[str, Any]]:
     receipts = []
     for command in commands:
@@ -265,6 +273,11 @@ def load_config(path: Path) -> dict[str, Any]:
     if errors:
         raise FactoryError("invalid factory contract: " + "; ".join(
             f"{'.'.join(map(str, error.absolute_path))}: {error.message}" for error in errors))
+    for field in ("capture_commands", "test_commands"):
+        value["evidence"][field] = [
+            validate_acceptance_command(command, f"evidence {field}")
+            for command in value["evidence"].get(field, [])
+        ]
     return value
 
 
@@ -476,6 +489,7 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
                 {"id": item["id"], "scope": item["scope"]}
                 for item in config["implementers"]
             ],
+            "evidence": config["evidence"],
         }
         for attempt in range(1, 3):
             enforce_dispatch_limits(state, config["limits"], "plan")
@@ -742,6 +756,7 @@ def execute_lane(
     workspace: Path,
     branch: str,
     limits: dict[str, Any],
+    evidence_spec: dict[str, Any],
 ) -> dict[str, Any]:
     receipt = invoke_agent(
         run,
@@ -749,7 +764,8 @@ def execute_lane(
         agent,
         f"implement:{owner}",
         workspace,
-        {"request": state["request"], "plan": state["plan"], "tasks": tasks},
+        {"request": state["request"], "plan": state["plan"], "tasks": tasks,
+         "evidence": evidence_spec},
         limits,
     )
     output = receipt["output"]
@@ -812,12 +828,34 @@ def file_receipt(root: Path, path: Path) -> dict[str, Any]:
 
 def capture_evidence(run: Path, state: dict[str, Any], config: dict[str, Any],
                      integration: Path, cycle: int) -> dict[str, Any]:
+    if worktree_changed_files(integration):
+        raise FactoryError("integration worktree must be clean before evidence capture")
+    capture = run_commands(
+        integration,
+        list(dict.fromkeys(config["evidence"].get("capture_commands", []))),
+        "configured evidence capture",
+    )
+    declared = [
+        *config["evidence"]["screenshots"],
+        config["evidence"].get("video"),
+        *config["evidence"].get("artifacts", []),
+    ]
+    declared = [value for value in declared if value]
+    changed = worktree_changed_files(integration)
+    unexpected = [value for value in changed if value not in declared]
+    if unexpected:
+        raise FactoryError(
+            "evidence capture changed files outside declared artifacts: " + ", ".join(unexpected)
+        )
+    if changed:
+        git(integration, "add", "--", *changed)
+        git(integration, "commit", "-m", f"factory: capture evidence cycle {cycle}")
     approved = list(dict.fromkeys(state["plan"]["acceptance"]))
     configured = list(dict.fromkeys(config["evidence"].get("test_commands", [])))
     tests = run_commands(integration, approved, "integrated plan")
     tests.extend(run_commands(integration, configured, "configured evidence"))
     evidence_files = []
-    for raw in [*config["evidence"]["screenshots"], config["evidence"].get("video")]:
+    for raw in declared:
         if not raw:
             continue
         path = evidence_path(integration, raw)
@@ -829,7 +867,7 @@ def capture_evidence(run: Path, state: dict[str, Any], config: dict[str, Any],
     source_commit = git(integration, "rev-parse", "HEAD")
     receipt = {"cycle": cycle, "captured_at": now(), "source_commit": source_commit,
                "approved_plan_sha256": state["approved_plan_sha256"],
-               "files": evidence_files, "tests": tests}
+               "capture": capture, "files": evidence_files, "tests": tests}
     receipt["sha256"] = digest_json(receipt)
     atomic_json(run / "evidence" / f"cycle-{cycle}.json", receipt)
     return receipt
@@ -993,6 +1031,7 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
                 workspace,
                 branch,
                 config["limits"],
+                config["evidence"],
             ): owner
             for owner, tasks, workspace, branch in lane_specs
         }
@@ -1025,6 +1064,7 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     final_review = None
     for cycle in range(1, config["review"]["max_cycles"] + 1):
         evidence = capture_evidence(run, state, config, integration_path, cycle)
+        state["integration"]["commit"] = evidence["source_commit"]
         enforce_dispatch_limits(state, config["limits"], f"review:{cycle}")
         reviewer_receipt = invoke_agent(
             run, state, config["review"], f"review:{cycle}", integration_path,

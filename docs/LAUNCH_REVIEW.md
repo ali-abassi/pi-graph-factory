@@ -43,10 +43,12 @@ alpha from an unattended production service.
 
 ## Evidence
 
-- 32 deterministic repository tests across simple, medium, complex, refusal,
+- 34 deterministic repository tests across simple, medium, complex, refusal,
   lifecycle, concurrency, and graph cases.
 - Versioned approved outcomes must receive exact independent-review coverage
   with concrete inspected evidence; failed outcomes require routed ownership.
+- Visual proof is regenerated on the integrated commit and after every repair;
+  capture commands may write only declared artifacts.
 - 4/4 fresh adversarial promotion cases.
 - SIGKILL holdout proving lock release, contiguous events, and fail-closed retry.
 - A live Luna/xhigh browser application run reached `merge_ready` with four
