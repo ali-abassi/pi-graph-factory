@@ -9,6 +9,7 @@ planner:
   instructions: agents/planner.md
   skills: [skills/planning]
   tools: [read, grep, find, ls]
+  timeout_seconds: 7200
 
 implementers:
   - id: product
@@ -19,6 +20,7 @@ implementers:
     instructions: agents/implementer.md
     skills: [skills/implementation]
     tools: [read, edit, write, bash]
+    timeout_seconds: 14400
   - id: design
     scope: User interface and visual implementation
     harness: claude-code
@@ -27,6 +29,7 @@ implementers:
     instructions: agents/designer.md
     skills: [skills/design, skills/browser-proof]
     tools: [read, edit, write, bash]
+    timeout_seconds: 14400
 
 review:
   harness: pi
@@ -36,8 +39,10 @@ review:
   skills: [skills/review]
   tools: [read, grep, find, ls, bash]
   max_cycles: 5
+  timeout_seconds: 7200
 
 evidence:
+  policy: plan
   capture_commands:
     - python3 scripts/capture_factory_evidence.py
   screenshots:
@@ -48,14 +53,21 @@ evidence:
     - evidence/factory/browser-receipt.json
   test_commands:
     - git diff --check
-    - test -f evidence/factory/browser-receipt.json
 
 limits:
-  agent_timeout_seconds: 1800
-  max_total_tokens: 500000
-  max_total_cost_usd: 10
+  agent_timeout_seconds: 14400
+  command_timeout_seconds: 3600
+  termination_grace_seconds: 30
+  max_total_tokens: null
+  max_total_cost_usd: null
   require_usage: false
 
 merge:
   target: main
   apply: false
+
+delivery:
+  enabled: false
+  deploy_commands: []
+  health_commands: []
+  rollback_commands: []

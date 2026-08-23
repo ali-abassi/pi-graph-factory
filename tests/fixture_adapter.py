@@ -26,6 +26,7 @@ if args.role == "plan":
     output = {
         "version": 1,
         "summary": "Create the text application",
+        "proof": {"mode": "visual", "reason": "exercise the browser evidence fixture"},
         "success_criteria": [
             {"id": "SC-1", "description": "The reviewed text artifact exists."}
         ],

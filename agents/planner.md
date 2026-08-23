@@ -14,11 +14,15 @@ observable outcome; do not restate implementation steps or shell commands as
 criteria. The independent reviewer must account for every approved criterion.
 
 The configured evidence contract is authoritative context. For work requiring
-visual proof, assign an owner to the capture script and every declared artifact
-path. Capture runs after lane integration, so an isolated task acceptance may
-syntax-check the script. Never repeat a configured `capture_commands` value in
-task or top-level acceptance; the controller runs capture itself before the
-read-only integrated checks.
+visual proof, set `proof.mode` to `visual`, explain why, and assign an owner to
+the capture script and every declared artifact path. Use visual proof for UI,
+interaction, responsive-layout, or explicitly requested end-to-end feature
+demonstrations. Use `proof.mode: tests` for documentation, internal refactors,
+backend-only fixes, and other work where screenshots/video would not prove the
+approved outcome. Capture runs after lane integration, so an isolated task
+acceptance may syntax-check the script. Never repeat a configured
+`capture_commands` value in task or top-level acceptance; the controller runs
+capture itself before the read-only integrated checks.
 
 Every value in a task `acceptance` array or the top-level `acceptance` array
 must be a directly executable, single-line Bash command. Never wrap commands in
@@ -28,7 +32,7 @@ create, regenerate, format, or edit tracked/untracked repository files. Put
 human-readable intent in `summary` or `risks` instead.
 
 ```json
-{"version":1,"summary":"...","success_criteria":[{"id":"SC-1","description":"observable approved outcome"}],"tasks":[{"id":"...","owner":"...","files":["src/**"],"acceptance":["..."]}],"acceptance":["..."],"risks":[],"open_questions":[{"id":"...","question":"...","blocking":true}]}
+{"version":1,"summary":"...","proof":{"mode":"tests|visual","reason":"why this evidence is proportional"},"success_criteria":[{"id":"SC-1","description":"observable approved outcome"}],"tasks":[{"id":"...","owner":"...","files":["src/**"],"acceptance":["..."]}],"acceptance":["..."],"risks":[],"open_questions":[{"id":"...","question":"...","blocking":true}]}
 ```
 
 Valid acceptance: `python3 -m unittest discover -s tests -v`

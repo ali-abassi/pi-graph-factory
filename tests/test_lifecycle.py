@@ -228,6 +228,142 @@ class FactoryLifecycleTests(unittest.TestCase):
         self.assertTrue((run / "receipts" / "planner-1-attempt-1.json").is_file())
         self.assertTrue((run / "receipts" / "planner-1-attempt-2.json").is_file())
 
+    def test_failed_review_protocol_resumes_from_integration(self) -> None:
+        run = self.initialize(run_id="review-resume-run")
+        planned = self.command(
+            "plan",
+            "--run",
+            str(run),
+            "--file",
+            str(self.write_plan(self.root / "review-resume-plan.json", [])),
+        )
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        self.env["PI_GRAPH_FACTORY_INVALID_REVIEW_ALWAYS"] = "1"
+        failed = self.command("run", "--run", str(run), expected=2)
+        self.assertIn("reviewer could not produce valid output", failed["error"])
+        self.env.pop("PI_GRAPH_FACTORY_INVALID_REVIEW_ALWAYS")
+        inspected = self.command("inspect", "--run", str(run))
+        self.assertTrue(inspected["resumable"])
+        self.assertEqual(inspected["phase"], "reviewing")
+        completed = self.command("resume", "--run", str(run))
+        self.assertEqual(completed["phase"], "merged")
+
+    def test_committed_repair_is_recovered_without_rerunning_the_owner(self) -> None:
+        config = yaml.safe_load(self.config.read_text())
+        config["merge"]["apply"] = False
+        config_path = self.root / "repair-recovery-factory.yaml"
+        config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+        run = self.initialize(config_path, "repair-recovery-run")
+        planned = self.command(
+            "plan", "--run", str(run), "--file",
+            str(self.write_plan(self.root / "repair-recovery-plan.json", [])),
+        )
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        completed = self.command("run", "--run", str(run))
+        self.assertEqual(completed["phase"], "merge_ready")
+
+        state_path = run / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        integration = Path(state["integration"]["path"])
+        repair_commit = subprocess.check_output(
+            [
+                "git", "-C", str(integration), "log", "--format=%H", "--grep",
+                "^factory: repair cycle 1 (product)$",
+            ],
+            text=True,
+        ).strip()
+        subprocess.run(
+            ["git", "-C", str(integration), "reset", "--hard", repair_commit],
+            check=True,
+            capture_output=True,
+        )
+        first_cycle = state["cycles"][0]
+        first_cycle["repairs"] = []
+        state["cycles"] = [first_cycle]
+        state["phase"] = "reviewing"
+        state["integration"]["commit"] = first_cycle["evidence"]["source_commit"]
+        state["final_review"] = None
+        state["merge"] = None
+        state.pop("final_evidence_sha256", None)
+        state.pop("last_error", None)
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        resumed = self.command("resume", "--run", str(run))
+        self.assertEqual(resumed["phase"], "merge_ready")
+        recovered = json.loads(state_path.read_text(encoding="utf-8"))["cycles"][0]["repairs"][0]
+        self.assertTrue(recovered["verification"]["recovered"])
+        events = [json.loads(line) for line in (run / "events.jsonl").read_text().splitlines()]
+        self.assertIn("repair_owner_recovered", [event["event"] for event in events])
+
+    def test_applied_merge_is_recovered_from_reviewed_commit(self) -> None:
+        run = self.initialize(run_id="merge-recovery-run")
+        planned = self.command(
+            "plan", "--run", str(run), "--file",
+            str(self.write_plan(self.root / "merge-recovery-plan.json", [])),
+        )
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        completed = self.command("run", "--run", str(run))
+        self.assertEqual(completed["phase"], "merged")
+
+        state_path = run / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["phase"] = "reviewing"
+        state["operation"] = {"kind": "merge"}
+        state["final_review"] = None
+        state["merge"] = None
+        state.pop("final_evidence_sha256", None)
+        state.pop("last_error", None)
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        resumed = self.command("resume", "--run", str(run))
+        self.assertEqual(resumed["phase"], "merged")
+        self.assertTrue(resumed["merge"]["recovered"])
+        receipt = json.loads((run / "receipt.json").read_text(encoding="utf-8"))
+        self.assertTrue(receipt["merge"]["recovered"])
+
+    def test_delivery_is_explicit_and_health_gated(self) -> None:
+        config = yaml.safe_load(self.config.read_text())
+        config["delivery"] = {
+            "enabled": True,
+            "deploy_commands": ["true"],
+            "health_commands": ["true"],
+            "rollback_commands": ["true"],
+        }
+        config_path = self.root / "delivery-factory.yaml"
+        config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+        run = self.initialize(config_path, "delivery-run")
+        planned = self.command(
+            "plan", "--run", str(run), "--file",
+            str(self.write_plan(self.root / "delivery-plan.json", [])),
+        )
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        completed = self.command("run", "--run", str(run))
+        self.assertEqual(completed["phase"], "delivery_ready")
+        delivered = self.command("deliver", "--run", str(run))
+        self.assertEqual(delivered["phase"], "delivered")
+        self.assertEqual(delivered["delivery"]["status"], "deployed")
+
+    def test_failed_delivery_runs_rollback_and_stays_failed(self) -> None:
+        config = yaml.safe_load(self.config.read_text())
+        config["delivery"] = {
+            "enabled": True,
+            "deploy_commands": ["true"],
+            "health_commands": ["false"],
+            "rollback_commands": ["true"],
+        }
+        config_path = self.root / "rollback-factory.yaml"
+        config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+        run = self.initialize(config_path, "rollback-run")
+        planned = self.command(
+            "plan", "--run", str(run), "--file",
+            str(self.write_plan(self.root / "rollback-plan.json", [])),
+        )
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        self.command("run", "--run", str(run))
+        failed = self.command("deliver", "--run", str(run), expected=1)
+        self.assertEqual(failed["phase"], "delivery_failed")
+        self.assertEqual(failed["delivery"]["status"], "rolled_back")
+
     def test_new_repository_bootstrap_has_safe_ignore_defaults(self) -> None:
         target = self.root / "new-repository"
         initialized = self.command(
@@ -297,6 +433,7 @@ class FactoryLifecycleTests(unittest.TestCase):
     def test_agent_timeout_stops_the_process_group_and_fails_closed(self) -> None:
         config = yaml.safe_load(self.config.read_text())
         config["limits"]["agent_timeout_seconds"] = 1
+        config["implementers"][0]["timeout_seconds"] = 1
         config_path = self.root / "timeout-factory.yaml"
         config_path.write_text(yaml.safe_dump(config, sort_keys=False))
         run = self.initialize(config_path, "timeout-run")

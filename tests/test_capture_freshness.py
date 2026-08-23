@@ -78,6 +78,39 @@ class FactoryCaptureFreshnessTests(unittest.TestCase):
         self.assertEqual(receipt["capture"][0]["command"], "cp app.txt evidence/flow.webm")
         self.assertTrue(receipt["capture"][0]["passed"])
 
+    def test_test_only_plan_skips_visual_capture(self) -> None:
+        self.state["plan"] = {
+            "acceptance": ["test -s app.txt"],
+            "proof": {"mode": "tests", "reason": "backend-only fix"},
+        }
+        config = self.config("false")
+        config["evidence"]["policy"] = "plan"
+        receipt = capture_evidence(self.run, self.state, config, self.repo, 1)
+        self.assertEqual(receipt["proof"]["mode"], "tests")
+        self.assertEqual(receipt["capture"], [])
+        self.assertEqual(receipt["files"], [])
+        self.assertTrue(all(item["passed"] for item in receipt["tests"]))
+
+    def test_versioned_plan_requires_proportional_proof_choice(self) -> None:
+        plan = {
+            "version": 1,
+            "summary": "Backend-only fix",
+            "success_criteria": [{"id": "SC-1", "description": "The fix passes."}],
+            "tasks": [{
+                "id": "fix",
+                "owner": "product",
+                "files": ["app.txt"],
+                "acceptance": ["test -s app.txt"],
+            }],
+            "acceptance": ["test -s app.txt"],
+            "risks": [],
+            "open_questions": [],
+        }
+        with self.assertRaisesRegex(FactoryError, "require proof mode and reason"):
+            validate_plan(plan, {"product"}, evidence_policy="plan")
+        plan["proof"] = {"mode": "tests", "reason": "No user interface changed."}
+        validate_plan(plan, {"product"}, evidence_policy="plan")
+
     def test_failed_capture_command_stops_before_review(self) -> None:
         with self.assertRaisesRegex(FactoryError, "configured evidence capture"):
             capture_evidence(

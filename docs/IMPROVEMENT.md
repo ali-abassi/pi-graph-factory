@@ -207,3 +207,30 @@
 - **Simplicity boundary:** no resume engine, queue, extra review vote, inferred
   issue completion, or relaxed evidence rule was added. Interrupted live runs
   remain inspectable refusals and automatic merge remains off.
+
+## Factory runtime climb v11
+
+- **Trigger:** operator review identified four mismatches with the intended
+  product: interrupted runs could strand useful work, subscription-backed
+  harnesses inherited arbitrary local usage ceilings, media proof was required
+  even for tiny non-UI changes, and a clean merge had no explicit delivery
+  state.
+- **Candidate:** add a concise operator `inspect` view and validated `resume`;
+  reconstruct committed lanes and repairs from Git plus durable receipts;
+  continue owner-scoped partial repairs; clean only declared interrupted capture
+  writes; recover the narrow reviewed-fast-forward/state-save window; select
+  tests or visual proof in the approved plan; configure or disable role and
+  command timeouts; disable token/dollar ceilings by default; and add an
+  explicit deploy/health/rollback contract.
+- **Execution boundary:** document Railway Cloud Agents as a persistent
+  off-laptop wrapper around the one canonical controller. Do not add a second
+  queue or workflow state machine, and do not call a credentialed personal VM a
+  hostile-code sandbox.
+- **Promotion rule:** all prior evaluators plus active-lane SIGKILL recovery,
+  committed-repair reconstruction, post-fast-forward recovery, test-only proof,
+  optional subscription limits, configurable timeouts, and health-gated
+  delivery must pass. Both Pi Graph validators, lint, bytecode compilation,
+  dependency audit, secret scan, and Bandit medium/high remain required.
+- **Assurance boundary:** local Git transitions resume from mechanically known
+  checkpoints. Arbitrary external provider effects and background daemons
+  outside the recorded process group are not transactionally exactly-once.

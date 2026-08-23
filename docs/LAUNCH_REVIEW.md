@@ -2,8 +2,8 @@
 
 ## Decision
 
-**Conditional go for trusted local trials. No-go for untrusted or unattended
-production execution.**
+**Go for trusted local and Railway-hosted trials. Conditional go for configured
+delivery. No-go for hostile-code execution or universal unattended production.**
 
 The factory now has strong local merge authorization: exact plan approval,
 isolated owner worktrees, Git-derived scope, executed acceptance, commit-bound
@@ -11,14 +11,17 @@ evidence, independent review, bounded repair, one-writer locking, and durable
 caught failures. Those controls materially reduce false completion and unsafe
 merge.
 
-They do not sandbox agent processes, guarantee semantic visual judgment, impose
-hard provider-side spend caps, or automatically recover dirty partial work
-after abrupt death. Those are the conditions separating a trustworthy local
-alpha from an unattended production service.
+The runtime now also resumes validated lane, integration, capture, review,
+repair, and post-fast-forward checkpoints; selects visual proof only when the
+approved plan needs it; and can explicitly deploy, health-check, and attempt a
+configured rollback. It does not sandbox hostile code, guarantee semantic
+visual judgment, impose provider-side spend caps, or make arbitrary external
+commands exactly-once across machine death.
 
 ## System model
 
-- **Entry points:** `init`, `plan`, `answer`, `approve`, `run`, and `status`.
+- **Entry points:** `init`, `plan`, `answer`, `approve`, `run`, `inspect`,
+  `resume`, `deliver`, and `status`.
 - **Assets:** source repositories, credentials available to local processes,
   approved plan and merge authority, proof artifacts, provider quota and spend.
 - **Actors:** operator, planner, one to ten implementers, independent reviewer,
@@ -37,14 +40,25 @@ alpha from an unattended production service.
 3. No acceptance or proof claim without controller-observed evidence.
 4. No stale evidence after a repair.
 5. No more than one state-writing controller and five review attempts.
-6. No later dispatch after a configured local usage ceiling is observed.
-7. No claim of sandboxing, automatic crash recovery, hard provider spend
-   enforcement, or universal visual quality.
+6. No later dispatch after an explicitly configured local usage ceiling is
+   observed; token and cost ceilings may be disabled for subscription sessions.
+7. Recovery accepts only known process identities, owner scopes, commits,
+   receipts, and current evidence; ambiguous state fails closed.
+8. No claim of hostile-code sandboxing, exactly-once external delivery, hard
+   provider spend enforcement, or universal visual quality.
 
 ## Evidence
 
-- 54 deterministic repository tests across simple, medium, complex, refusal,
+- 67 deterministic repository tests across simple, medium, complex, refusal,
   lifecycle, concurrency, and graph cases.
+- Controller-death coverage includes a live held lane, committed repair
+  reconstruction, and the narrow state-save window after a reviewed
+  fast-forward reaches the target branch.
+- `evidence.policy: plan` requires the approved plan to choose tests or visual
+  proof. Test-only work skips ceremonial screenshots/video; visual artifacts
+  remain hash-bound to the integrated commit.
+- Optional delivery is deliberately separate from merge and records deploy,
+  production-health, and rollback command receipts.
 - Versioned approved outcomes must receive exact independent-review coverage
   with concrete inspected evidence; failed outcomes require routed ownership.
 - Visual proof is regenerated on the integrated commit and after every repair;
@@ -86,11 +100,15 @@ alpha from an unattended production service.
 - Pi Graph Core v0.1.0 and Pi Graph v0.3.0 validation of the 24-node topology.
 - Full risk register: [`risk-register.json`](risk-register.json).
 
-## Next conditions
+## Remaining conditions
 
-The next high-value work is explicit inspect-and-resume for interrupted
-worktrees and a frozen Luna-driven application corpus with stronger browser or
-native proof scoring. Agent-created background processes also remain inside the
-trusted OS boundary; the live corpus exposed and manually terminated three
-stale debug servers from a timed-out repair. Sandboxing and provider-side
-budgets are deployment adapters, not reasons to inflate the core controller.
+The next high-value work is the user-observed step-by-step complex run: inspect
+every planner input/output, lane context/receipt, integrated check, proof,
+review, repair, merge, and delivery receipt against a frozen application
+corpus. Railway Cloud Agents provide a persistent off-laptop VM, but their
+shared personal disk and credentials are still a trusted environment.
+
+External deploy commands need project-specific idempotency and rollback. A VM
+dying after a provider accepted a deploy but before the local receipt was saved
+cannot be resolved generically. Agent-created background daemons outside the
+recorded harness process group also remain an execution-environment concern.

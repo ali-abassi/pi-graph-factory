@@ -33,21 +33,30 @@ def harness_command(agent: dict[str, Any], role: str, extra: str = "") -> str:
     ).strip()
 
 
+def timeout_field(agent: dict[str, Any], limits: dict[str, Any]) -> dict[str, int]:
+    timeout = agent["timeout_seconds"] if "timeout_seconds" in agent else limits["agent_timeout_seconds"]
+    return {"timeout": timeout} if timeout is not None else {}
+
+
+def command_timeout_field(limits: dict[str, Any]) -> dict[str, int]:
+    timeout = limits["command_timeout_seconds"]
+    return {"timeout": timeout} if timeout is not None else {}
+
+
 def compile_factory(spec: dict[str, Any]) -> dict[str, Any]:
     errors = list(Draft202012Validator(SCHEMA).iter_errors(spec))
     if errors:
         details = "; ".join(f"{'.'.join(map(str, error.absolute_path))}: {error.message}" for error in errors)
         raise ValueError(details)
 
-    agent_timeout = spec["limits"]["agent_timeout_seconds"]
     steps: list[dict[str, Any]] = [{
         "id": "plan", "needs": [],
         "cmd": harness_command(spec["planner"], "planner", '--input "$INPUT"'),
-        "schema": {"version": "integer", "summary": "string", "success_criteria": "array",
+        "schema": {"version": "integer", "summary": "string", "proof": "object", "success_criteria": "array",
                    "tasks": "array", "acceptance": "array", "risks": "array"},
         "gate": gate_json("assert x['version']==1 and x['success_criteria'] and x['tasks'] and x['acceptance']"),
         "retries": 1,
-        "timeout": agent_timeout,
+        **timeout_field(spec["planner"], spec["limits"]),
     }]
     implementer_ids = []
     for lane in spec["implementers"]:
@@ -63,7 +72,7 @@ def compile_factory(spec: dict[str, Any]) -> dict[str, Any]:
                        "changed_files": "array", "checks": "array", "summary": "string"},
             "gate": gate_json("assert x['status']=='pass' and x['changed_files'] and x['checks']"),
             "retries": 1,
-            "timeout": agent_timeout,
+            **timeout_field(lane, spec["limits"]),
         })
 
     steps.append({
@@ -72,6 +81,7 @@ def compile_factory(spec: dict[str, Any]) -> dict[str, Any]:
         "schema": {"status": {"type": "string", "enum": ["pass"]},
                    "lanes": "array", "changed_files": "array"},
         "gate": gate_json("assert x['status']=='pass' and x['changed_files']"),
+        **command_timeout_field(spec["limits"]),
     })
     previous = "integrate"
     reviewer = spec["review"]
@@ -84,12 +94,14 @@ def compile_factory(spec: dict[str, Any]) -> dict[str, Any]:
             "id": capture, "needs": [previous],
             "cmd": (
                 'python3 "$WORKFLOW_DIR/scripts/capture_evidence.py" '
-                f'--cycle {cycle} --config "$WORKFLOW_DIR/factory.yaml" --out "$OUT"'
+                f'--cycle {cycle} --config "$WORKFLOW_DIR/factory.yaml" '
+                '--plan "$RUN/plan.md" --out "$OUT"'
             ),
             "schema": {"status": {"type": "string", "enum": ["pass"]},
-                       "capture": "array", "screenshots": "array", "video": "string",
+                       "proof": "object", "capture": "array", "screenshots": "array", "video": "string",
                        "artifacts": "array", "tests": "array"},
-            "gate": gate_json("assert x['status']=='pass' and x['capture'] and x['tests']"),
+            "gate": gate_json("assert x['status']=='pass' and x['tests']"),
+            **command_timeout_field(spec["limits"]),
         })
         steps.append({
             "id": review, "needs": [capture],
@@ -100,7 +112,7 @@ def compile_factory(spec: dict[str, Any]) -> dict[str, Any]:
             "schema": {"verdict": {"type": "string", "enum": ["pass", "repair"]},
                        "issues": "array", "evidence": "array", "criteria": "array"},
             "gate": gate_json("assert x['verdict'] in ('pass','repair') and x['evidence'] and x['criteria']"),
-            "timeout": agent_timeout,
+            **timeout_field(reviewer, spec["limits"]),
         })
         steps.append({
             "id": merge, "needs": [review], "from": review,
@@ -113,7 +125,27 @@ def compile_factory(spec: dict[str, Any]) -> dict[str, Any]:
             "schema": {"status": {"type": "string", "enum": ["approved", "merged"]},
                        "target": "string", "commit": "string"},
             "gate": gate_json("assert x['status'] in ('approved','merged') and x['commit']"),
+            **command_timeout_field(spec["limits"]),
         })
+        if spec["delivery"]["enabled"] and spec["merge"]["apply"]:
+            steps.append({
+                "id": f"deliver-{cycle}",
+                "needs": [merge],
+                "from": merge,
+                "when": {"op": "equals", "path": "/status", "value": "merged"},
+                "cmd": (
+                    'python3 "$WORKFLOW_DIR/scripts/delivery.py" '
+                    '--config "$WORKFLOW_DIR/factory.yaml" --out "$OUT"'
+                ),
+                "schema": {
+                    "status": {"type": "string", "enum": ["deployed"]},
+                    "started_from_commit": "string",
+                    "deploy": "array",
+                    "health": "array",
+                    "rollback": "array",
+                },
+                "gate": gate_json("assert x['status']=='deployed' and x['deploy'] and x['health']"),
+            })
         if cycle == reviewer["max_cycles"]:
             steps.append({
                 "id": "human-required", "needs": [review], "from": review,
@@ -125,6 +157,7 @@ def compile_factory(spec: dict[str, Any]) -> dict[str, Any]:
                 "schema": {"status": {"type": "string", "enum": ["human_required"]},
                            "cycles": "integer", "issues": "array"},
                 "gate": gate_json("assert x['status']=='human_required' and x['issues']"),
+                **command_timeout_field(spec["limits"]),
             })
             continue
         steps.append({
@@ -137,7 +170,7 @@ def compile_factory(spec: dict[str, Any]) -> dict[str, Any]:
             "schema": {"status": {"type": "string", "enum": ["pass"]},
                        "addressed": "array", "checks": "array"},
             "gate": gate_json("assert x['status']=='pass' and x['addressed'] and x['checks']"),
-            "timeout": agent_timeout,
+            **timeout_field(spec["implementers"][0], spec["limits"]),
         })
         previous = repair
     return {
