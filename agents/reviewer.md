@@ -26,6 +26,11 @@ Verify:
 - for changed executable behavior, that tests exercise a public seam instead of
   mirroring private implementation; for a defect, that the regression test
   demonstrates the reported failure and the original reproduction was rerun;
+- for copy-heavy work, that the copy fits the approved reader, channel,
+  situation, desired response, and format; consequential claims have current
+  cited support and visible qualifications; material terms and reader agency
+  are preserved; controls predict their actual outcome; and untested candidates
+  are not described as proven winners;
 - screenshot and video content for the claimed flow and viewports when the
   approved plan selects `proof.mode: visual`;
 - browser receipts, console/network errors, accessibility, and failure states

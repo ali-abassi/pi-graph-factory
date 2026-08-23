@@ -35,7 +35,9 @@ the overall score `null` and the verdict `revise`.
 - 8: delta from 7.5 — success criteria cover the complete happy path and material
   failure behavior without restating implementation.
 - 8.5: delta from 8 — research explicitly surfaces hidden holes, migrations,
-  compatibility, error handling, and project-memory updates where applicable.
+  compatibility, error handling, and project-memory updates where applicable;
+  copy-heavy work identifies its reader, channel, desired response, mechanism,
+  claim evidence, constraints, and appropriate specialist owner.
 - 9: delta from 8.5 — acceptance gives strong regression coverage for each outcome;
   changed behavior has a credible public test seam, and defect work includes a
   reproduction plus regression proof without testing private implementation.
@@ -51,7 +53,9 @@ the overall score `null` and the verdict `revise`.
 - 8: delta from 7.5 — commands are executable, read-only predicates and lane order works.
 - 8.5: delta from 8 — the chosen proof is proportional, integration-safe, and
   sufficient for the success criteria; missing VISION/FEATURE_MAP files are
-  assigned; any planned test-first seam is executable as written.
+  assigned; any planned test-first seam is executable as written; copy and UI
+  work cannot claim overlapping file ownership, and external publication is an
+  explicit effect rather than an implied implementer action.
 - 9: delta from 8.5 — rollback, compatibility, or migration checks exist where risk demands.
 - 9.5: delta from 9 — execution details remain robust under the named risks.
 - 10: delta from 9.5 — no implementation or verification ambiguity remains.

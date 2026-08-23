@@ -6,6 +6,11 @@ All notable changes to Pi Graph Factory are documented here.
 
 ### Added
 
+- A dedicated `copy` implementation specialist plus a portable adaptation of
+  Ali Abassi's `evil-genius-copywriter` discipline for product, UX, website,
+  repository, lifecycle, and promotional messaging. Product/UI owners share
+  its sharp, evidence-bound copy capability for text embedded in their files;
+  review verifies claims, constraints, sentence integrity, and reader agency.
 - Optional DeepSeek V4 Flash semantic enrichment for Graphify repository docs
   and community labels, with an in-memory Pi credential bridge, profile-aware
   caching, explicit AST fallback, and secret non-persistence tests.

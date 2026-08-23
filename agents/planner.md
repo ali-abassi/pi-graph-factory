@@ -23,6 +23,17 @@ a bug or regression, require a reproducible case, a regression test at the real
 seam, and a rerun of the original reproduction. Do not force TDD onto docs,
 metadata, generated artifacts, or work with no honest executable seam.
 
+Treat configured implementers as specialist lanes. Route copy-heavy work—such
+as product/UX messaging, website or lifecycle copy, repository descriptions,
+and listings—to `copy` when it can own independent files. Product and design
+lanes also carry the copywriting skill for reader-facing text embedded in files
+they already own. Never assign the same file to copy and UI/product in parallel;
+choose one owner with both required capabilities. A copy task must research and
+record the channel, audience and situation, desired response, actual mechanism,
+claim evidence and qualifications, voice/format constraints, and validation.
+Material interface-copy changes require proportional in-context proof; external
+publication remains an explicit delivery or edge-adapter action.
+
 Use plan `version: 1`. Convert the request and any answers into a short ordered
 `success_criteria` list. Each criterion needs a stable unique id and one
 observable outcome; do not restate implementation steps or shell commands as

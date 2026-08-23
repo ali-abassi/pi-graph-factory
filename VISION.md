@@ -27,7 +27,9 @@ repair limits, and external effects.
 6. The user sees and explicitly approves the exact plan, success criteria,
    ownership, proof mode, and commands.
 7. One to ten implementation agents work in isolated Git worktrees. Different
-   lanes may use different harnesses, models, instructions, and skills.
+   lanes may use different harnesses, models, instructions, and skills. Product,
+   UI design, and copywriting are default specialists; additional specialties
+   remain configuration rather than new controller stages.
 8. The controller integrates the lanes and runs the approved checks.
 9. UI work receives current-commit screenshots, video, and browser evidence.
    Tiny fixes, documentation, refactors, and non-UI work use test evidence
@@ -85,6 +87,10 @@ repair limits, and external effects.
 - Durable prose preserves facts, qualifiers, technical terms, and the author's
   voice while cutting formulaic filler. Style cleanup never invents evidence or
   becomes another workflow gate.
+- Copywriting is distinct production work. Material messaging starts from a
+  reader/channel contract, verified claims, an honest mechanism, and a desired
+  response; it is implemented by the owner of the affected files and reviewed
+  independently. External publication remains an explicit effect.
 
 ## Not the product
 

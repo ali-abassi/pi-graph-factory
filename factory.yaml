@@ -42,7 +42,7 @@ implementers:
     model: openai-codex/gpt-5.6-terra
     thinking: medium
     instructions: agents/implementer.md
-    skills: [skills/implementation, skills/tdd, skills/diagnosing-bugs, skills/ponytail, skills/clear-prose]
+    skills: [skills/implementation, skills/tdd, skills/diagnosing-bugs, skills/evil-genius-copywriter, skills/ponytail, skills/clear-prose]
     tools: [read, edit, write, bash]
     timeout_seconds: 14400
   - id: design
@@ -51,7 +51,16 @@ implementers:
     model: claude-sonnet-4-6
     thinking: medium
     instructions: agents/designer.md
-    skills: [skills/design, skills/tdd, skills/diagnosing-bugs, skills/browser-proof, skills/ponytail, skills/clear-prose]
+    skills: [skills/design, skills/tdd, skills/diagnosing-bugs, skills/evil-genius-copywriter, skills/browser-proof, skills/ponytail, skills/clear-prose]
+    tools: [read, edit, write, bash]
+    timeout_seconds: 14400
+  - id: copy
+    scope: Product, UX, website, repository, lifecycle, and promotional copy
+    harness: pi
+    model: openai-codex/gpt-5.6-terra
+    thinking: medium
+    instructions: agents/copywriter.md
+    skills: [skills/implementation, skills/evil-genius-copywriter, skills/ponytail, skills/clear-prose]
     tools: [read, edit, write, bash]
     timeout_seconds: 14400
 
@@ -60,7 +69,7 @@ review:
   model: openai-codex/gpt-5.6-sol
   thinking: high
   instructions: agents/reviewer.md
-  skills: [skills/review, skills/ponytail-review, skills/clear-prose]
+  skills: [skills/review, skills/evil-genius-copywriter, skills/ponytail-review, skills/clear-prose]
   tools: [read, grep, find, ls, bash]
   max_cycles: 5
   timeout_seconds: 7200

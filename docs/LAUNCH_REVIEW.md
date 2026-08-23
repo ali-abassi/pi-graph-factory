@@ -55,8 +55,11 @@ commands exactly-once across machine death.
 
 ## Evidence
 
-- 81 deterministic repository tests across simple, medium, complex, refusal,
+- 82 deterministic repository tests across simple, medium, complex, refusal,
   lifecycle, concurrency, and graph cases.
+- Specialist configuration tests prove copywriting is a routable implementation
+  owner, a conditional capability for product/UI files, and part of the same
+  integration and review lifecycle rather than a second agent hierarchy.
 - Graphify tests prove no-code deferral, first indexing, clean ignored output,
   same-commit reuse, refresh after a new commit, semantic-model dispatch,
   credential non-persistence, and explicit AST fallback.
@@ -113,7 +116,7 @@ commands exactly-once across machine death.
   repair receipts one read-only fingerprinted correction. The final live
   bug-fix run still stopped after two invalid repair receipts; it is refusal
   evidence, not a `merge_ready` claim.
-- Pi Graph Core v0.1.0 and Pi Graph v0.3.0 validation of the 26-node topology.
+- Pi Graph Core v0.1.0 and Pi Graph v0.3.0 validation of the 27-node topology.
 - Full risk register: [`risk-register.json`](risk-register.json).
 
 ## Remaining conditions

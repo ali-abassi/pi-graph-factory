@@ -39,6 +39,22 @@ This belongs inside planner, plan-judge, implementer, designer, and reviewer
 prompts because those roles already produce durable prose. A post-processing
 agent would risk changing typed evidence after the responsible role produced it.
 
+## Clear prose is not copywriting
+
+`skills/clear-prose` is a small correctness and editing discipline for any
+durable human-readable field. It removes formulaic filler without changing the
+artifact's job.
+
+`skills/evil-genius-copywriter` is the production capability for messaging
+intended to cause an informed human response. It adds Ali Abassi's ruthless
+creative posture, 80/20 diagnosis of pain, desire, human stakes, fear, truth,
+mechanism, proof, objection, and action, then builds one central tension with
+selective behavioral leverage. It is available to product and UI owners when
+copy shares their files, to the dedicated `copy` specialist for independently
+owned copy work, and to the reviewer. Factory mode uses the standard typed
+receipt. It adds no post-processing stage, and external publishing still
+requires explicit delivery authority.
+
 ## Pinned sources
 
 - [Stop Slop](https://github.com/hardikpandya/stop-slop/blob/8da1f030185bdfe8471220585162991eaeb970e9/SKILL.md)

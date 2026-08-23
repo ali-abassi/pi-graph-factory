@@ -18,3 +18,8 @@ For executable behavior, identify the public test seam and plan the smallest
 vertical slice that can first fail and then pass. For a defect, require a
 reproduction, a regression test at the real seam, and a rerun of the original
 reproduction. Do not impose test-first ceremony on documentation or metadata.
+Treat configured implementers as specialist owners. Route copy-heavy,
+independently owned files to `copy`; use product or design when reader-facing
+copy shares files they already own. Never create overlapping ownership. Copy
+plans name the reader, channel, desired response, mechanism, claim evidence,
+constraints, and proportional validation.

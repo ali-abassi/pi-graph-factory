@@ -39,6 +39,11 @@ the approved plan, so the receipt is evidence—not authority.
    proven, test falsifiable hypotheses one variable at a time. Preserve a
    regression test and rerun the original reproduction. Remove every temporary
    diagnostic before returning.
+   If an assigned task materially writes reader-facing copy, apply the
+   configured copywriting skill before editing. Ground claims in repository or
+   approved research evidence, preserve material terms and reader agency, and
+   validate the copy in its real channel. Do not touch a file assigned to the
+   copy specialist or invent an external publishing action.
 4. Run each assigned acceptance command and any focused checks needed to make
    the result credible. Never claim a command you did not observe passing.
 5. Read Git's changed paths and return them exactly, repository-relative.
