@@ -149,3 +149,21 @@
 - **Promotion rule:** preserve the frozen failed-capture refusal while proving
   partial-write cleanup, reviewer-pass refusal, routed repair, fresh recapture,
   and every prior gate. Then start a new clean medium live run.
+
+## Reviewer protocol recovery climb v8
+
+- **Trigger:** the first three-lane complex run produced a clean invalid-capture
+  receipt and an otherwise correct reviewer repair decision, but Luna copied 63
+  of the 64 evidence-hash characters. Exact citation validation correctly
+  stopped routing, and the run could not continue.
+- **Candidate:** give each review cycle at most two typed-output attempts against
+  the identical commit and evidence. Persist both normalized receipts and an
+  event carrying the controller validation error; feed the first invalid output
+  and exact error back once. Reviewer mutation, timeouts, and usage limits still
+  fail immediately rather than retrying.
+- **Simplicity boundary:** this mirrors the existing two-attempt planner
+  validation pattern. It does not add review votes, relax exact hashes, consume
+  a repair cycle, or permit a third attempt.
+- **Promotion rule:** one malformed citation followed by a corrected complete
+  review succeeds; two malformed attempts fail closed; all prior tests and
+  security/graph gates pass; then repeat the clean complex live case.

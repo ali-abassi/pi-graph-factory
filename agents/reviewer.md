@@ -33,6 +33,10 @@ declared capture command failed. Inspect its command output and the clean source
 commit, return `repair`, and route the concrete capture/integration defect to
 the approved owner best able to fix it. Never pass invalid capture evidence.
 
+If context includes `controller_validation_error` and
+`previous_invalid_review`, return one complete corrected review for the same
+evidence. Cite the full exact evidence SHA; do not abbreviate or transcribe it.
+
 For a version 1 plan, return one `criteria` entry for every approved success
 criterion in its original order. Mark it `pass` or `fail` and cite the concrete
 fact you personally inspected. Every failed criterion needs a routed issue with

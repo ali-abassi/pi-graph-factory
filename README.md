@@ -250,6 +250,10 @@ paths, the controller restores the clean integration commit, hashes a failed
 capture receipt, and asks the independent reviewer to route a repair inside the
 same five-cycle budget. Partial proof can never authorize merge.
 
+Malformed reviewer JSON gets one controller-guided validation retry against the
+same commit, evidence, and review cycle. Both attempts are durable; a second
+invalid response fails closed rather than consuming repair cycles or looping.
+
 ## Merge policy
 
 `merge.apply: false` is the safe default. A successful run ends at
@@ -299,7 +303,7 @@ the two-engine drift this repository previously had.
 .venv/bin/python -m py_compile scripts/*.py tests/*.py
 ```
 
-The deterministic suite currently covers 43 cases, including:
+The deterministic suite currently covers 45 cases, including:
 
 - simple single-owner first-pass work;
 - a two-owner feature with directed design repair;
@@ -318,6 +322,8 @@ The deterministic suite currently covers 43 cases, including:
   mutation, ignored proof artifacts, and reviewer writes;
 - failed-capture cleanup, forced repair routing, recapture, and refusal of a
   reviewer pass against invalid proof;
+- one corrected reviewer-protocol retry and bounded refusal after two malformed
+  reviewer responses;
 - fresh proof after repair, successful merge, target/config drift, and bounded
   human escalation.
 

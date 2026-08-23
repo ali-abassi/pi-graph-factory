@@ -63,7 +63,16 @@ elif args.role.startswith("review:"):
         Path("reviewer-was-here.txt").write_text("reviewers must be read-only\n")
     counter = Path(os.environ["PI_GRAPH_FACTORY_REVIEW_COUNTER"])
     count = int(counter.read_text()) if counter.exists() else 0
-    counter.write_text(str(count + 1))
+    invalid_marker = Path(f"{counter}.invalid-review-once")
+    invalid_always = os.environ.get("PI_GRAPH_FACTORY_INVALID_REVIEW_ALWAYS") == "1"
+    invalid_once = invalid_always or (
+        os.environ.get("PI_GRAPH_FACTORY_INVALID_REVIEW_ONCE") == "1"
+        and not invalid_marker.exists()
+    )
+    if invalid_once and not invalid_always:
+        invalid_marker.write_text("observed")
+    else:
+        counter.write_text(str(count + 1))
     if count == 0 or os.environ.get("PI_GRAPH_FACTORY_ALWAYS_REPAIR") == "1":
         output = {"verdict": "repair", "issues": [{"id": "FIX-1", "owner": "product",
                   "message": "mark implementation reviewed"}],
@@ -71,6 +80,8 @@ elif args.role.startswith("review:"):
     else:
         output = {"verdict": "pass", "issues": [],
                   "evidence": [context["evidence"]["sha256"], "app.txt contains reviewed"]}
+    if invalid_once:
+        output["evidence"] = ["truncated-evidence-receipt"]
 else:
     raise SystemExit(f"unsupported fixture role: {args.role}")
 

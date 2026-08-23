@@ -344,6 +344,46 @@ class FactoryLifecycleTests(unittest.TestCase):
         failed = self.command("run", "--run", str(run), expected=2)
         self.assertIn("reviewer mutated the integration worktree", failed["error"])
 
+    def test_malformed_reviewer_output_gets_one_bounded_retry(self) -> None:
+        run = self.initialize(run_id="reviewer-validation-retry-run")
+        planned = self.command(
+            "plan",
+            "--run",
+            str(run),
+            "--file",
+            str(self.write_plan(self.root / "reviewer-validation-retry.json", [])),
+        )
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        self.env["PI_GRAPH_FACTORY_INVALID_REVIEW_ONCE"] = "1"
+        completed = self.command("run", "--run", str(run))
+        self.assertEqual(completed["phase"], "merged")
+        retries = [
+            json.loads(line)["payload"]
+            for line in (run / "events.jsonl").read_text().splitlines()
+            if json.loads(line)["event"] == "reviewer_attempt_completed"
+        ]
+        self.assertIsNotNone(retries[0]["validation_error"])
+        self.assertIsNone(retries[1]["validation_error"])
+        self.assertTrue((run / "receipts" / "reviewer-1-attempt-1.json").is_file())
+        self.assertTrue((run / "receipts" / "reviewer-1-attempt-2.json").is_file())
+
+    def test_two_malformed_reviewer_outputs_fail_closed(self) -> None:
+        run = self.initialize(run_id="reviewer-validation-exhausted-run")
+        planned = self.command(
+            "plan",
+            "--run",
+            str(run),
+            "--file",
+            str(self.write_plan(self.root / "reviewer-validation-exhausted.json", [])),
+        )
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        self.env["PI_GRAPH_FACTORY_INVALID_REVIEW_ALWAYS"] = "1"
+        failed = self.command("run", "--run", str(run), expected=2)
+        self.assertIn("reviewer could not produce valid output", failed["error"])
+        self.assertTrue((run / "receipts" / "reviewer-1-attempt-1.json").is_file())
+        self.assertTrue((run / "receipts" / "reviewer-1-attempt-2.json").is_file())
+        self.assertFalse((run / "receipts" / "reviewer-1-attempt-3.json").exists())
+
 
 def git_head(repo: Path, ref: str = "HEAD") -> str:
     return subprocess.check_output(["git", "-C", str(repo), "rev-parse", ref], text=True).strip()

@@ -13,6 +13,9 @@ An evidence receipt with `valid: false` is a controller-observed capture
 failure, not missing context. Inspect the failure output and clean commit, then
 route a repair; never pass it.
 
+When the controller returns a typed-validation error, correct the complete
+review once against the same evidence and copy its exact full receipt SHA.
+
 For plan version 1, account for every approved success criterion in order with
 a pass/fail status and concrete inspected evidence. Route each failed criterion
 through an issue bearing its `criterion_id`.

@@ -1218,20 +1218,64 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         except EvidenceFailure as failure:
             evidence = failure.evidence
         state["integration"]["commit"] = evidence["source_commit"]
-        enforce_dispatch_limits(state, config["limits"], f"review:{cycle}")
-        reviewer_receipt = invoke_agent(
-            run, state, config["review"], f"review:{cycle}", integration_path,
-            {"request": state["request"], "plan": state["plan"],
-             "integration": state["integration"], "evidence": evidence, "cycle": cycle},
-            config["limits"],
-        )
-        record_usage(state, reviewer_receipt)
-        reviewer_changes = worktree_changed_files(integration_path)
-        if reviewer_changes:
-            raise FactoryError(
-                "reviewer mutated the integration worktree: " + ", ".join(reviewer_changes)
+        review_context = {
+            "request": state["request"],
+            "plan": state["plan"],
+            "integration": state["integration"],
+            "evidence": evidence,
+            "cycle": cycle,
+        }
+        reviewer_receipt = None
+        review = None
+        for attempt in range(1, 3):
+            enforce_dispatch_limits(state, config["limits"], f"review:{cycle}:attempt:{attempt}")
+            reviewer_receipt = invoke_agent(
+                run,
+                state,
+                config["review"],
+                f"review:{cycle}",
+                integration_path,
+                review_context,
+                config["limits"],
             )
-        review = review_output(reviewer_receipt, evidence, state["plan"])
+            record_usage(state, reviewer_receipt)
+            reviewer_changes = worktree_changed_files(integration_path)
+            if reviewer_changes:
+                raise FactoryError(
+                    "reviewer mutated the integration worktree: " + ", ".join(reviewer_changes)
+                )
+            atomic_json(
+                run / "receipts" / f"reviewer-{cycle}-attempt-{attempt}.json",
+                reviewer_receipt,
+            )
+            try:
+                review = review_output(reviewer_receipt, evidence, state["plan"])
+                validation_error = None
+            except FactoryError as error:
+                validation_error = str(error)
+            save_state(
+                run,
+                state,
+                "reviewer_attempt_completed",
+                {"cycle": cycle, "attempt": attempt, "validation_error": validation_error},
+            )
+            if validation_error is None:
+                break
+            if attempt == 2:
+                raise FactoryError(
+                    f"reviewer could not produce valid output: {validation_error}"
+                )
+            review_context = {
+                **review_context,
+                "previous_invalid_review": reviewer_receipt.get("output"),
+                "controller_validation_error": validation_error,
+                "repair_instruction": (
+                    "Return a complete corrected review for the same evidence. "
+                    "Change only what the controller error requires."
+                ),
+            }
+        if reviewer_receipt is None or review is None:
+            raise FactoryError("reviewer validation ended without a typed result")
         cycle_record = {"cycle": cycle, "evidence": evidence, "review": review,
                         "review_receipt": reviewer_receipt, "repairs": []}
         state["cycles"].append(cycle_record)

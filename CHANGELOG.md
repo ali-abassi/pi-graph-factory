@@ -17,6 +17,8 @@ All notable changes to Pi Graph Factory are documented here.
   proof commits, and automatic recapture after every repair.
 - Evidence-failure receipts that let independent review route capture defects
   through the existing bounded repair loop.
+- One durable controller-guided retry for malformed reviewer output against the
+  same evidence and cycle.
 - Simple, medium, complex, adversarial, and concurrency benchmark suites.
 - Public security, contribution, improvement, and release documentation.
 
