@@ -7,29 +7,35 @@ repair limits, and external effects.
 
 ## The experience
 
-1. A request arrives from a person, issue, webhook, or another workflow.
-2. The controller prepares repository intelligence. Existing code is indexed or
+1. An idea, bug, or request arrives from a person, issue, webhook, or another
+   workflow. Broad work chooses either a human-led grill or an autonomous
+   self-grill; a specific request may enter directly. Every path produces one
+   durable, readiness-classified intake artifact.
+2. Autonomous intake resolves evidence-backed and safely reversible choices,
+   labels its assumptions, records confidence and overturning evidence, and
+   escalates rather than inventing a low-confidence hard-to-reverse decision.
+3. The controller prepares repository intelligence. Existing code is indexed or
    refreshed with Graphify; a code-free new project defers its first graph.
    `VISION.md` and `FEATURE_MAP.md` supply durable product direction.
-3. The planner queries that map, verifies relevant source, researches hidden
+4. The planner queries that map, verifies relevant source, researches hidden
    gaps, and resolves uncertainty with defensible assumptions before asking a
    question.
-4. A separate model judges grounding, coverage, feasibility, minimality, and
+5. A separate model judges grounding, coverage, feasibility, minimality, and
    alignment. Anything below 8.5/10 returns with advice for at most three cycles.
-5. The user sees and explicitly approves the exact plan, success criteria,
+6. The user sees and explicitly approves the exact plan, success criteria,
    ownership, proof mode, and commands.
-6. One to ten implementation agents work in isolated Git worktrees. Different
+7. One to ten implementation agents work in isolated Git worktrees. Different
    lanes may use different harnesses, models, instructions, and skills.
-7. The controller integrates the lanes and runs the approved checks.
-8. UI work receives current-commit screenshots, video, and browser evidence.
+8. The controller integrates the lanes and runs the approved checks.
+9. UI work receives current-commit screenshots, video, and browser evidence.
    Tiny fixes, documentation, refactors, and non-UI work use test evidence
    without ceremonial media.
-9. An independent reviewer accounts for every approved outcome. Findings route
+10. An independent reviewer accounts for every approved outcome. Findings route
    to the exact owner and files. At most five repair cycles may run.
-10. A clean review authorizes a guarded merge. When delivery is configured, a
+11. A clean review authorizes a guarded merge. When delivery is configured, a
    separate explicit command deploys, checks health, and attempts the configured
    rollback on failure.
-11. Every input, output, command, receipt, transition, and artifact remains
+12. Every input, output, command, receipt, transition, and artifact remains
    inspectable. Interrupted work resumes from validated checkpoints instead of
    starting the factory again or silently accepting partial state.
 
@@ -66,6 +72,11 @@ repair limits, and external effects.
   operator-provided rollback contract.
 - Simplicity wins: one controller, one run ledger, one review loop, one merge
   path, and adapters at the edges.
+- Interactive and autonomous intake are different resolution policies, not
+  separate downstream factories; both hand the planner the same durable brief.
+- Ponytail is a cross-cutting implementation and review discipline, not another
+  agent or gate: understand the flow, reuse/delete/native first, and add only the
+  smallest code that preserves safety, accessibility, and proof.
 
 ## Not the product
 

@@ -9,6 +9,11 @@ import os
 import subprocess
 from pathlib import Path
 
+try:
+    from agent_adapter import skill_prompt
+except ModuleNotFoundError:
+    from scripts.agent_adapter import skill_prompt
+
 
 def main() -> int:
     parser = argparse.ArgumentParser()
@@ -39,6 +44,8 @@ def main() -> int:
             context.append(f"<{label}>\n{path.read_text(encoding='utf-8')}\n</{label}>")
     prompt = args.instructions.read_text(encoding="utf-8") + "\n\n" + "\n".join(context)
     prompt += f"\n\nRole: {args.role}\nScope: {args.scope}\nCycle: {args.cycle}\n"
+    if args.harness != "pi" and args.skill:
+        prompt += "\n<configured_skills>\n" + skill_prompt(args.skill) + "\n</configured_skills>"
     if os.environ.get("PI_GRAPH_FACTORY_FAKE"):
         print(os.environ.get("PI_GRAPH_FACTORY_FAKE_OUTPUT", '{"status":"pass"}'))
         return 0

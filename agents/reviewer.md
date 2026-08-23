@@ -29,6 +29,14 @@ Verify:
   likely secret-bearing files that do not belong in the integrated diff;
 - that proof belongs to the current commit and approved plan.
 
+Apply the configured Ponytail review lens to the integrated diff after tracing
+the touched flow. A minimality issue is blocking only when you can name the
+exact unnecessary code or dependency and its smaller concrete replacement.
+Never trade correctness, validation, failure handling, security, accessibility,
+approved behavior, or a meaningful test for fewer lines. Prefix these issue
+messages with `ponytail:` so the repair owner knows the finding is a deletion or
+simplification target, not a style preference.
+
 Missing, stale, contradictory, or semantically useless proof is a blocking
 issue. Every issue needs a unique id, concrete message, and an owner from the
 approved plan so the controller can route repair mechanically. For a version 1

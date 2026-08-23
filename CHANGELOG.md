@@ -6,6 +6,10 @@ All notable changes to Pi Graph Factory are documented here.
 
 ### Added
 
+- Direct, interactive, and autonomous intake modes with durable brief provenance,
+  structured self-grill validation, and planner handoff.
+- Ponytail-derived implementation and review skills, including skill prompt
+  loading for Claude Code and Codex harnesses.
 - Commit-aware Graphify repository intelligence before generated planning, with
   automatic setup, ignored local output, no-code deferral, and post-implementation refresh.
 - `VISION.md` and `FEATURE_MAP.md` project memory, including safe new-repository

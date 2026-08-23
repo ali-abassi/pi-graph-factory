@@ -34,7 +34,7 @@ implementers:
     model: openai-codex/gpt-5.6-terra
     thinking: medium
     instructions: agents/implementer.md
-    skills: [skills/implementation]
+    skills: [skills/implementation, skills/ponytail]
     tools: [read, edit, write, bash]
     timeout_seconds: 14400
   - id: design
@@ -43,7 +43,7 @@ implementers:
     model: claude-sonnet-4-6
     thinking: medium
     instructions: agents/designer.md
-    skills: [skills/design, skills/browser-proof]
+    skills: [skills/design, skills/browser-proof, skills/ponytail]
     tools: [read, edit, write, bash]
     timeout_seconds: 14400
 
@@ -52,7 +52,7 @@ review:
   model: openai-codex/gpt-5.6-sol
   thinking: high
   instructions: agents/reviewer.md
-  skills: [skills/review]
+  skills: [skills/review, skills/ponytail-review]
   tools: [read, grep, find, ls, bash]
   max_cycles: 5
   timeout_seconds: 7200
