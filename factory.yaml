@@ -1,0 +1,51 @@
+version: 1
+factory: software-factory
+model: openai-codex/gpt-5.6-luna
+
+planner:
+  harness: pi
+  model: openai-codex/gpt-5.6-sol
+  thinking: high
+  instructions: agents/planner.md
+  skills: [skills/planning]
+  tools: [read, grep, find, ls]
+
+implementers:
+  - id: product
+    scope: Core product behavior and backend implementation
+    harness: pi
+    model: openai-codex/gpt-5.6-terra
+    thinking: medium
+    instructions: agents/implementer.md
+    skills: [skills/implementation]
+    tools: [read, edit, write, bash]
+  - id: design
+    scope: User interface and visual implementation
+    harness: claude-code
+    model: claude-sonnet-4-6
+    thinking: medium
+    instructions: agents/designer.md
+    skills: [skills/design]
+    tools: [read, edit, write, bash]
+
+review:
+  harness: pi
+  model: openai-codex/gpt-5.6-sol
+  thinking: high
+  instructions: agents/reviewer.md
+  skills: [skills/review]
+  tools: [read, grep, find, ls, bash]
+  max_cycles: 5
+
+evidence:
+  screenshots:
+    - .factory/evidence/desktop.png
+    - .factory/evidence/mobile.png
+  video: .factory/evidence/flow.webm
+  test_commands:
+    - git diff --check
+    - test -f .factory/evidence/browser-receipt.json
+
+merge:
+  target: main
+  apply: false
