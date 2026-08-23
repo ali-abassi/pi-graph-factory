@@ -247,7 +247,8 @@ def invoke_agent(run: Path, state: dict[str, Any], agent: dict[str, Any], role: 
     context_path = run / "contexts" / f"{role.replace(':', '-')}.json"
     atomic_json(context_path, context)
     command = [*adapter_command(), "--role", role, "--harness", agent["harness"],
-               "--model", agent["model"], "--instructions", agent["instructions"],
+               "--model", agent["model"], "--thinking", agent["thinking"],
+               "--instructions", agent["instructions"],
                "--context", str(context_path)]
     for skill in agent.get("skills", []):
         command.extend(["--skill", skill])

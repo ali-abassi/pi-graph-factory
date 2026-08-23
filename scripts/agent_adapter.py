@@ -43,6 +43,7 @@ def main() -> int:
     parser.add_argument("--role", required=True)
     parser.add_argument("--harness", choices=["pi", "claude-code", "codex"], required=True)
     parser.add_argument("--model", required=True)
+    parser.add_argument("--thinking", required=True)
     parser.add_argument("--instructions", required=True)
     parser.add_argument("--context", type=Path, required=True)
     parser.add_argument("--skill", action="append", default=[])
@@ -53,7 +54,7 @@ def main() -> int:
     prompt = instructions + "\n\n<context>\n" + json.dumps(context, indent=2) + "\n</context>"
     if args.harness == "pi":
         command = ["pi", "-p", "--mode", "json", "--no-session", "--model", args.model,
-                   "--no-extensions", "--no-skills"]
+                   "--thinking", args.thinking, "--no-extensions", "--no-skills"]
         for skill in args.skill:
             command.extend(["--skill", str(resolve(skill))])
         if args.tools:
