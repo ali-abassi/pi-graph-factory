@@ -71,3 +71,22 @@
   provider-to-browser wiring and bounded merge authorization, while the manual
   audit demonstrates why semantic review remains a documented conditional-go
   boundary rather than a production-quality guarantee.
+
+## Traceability climb v4
+
+- **Objective:** make an approved idea's observable outcomes survive planning,
+  implementation, evidence capture, review, and repair without relying on prose
+  memory.
+- **Frozen evaluator:** `tests/test_traceability.py` and
+  `tests/traceability_adapter.py` after the valid baseline.
+- **Baseline:** 1/4. The incumbent accepted a versioned plan with no success
+  criteria and authorized merge when review omitted or partially covered them;
+  exact extra fields were harmless but unenforced.
+- **Candidate:** plan version 1 requires ordered unique success criteria;
+  generated plans must be versioned; reviewer output must cover every criterion
+  exactly with pass/fail and inspected evidence; failed criteria require a
+  routed issue. Unversioned file plans remain a legacy compatibility boundary.
+- **Promotion rule:** 4/4 frozen traceability cases, all prior tests and graph
+  validators, then fresh unknown-id/failed-without-routing challenges and live
+  medium/complex Luna runs. No loosening of scope, evidence, budget, or merge
+  controls.

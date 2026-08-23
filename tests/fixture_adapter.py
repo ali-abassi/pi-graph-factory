@@ -23,7 +23,11 @@ time.sleep(float(os.environ.get("PI_GRAPH_FACTORY_ADAPTER_SLEEP", "0")))
 
 if args.role == "plan":
     output = {
+        "version": 1,
         "summary": "Create the text application",
+        "success_criteria": [
+            {"id": "SC-1", "description": "The reviewed text artifact exists."}
+        ],
         "tasks": [{"id": "build", "owner": "product",
                    "files": ["app.txt", "evidence/**"],
                    "acceptance": ["test -s app.txt"]}],

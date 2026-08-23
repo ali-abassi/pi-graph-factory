@@ -139,6 +139,8 @@ class FactoryLifecycleTests(unittest.TestCase):
         plan_path = Path(planned["plan"])
         self.assertTrue(plan_path.is_file())
         self.assertEqual(json.loads(plan_path.read_text())["tasks"][0]["owner"], "product")
+        self.assertEqual(json.loads(plan_path.read_text())["version"], 1)
+        self.assertEqual(json.loads(plan_path.read_text())["success_criteria"][0]["id"], "SC-1")
         state = json.loads((run / "state.json").read_text())
         self.assertEqual(state["plan_revision"], 1)
         self.assertTrue((run / "receipts" / "planner-1.json").is_file())

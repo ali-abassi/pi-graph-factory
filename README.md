@@ -135,7 +135,11 @@ The planner and controller share a small contract:
 
 ```json
 {
+  "version": 1,
   "summary": "Add CSV export",
+  "success_criteria": [
+    {"id": "SC-1", "description": "A user can export the current dataset as CSV."}
+  ],
   "tasks": [
     {
       "id": "export-api",
@@ -156,6 +160,12 @@ actual staged paths—not the model's claim—must match the approved owner scop
 The controller then runs each task's approved commands before committing its
 lane, and reruns top-level acceptance on the integrated commit every review
 cycle.
+
+Version 1 plans make approved outcomes explicit. The reviewer must return one
+pass/fail entry with concrete inspected evidence for every success criterion in
+the original order; missing, duplicate, unknown, or failed-but-unrouted criteria
+cannot authorize merge. Unversioned plan files remain accepted only for legacy
+compatibility. Generated plans always use version 1.
 
 Plan commands are executable code. Approval therefore means reviewing file
 scope and commands as well as prose.
@@ -272,7 +282,7 @@ the two-engine drift this repository previously had.
 .venv/bin/python -m py_compile scripts/*.py tests/*.py
 ```
 
-The deterministic suite currently covers 28 cases, including:
+The deterministic suite currently covers 32 cases, including:
 
 - simple single-owner first-pass work;
 - a two-owner feature with directed design repair;
@@ -283,6 +293,8 @@ The deterministic suite currently covers 28 cases, including:
 - real concurrent lanes, second-writer exclusion, durable caught failures;
 - agent process-group timeout, token-limit refusal, safe new-repository
   bootstrap, and generated/secret-bearing artifact refusal;
+- versioned success-criteria requirements, exact review coverage, and refusal
+  of omitted or partial outcome accounting;
 - fresh proof after repair, successful merge, target/config drift, and bounded
   human escalation.
 

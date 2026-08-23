@@ -318,10 +318,39 @@ def ensure_repo(path: Path, new_repo: bool) -> Path:
     return path
 
 
-def validate_plan(plan: dict[str, Any], implementers: set[str]) -> None:
+def validate_plan(
+    plan: dict[str, Any], implementers: set[str], *, require_versioned: bool = False
+) -> None:
     required = {"summary", "tasks", "acceptance", "risks", "open_questions"}
     if not isinstance(plan, dict):
         raise FactoryError("plan must be a JSON object")
+    version = plan.get("version")
+    if require_versioned and version != 1:
+        raise FactoryError("generated plans must use version 1 with success_criteria")
+    if version is not None and version != 1:
+        raise FactoryError(f"unsupported plan version: {version!r}")
+    if version == 1:
+        criteria = plan.get("success_criteria")
+        if not isinstance(criteria, list) or not criteria:
+            raise FactoryError("version 1 plans require non-empty success_criteria")
+        if len(criteria) > 50:
+            raise FactoryError("version 1 plans support at most 50 success criteria")
+        criterion_ids: set[str] = set()
+        for criterion in criteria:
+            if not isinstance(criterion, dict) or not {"id", "description"} <= set(criterion):
+                raise FactoryError("every success criterion needs id and description")
+            criterion_id = criterion["id"]
+            if (
+                not isinstance(criterion_id, str)
+                or not TASK_ID.fullmatch(criterion_id)
+                or criterion_id in criterion_ids
+            ):
+                raise FactoryError(f"invalid or duplicate success criterion id: {criterion_id!r}")
+            description = criterion["description"]
+            if not isinstance(description, str) or not description.strip():
+                raise FactoryError("success criterion descriptions must be non-empty")
+            criterion["description"] = description.strip()
+            criterion_ids.add(criterion_id)
     if not required <= set(plan):
         raise FactoryError(f"plan is missing fields: {sorted(required - set(plan))}")
     if not isinstance(plan["summary"], str) or not plan["summary"].strip():
@@ -474,7 +503,11 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
             else:
                 plan = planner_receipt["output"]
                 try:
-                    validate_plan(plan, {item["id"] for item in config["implementers"]})
+                    validate_plan(
+                        plan,
+                        {item["id"] for item in config["implementers"]},
+                        require_versioned=True,
+                    )
                     break
                 except FactoryError as error:
                     validation_error = str(error)
@@ -802,7 +835,9 @@ def capture_evidence(run: Path, state: dict[str, Any], config: dict[str, Any],
     return receipt
 
 
-def review_output(receipt: dict[str, Any], evidence: dict[str, Any]) -> dict[str, Any]:
+def review_output(
+    receipt: dict[str, Any], evidence: dict[str, Any], plan: dict[str, Any]
+) -> dict[str, Any]:
     output = receipt.get("output")
     if not isinstance(output, dict) or output.get("verdict") not in {"pass", "repair"}:
         raise FactoryError("reviewer output must contain verdict pass|repair")
@@ -816,7 +851,30 @@ def review_output(receipt: dict[str, Any], evidence: dict[str, Any]) -> dict[str
         raise FactoryError("reviewer cannot pass with unresolved issues")
     if output["verdict"] == "repair" and not output["issues"]:
         raise FactoryError("repair verdict requires issues")
+    failed_criteria: set[str] = set()
+    approved_criterion_ids: set[str] = set()
+    if plan.get("version") == 1:
+        expected = [item["id"] for item in plan["success_criteria"]]
+        criteria = output.get("criteria")
+        if not isinstance(criteria, list):
+            raise FactoryError("version 1 reviewer output must contain a criteria array")
+        observed = [item.get("id") if isinstance(item, dict) else None for item in criteria]
+        if observed != expected:
+            raise FactoryError("reviewer criteria must exactly cover the approved criteria in order")
+        approved_criterion_ids = set(expected)
+        for item in criteria:
+            if not {"id", "status", "evidence"} <= set(item):
+                raise FactoryError("every reviewed criterion needs id, status, and evidence")
+            if item["status"] not in {"pass", "fail"}:
+                raise FactoryError("reviewed criterion status must be pass|fail")
+            if not isinstance(item["evidence"], str) or not item["evidence"].strip():
+                raise FactoryError("reviewed criterion evidence must be non-empty")
+            if item["status"] == "fail":
+                failed_criteria.add(item["id"])
+        if output["verdict"] == "pass" and failed_criteria:
+            raise FactoryError("reviewer cannot pass with failed success criteria")
     issue_ids: set[str] = set()
+    cited_failed_criteria: set[str] = set()
     for issue in output["issues"]:
         if not isinstance(issue, dict) or not {"id", "owner", "message"} <= set(issue):
             raise FactoryError("every review issue needs id, owner, and message")
@@ -824,7 +882,14 @@ def review_output(receipt: dict[str, Any], evidence: dict[str, Any]) -> dict[str
             raise FactoryError("review issue ids must be unique non-empty strings")
         if not isinstance(issue["message"], str) or not issue["message"].strip():
             raise FactoryError("review issue messages must be non-empty")
+        criterion_id = issue.get("criterion_id")
+        if criterion_id is not None:
+            if criterion_id not in approved_criterion_ids:
+                raise FactoryError(f"review issue cites unknown success criterion: {criterion_id!r}")
+            cited_failed_criteria.add(criterion_id)
         issue_ids.add(issue["id"])
+    if failed_criteria - cited_failed_criteria:
+        raise FactoryError("every failed success criterion requires a routed review issue")
     return output
 
 
@@ -968,7 +1033,7 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
             config["limits"],
         )
         record_usage(state, reviewer_receipt)
-        review = review_output(reviewer_receipt, evidence)
+        review = review_output(reviewer_receipt, evidence, state["plan"])
         cycle_record = {"cycle": cycle, "evidence": evidence, "review": review,
                         "review_receipt": reviewer_receipt, "repairs": []}
         state["cycles"].append(cycle_record)

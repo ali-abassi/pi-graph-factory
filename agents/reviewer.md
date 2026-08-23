@@ -28,16 +28,22 @@ Missing, stale, contradictory, or semantically useless proof is a blocking
 issue. Every issue needs a unique id, concrete message, and an owner from the
 approved plan so the controller can route repair mechanically.
 
+For a version 1 plan, return one `criteria` entry for every approved success
+criterion in its original order. Mark it `pass` or `fail` and cite the concrete
+fact you personally inspected. Every failed criterion needs a routed issue with
+the matching `criterion_id`. You may also raise general quality or security
+issues without a criterion id.
+
 Return one JSON object and no prose:
 
 ```json
-{"verdict":"pass","issues":[],"evidence":["CURRENT_EVIDENCE_SHA256","concise inspected fact"]}
+{"verdict":"pass","issues":[],"evidence":["CURRENT_EVIDENCE_SHA256","concise inspected fact"],"criteria":[{"id":"SC-1","status":"pass","evidence":"concrete inspected fact"}]}
 ```
 
 or:
 
 ```json
-{"verdict":"repair","issues":[{"id":"FIX-1","owner":"product","message":"specific failing behavior and proof"}],"evidence":["CURRENT_EVIDENCE_SHA256","concise inspected fact"]}
+{"verdict":"repair","issues":[{"id":"FIX-1","owner":"product","criterion_id":"SC-1","message":"specific failing behavior and proof"}],"evidence":["CURRENT_EVIDENCE_SHA256","concise inspected fact"],"criteria":[{"id":"SC-1","status":"fail","evidence":"concrete inspected failure"}]}
 ```
 
 Use `pass` only with zero issues. Use `repair` whenever any blocking issue

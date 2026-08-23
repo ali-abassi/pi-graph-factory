@@ -43,8 +43,9 @@ def compile_factory(spec: dict[str, Any]) -> dict[str, Any]:
     steps: list[dict[str, Any]] = [{
         "id": "plan", "needs": [],
         "cmd": harness_command(spec["planner"], "planner", '--input "$INPUT"'),
-        "schema": {"summary": "string", "tasks": "array", "acceptance": "array", "risks": "array"},
-        "gate": gate_json("assert x['tasks'] and x['acceptance']"),
+        "schema": {"version": "integer", "summary": "string", "success_criteria": "array",
+                   "tasks": "array", "acceptance": "array", "risks": "array"},
+        "gate": gate_json("assert x['version']==1 and x['success_criteria'] and x['tasks'] and x['acceptance']"),
         "retries": 1,
         "timeout": agent_timeout,
     }]
@@ -96,8 +97,8 @@ def compile_factory(spec: dict[str, Any]) -> dict[str, Any]:
                 f'--plan "$RUN/plan.md" --evidence "$RUN/{capture}.md" --cycle {cycle}',
             ),
             "schema": {"verdict": {"type": "string", "enum": ["pass", "repair"]},
-                       "issues": "array", "evidence": "array"},
-            "gate": gate_json("assert x['verdict'] in ('pass','repair') and x['evidence']"),
+                       "issues": "array", "evidence": "array", "criteria": "array"},
+            "gate": gate_json("assert x['verdict'] in ('pass','repair') and x['evidence'] and x['criteria']"),
             "timeout": agent_timeout,
         })
         steps.append({

@@ -7,6 +7,8 @@ All notable changes to Pi Graph Factory are documented here.
 ### Added
 
 - Configured `plan --generate` with durable typed plan revisions and planner receipts.
+- Versioned success criteria with exact independent-review coverage and routed
+  failures.
 - Concurrent isolated implementation lanes for active approved owners.
 - One-writer controller locking and durable caught-failure receipts.
 - Per-agent process-group timeouts, durable normalized receipts, and aggregate
