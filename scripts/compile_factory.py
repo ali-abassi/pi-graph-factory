@@ -39,12 +39,14 @@ def compile_factory(spec: dict[str, Any]) -> dict[str, Any]:
         details = "; ".join(f"{'.'.join(map(str, error.absolute_path))}: {error.message}" for error in errors)
         raise ValueError(details)
 
+    agent_timeout = spec["limits"]["agent_timeout_seconds"]
     steps: list[dict[str, Any]] = [{
         "id": "plan", "needs": [],
         "cmd": harness_command(spec["planner"], "planner", '--input "$INPUT"'),
         "schema": {"summary": "string", "tasks": "array", "acceptance": "array", "risks": "array"},
         "gate": gate_json("assert x['tasks'] and x['acceptance']"),
         "retries": 1,
+        "timeout": agent_timeout,
     }]
     implementer_ids = []
     for lane in spec["implementers"]:
@@ -60,6 +62,7 @@ def compile_factory(spec: dict[str, Any]) -> dict[str, Any]:
                        "changed_files": "array", "checks": "array", "summary": "string"},
             "gate": gate_json("assert x['status']=='pass' and x['changed_files'] and x['checks']"),
             "retries": 1,
+            "timeout": agent_timeout,
         })
 
     steps.append({
@@ -75,6 +78,7 @@ def compile_factory(spec: dict[str, Any]) -> dict[str, Any]:
         capture = f"capture-{cycle}"
         review = f"review-{cycle}"
         repair = f"repair-{cycle}"
+        merge = f"merge-{cycle}"
         steps.append({
             "id": capture, "needs": [previous],
             "cmd": (
@@ -94,7 +98,33 @@ def compile_factory(spec: dict[str, Any]) -> dict[str, Any]:
             "schema": {"verdict": {"type": "string", "enum": ["pass", "repair"]},
                        "issues": "array", "evidence": "array"},
             "gate": gate_json("assert x['verdict'] in ('pass','repair') and x['evidence']"),
+            "timeout": agent_timeout,
         })
+        steps.append({
+            "id": merge, "needs": [review], "from": review,
+            "when": {"op": "equals", "path": "/verdict", "value": "pass"},
+            "cmd": (
+                'python3 "$WORKFLOW_DIR/scripts/merge_guard.py" '
+                f'--review "$RUN/{review}.md" --target {json.dumps(spec["merge"]["target"])} '
+                + ("--apply " if spec["merge"]["apply"] else "") + '--out "$OUT"'
+            ),
+            "schema": {"status": {"type": "string", "enum": ["approved", "merged"]},
+                       "target": "string", "commit": "string"},
+            "gate": gate_json("assert x['status'] in ('approved','merged') and x['commit']"),
+        })
+        if cycle == reviewer["max_cycles"]:
+            steps.append({
+                "id": "human-required", "needs": [review], "from": review,
+                "when": {"op": "equals", "path": "/verdict", "value": "repair"},
+                "cmd": (
+                    'python3 "$WORKFLOW_DIR/scripts/escalate.py" '
+                    f'--review "$RUN/{review}.md" --cycles {cycle} --out "$OUT"'
+                ),
+                "schema": {"status": {"type": "string", "enum": ["human_required"]},
+                           "cycles": "integer", "issues": "array"},
+                "gate": gate_json("assert x['status']=='human_required' and x['issues']"),
+            })
+            continue
         steps.append({
             "id": repair, "needs": [review], "from": review,
             "when": {"op": "equals", "path": "/verdict", "value": "repair"},
@@ -105,22 +135,9 @@ def compile_factory(spec: dict[str, Any]) -> dict[str, Any]:
             "schema": {"status": {"type": "string", "enum": ["pass"]},
                        "addressed": "array", "checks": "array"},
             "gate": gate_json("assert x['status']=='pass' and x['addressed'] and x['checks']"),
+            "timeout": agent_timeout,
         })
         previous = repair
-
-    final_review = f"review-{reviewer['max_cycles']}"
-    steps.append({
-        "id": "merge", "needs": [previous, final_review], "from": final_review,
-        "when": {"op": "equals", "path": "/verdict", "value": "pass"},
-        "cmd": (
-            'python3 "$WORKFLOW_DIR/scripts/merge_guard.py" '
-            f'--review "$RUN/{final_review}.md" --target {json.dumps(spec["merge"]["target"])} '
-            + ("--apply " if spec["merge"]["apply"] else "") + '--out "$OUT"'
-        ),
-        "schema": {"status": {"type": "string", "enum": ["approved", "merged"]},
-                   "target": "string", "commit": "string"},
-        "gate": gate_json("assert x['status'] in ('approved','merged') and x['commit']"),
-    })
     return {
         "version": 1, "workflow": spec["factory"], "workers": min(10, len(implementer_ids)),
         "input": {"required": True, "description": "One software change request"},

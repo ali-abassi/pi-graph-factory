@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import time
 from pathlib import Path
 
 
@@ -18,21 +19,40 @@ parser.add_argument("--skill", action="append", default=[])
 parser.add_argument("--tools", default="")
 args = parser.parse_args()
 context = json.loads(args.context.read_text())
+time.sleep(float(os.environ.get("PI_GRAPH_FACTORY_ADAPTER_SLEEP", "0")))
 
-if args.role.startswith("implement:"):
+if args.role == "plan":
+    output = {
+        "summary": "Create the text application",
+        "tasks": [{"id": "build", "owner": "product",
+                   "files": ["app.txt", "evidence/**"],
+                   "acceptance": ["test -s app.txt"]}],
+        "acceptance": ["test -s app.txt"],
+        "risks": [],
+        "open_questions": [],
+    }
+elif args.role.startswith("implement:"):
     Path("app.txt").write_text("implemented\n", encoding="utf-8")
     evidence = Path("evidence")
     evidence.mkdir(exist_ok=True)
     (evidence / "desktop.png").write_bytes(b"png-fixture")
     (evidence / "flow.webm").write_bytes(b"webm-fixture")
     (evidence / "browser-receipt.json").write_text('{"console_errors":[]}\n')
-    output = {"status": "pass", "changed_files": ["app.txt", "evidence/desktop.png",
-              "evidence/flow.webm", "evidence/browser-receipt.json"],
+    changed_files = ["app.txt", "evidence/desktop.png", "evidence/flow.webm",
+                     "evidence/browser-receipt.json"]
+    if os.environ.get("PI_GRAPH_FACTORY_WRITE_PYC") == "1":
+        generated = evidence / "__pycache__" / "capture.cpython-314.pyc"
+        generated.parent.mkdir()
+        generated.write_bytes(b"compiled-fixture")
+        changed_files.append("evidence/__pycache__/capture.cpython-314.pyc")
+    output = {"status": os.environ.get("PI_GRAPH_FACTORY_IMPLEMENT_STATUS", "pass"),
+              "changed_files": changed_files,
               "checks": ["test -s app.txt"], "summary": "implemented fixture"}
 elif args.role.startswith("repair:"):
     with Path("app.txt").open("a", encoding="utf-8") as target:
         target.write(f"reviewed {args.role.split(':')[1]}\n")
-    output = {"status": "pass", "addressed": ["FIX-1"],
+    output = {"status": os.environ.get("PI_GRAPH_FACTORY_REPAIR_STATUS", "pass"),
+              "addressed": ["FIX-1"],
               "checks": ["grep -q reviewed app.txt"]}
 elif args.role.startswith("review:"):
     counter = Path(os.environ["PI_GRAPH_FACTORY_REVIEW_COUNTER"])
@@ -50,5 +70,9 @@ else:
 
 receipt = {"status": "passed", "harness": args.harness, "model": args.model,
            "role": args.role, "output": output,
-           "usage": {"input": 1, "output": 1, "total": 2, "cost": 0}}
+           "usage": {"input": 1, "output": 1,
+                     "total": (None if os.environ.get("PI_GRAPH_FACTORY_USAGE_UNKNOWN") == "1"
+                               else int(os.environ.get("PI_GRAPH_FACTORY_USAGE_TOTAL", "2"))),
+                     "cost": (None if os.environ.get("PI_GRAPH_FACTORY_USAGE_UNKNOWN") == "1"
+                              else float(os.environ.get("PI_GRAPH_FACTORY_USAGE_COST", "0")))}}
 print(json.dumps(receipt, separators=(",", ":")))
