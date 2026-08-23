@@ -292,3 +292,27 @@
   configured provider and remains probabilistic. The AST is local, important
   planner claims still require source verification, and public defaults expose
   the fallback instead of pretending enrichment succeeded.
+
+## Copywriting specialist climb v14
+
+- **Trigger:** every role could remove formulaic filler, but the factory had no
+  production discipline for repository descriptions, websites, UX copy,
+  lifecycle messaging, or promotional copy. Routing copy to a separate hidden
+  agent would also bypass owner scopes and typed receipts.
+- **Candidate:** adapt Ali Abassi's `evil-genius-copywriter` 80/20 diagnosis,
+  central-tension structure, ruthless creative posture, selective behavioral
+  leverage, competitor-swap check, truth boundaries, and final cut into a
+  portable factory skill. Add `copy` as a normal configured implementation
+  owner, and load the skill conditionally into product/UI lanes for copy inside
+  files they already own. Require the planner to choose one file owner and keep
+  external publication explicit.
+- **Result:** the default config exposes product, UI-design, and copywriting
+  specialists. A new deterministic case proves copy routing, shared skill
+  availability, review coverage, and integration through the existing 27-step
+  graph.
+- **Simplicity boundary:** no child-agent API, nested scheduler, copy rewrite
+  stage, new receipt type, or publishing side effect was added. Existing
+  worktrees, scopes, integration, evidence, review, and repair routing apply.
+- **Assurance boundary:** a well-grounded candidate is not proven performance.
+  Consequential claims require sources and qualifications; live reader behavior
+  or a valid comparison remains the authority for performance claims.

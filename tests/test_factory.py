@@ -32,6 +32,53 @@ class FactoryCompilerTests(unittest.TestCase):
         self.assertLessEqual(len(self.factory["implementers"]), 10)
         self.assertEqual(self.factory["review"]["max_cycles"], 5)
 
+    def test_copywriting_is_a_routable_specialist_without_a_second_lifecycle(self) -> None:
+        implementers = {item["id"]: item for item in self.factory["implementers"]}
+        self.assertEqual(set(implementers), {"product", "design", "copy"})
+        for owner in ("product", "design", "copy"):
+            self.assertIn("skills/evil-genius-copywriter", implementers[owner]["skills"])
+        self.assertEqual(implementers["copy"]["instructions"], "agents/copywriter.md")
+        self.assertIn("skills/evil-genius-copywriter", self.factory["review"]["skills"])
+
+        workflow = compile_factory(self.factory)
+        steps = {step["id"]: step for step in workflow["steps"]}
+        self.assertEqual(steps["implement-copy"]["needs"], ["plan-review"])
+        self.assertEqual(
+            steps["integrate"]["needs"],
+            ["implement-product", "implement-design", "implement-copy"],
+        )
+
+        plan = {
+            "version": 1,
+            "summary": "Write the verified repository description.",
+            "proof": {"mode": "tests", "reason": "repository metadata draft"},
+            "research": [{
+                "question": "What can the repository claim?",
+                "finding": "The README documents the supported workflow.",
+                "evidence": ["README.md"],
+            }],
+            "assumptions": [],
+            "success_criteria": [{
+                "id": "SC-COPY",
+                "description": "The description states a supported capability without hype.",
+            }],
+            "tasks": [{
+                "id": "write-copy",
+                "owner": "copy",
+                "files": ["docs/repository-description.txt"],
+                "acceptance": ["test -s docs/repository-description.txt"],
+            }],
+            "acceptance": ["test -s docs/repository-description.txt"],
+            "risks": [],
+            "open_questions": [],
+        }
+        validate_plan(
+            plan,
+            set(implementers),
+            require_versioned=True,
+            evidence_policy="plan",
+        )
+
     def test_compiler_gives_every_review_a_guarded_terminal_exit(self) -> None:
         workflow = compile_factory(self.factory)
         steps = {step["id"]: step for step in workflow["steps"]}

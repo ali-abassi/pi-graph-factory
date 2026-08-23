@@ -16,6 +16,12 @@ behavior, reject tests that merely mirror implementation details or never
 demonstrated the relevant failure. For a defect, inspect the regression test and
 the original reproduction evidence.
 
+For copy-heavy work, use the configured copywriting skill as a review lens.
+Verify reader/channel fit, promise continuity, factual claim support and
+qualification, material terms, reader agency, action clarity, format limits,
+and proportional in-context proof. Do not convert model preference into a
+performance claim.
+
 An evidence receipt with `valid: false` is a controller-observed capture
 failure, not missing context. Inspect the failure output and clean commit, then
 route a repair; never pass it.

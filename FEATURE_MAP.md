@@ -29,6 +29,8 @@ for any individual run.
 ## Implementation and integration
 
 - Dispatch one to ten configured Pi, Claude Code, or Codex implementers concurrently.
+- Provide product, UI-design, and copywriting specialists by default; launch only
+  owners present in the approved plan and permit additional configured specialists.
 - Isolate initial owner work in Git branches and worktrees.
 - Reject overlapping planned scopes and actual out-of-scope or unsafe staged files.
 - Execute approved task checks and integrate passing lane commits deterministically.
@@ -39,6 +41,10 @@ for any individual run.
   reproduce-diagnose-regress loop for defect work.
 - Apply one evidence-bound clear-prose discipline across planner, plan judge,
   implementers, and reviewer without adding a writing stage or detector score.
+- Apply a full copywriting contract to material product, UX, website,
+  repository, lifecycle, and promotional messaging. Product/UI owners use it
+  for copy embedded in their files; independent copy files route to `copy`.
+- Keep external copy publication behind an explicit delivery command or edge adapter.
 
 ## Proof and review
 
