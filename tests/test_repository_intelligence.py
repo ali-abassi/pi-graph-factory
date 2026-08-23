@@ -98,7 +98,10 @@ class RepositoryIntelligenceTests(unittest.TestCase):
         self.assertEqual(ready["status"], "ready")
         self.assertTrue(ready["refreshed"])
 
-    @patch("scripts.repository_intelligence.pi_api_key", return_value="private-test-key")
+    @patch(
+        "scripts.repository_intelligence.pi_api_key",
+        return_value="redaction-sentinel-value",
+    )
     def test_semantic_enrichment_uses_configured_model_without_persisting_key(
         self, _key: object,
     ) -> None:
@@ -129,10 +132,10 @@ class RepositoryIntelligenceTests(unittest.TestCase):
         self.assertEqual(
             invocation["deepseek_base_url"], "https://inference.baseten.co/v1"
         )
-        self.assertNotIn("private-test-key", json.dumps(receipt))
+        self.assertNotIn("redaction-sentinel-value", json.dumps(receipt))
         self.assertIn("[REDACTED]", receipt["execution"]["output"])
         self.assertNotIn(
-            "private-test-key",
+            "redaction-sentinel-value",
             (self.repo / "graphify-out" / "factory-metadata.json").read_text(),
         )
 

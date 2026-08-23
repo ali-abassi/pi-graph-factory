@@ -30,5 +30,5 @@ out.mkdir(parents=True, exist_ok=True)
     encoding="utf-8",
 )
 print(f"indexed {repo}")
-if key := os.environ.get("DEEPSEEK_API_KEY"):
-    print(f"simulated-provider-error-could-echo={key}")
+if os.environ.get("DEEPSEEK_API_KEY"):
+    print("simulated-provider-error-could-echo=redaction-sentinel-value")
