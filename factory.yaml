@@ -7,9 +7,25 @@ planner:
   model: openai-codex/gpt-5.6-sol
   thinking: high
   instructions: agents/planner.md
-  skills: [skills/planning]
-  tools: [read, grep, find, ls]
+  skills: [skills/planning, skills/repository-intelligence]
+  tools: [read, grep, find, ls, bash]
   timeout_seconds: 7200
+
+plan_review:
+  harness: pi
+  model: openai-codex/gpt-5.6-sol
+  thinking: high
+  instructions: agents/plan_reviewer.md
+  skills: []
+  tools: [read, grep, find, ls]
+  min_score: 8.5
+  max_cycles: 3
+  timeout_seconds: 7200
+
+intelligence:
+  provider: graphify
+  required: true
+  auto_install: true
 
 implementers:
   - id: product

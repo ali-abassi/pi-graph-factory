@@ -12,10 +12,17 @@ authority.
 request or issue
       |
       v
-planner -> blocking questions -> revised typed plan -> SHA-256 approval
-                                                       |
-                         +-----------------------------+
-                         v
+Graphify + VISION.md + FEATURE_MAP.md
+      |
+      v
+planner <-> independent plan judge (8.5/10, three cycles maximum)
+      |
+      +-> blocking question only when evidence cannot resolve a material choice
+      |
+      v
+exact typed-plan SHA-256 approval
+      |
+      v
               1-10 isolated Git worktrees
                  |       |       |
                  +--- deterministic integration
@@ -43,8 +50,16 @@ Read [VISION.md](VISION.md) for the intended product and
 - Existing Git repositories and newly initialized repositories.
 - Manual requests today; issue and webhook adapters can call the same `init`
   command.
-- A configured read-only planner that produces a durable typed plan with
-  blocking questions.
+- Automatic Graphify setup and commit-aware refresh for code repositories;
+  code-free new projects defer indexing until implementation creates code.
+- Durable `VISION.md` and `FEATURE_MAP.md` project memory. Generated plans must
+  create either file when an existing repository lacks it.
+- A graph-first, read-only planner that records repository research and
+  defensible assumptions before producing a durable typed plan.
+- An independent rubric judge whose score is recomputed by the controller.
+  Plans below 8.5/10 return to the planner for at most three quality cycles.
+- Blocking questions only when the request, repository, graph, vision, feature
+  map, and a safe reversible assumption still cannot resolve a material choice.
 - Approval of the exact canonical plan SHA-256, never a conversational “yes.”
 - One to ten active implementers running concurrently in isolated branches and
   worktrees.
@@ -74,20 +89,27 @@ Read [VISION.md](VISION.md) for the intended product and
 
 ## Quick start
 
-Requirements: macOS or Linux, Python 3.10+, Git, and at least one configured
-agent harness. Pi is the default:
+Requirements: macOS or Linux, Python 3.10+, Git, `uv` for the default pinned
+Graphify auto-install, and at least one configured agent harness. Pi is the
+default:
 
 ```bash
 git clone https://github.com/ali-abassi/pi-graph-factory.git
 cd pi-graph-factory
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
+python3 -m pip install uv
 
 pi  # authenticate once, then exit
 ```
 
+Graphify is deliberately not part of the small base requirements. On the first
+code-repository planning run, the controller uses `uv` to run the pinned
+`graphifyy==0.9.48` package. You may instead install that package yourself or
+set `PI_GRAPH_FACTORY_GRAPHIFY` to an explicit trusted Graphify command.
+
 Write a request, initialize a durable run, and ask the configured planner for
-the smallest typed plan:
+the smallest evidence-backed typed plan:
 
 ```bash
 printf '%s\n' 'Add CSV export and prove it with tests.' > request.md
@@ -116,7 +138,9 @@ plan:
   --generate
 ```
 
-Inspect the emitted `plans/plan-N.json`. Approval is deliberately separate:
+Inspect the emitted `plans/plan-N.json` and the final `judgment` object. Approval
+is deliberately separate and happens only after the generated plan cleared the
+configured quality threshold:
 
 ```bash
 .venv/bin/python scripts/factory.py approve \
@@ -147,13 +171,36 @@ continue validated checkpoints:
 operator view: current operation, active agents, lane/worktree status, last
 error, and paths to every plan, context, receipt, event, and evidence record.
 
-Use `plan --file plan.json` when another trusted system produces the plan. Use
-`init --new-repo` when the target path does not exist.
+Use `plan --file plan.json` only when another trusted system already produced
+and reviewed the plan; this path intentionally bypasses generated-plan research
+and the LLM plan judge while preserving implementation, proof, review, and merge
+gates. Use `init --new-repo` when the target path does not exist.
 
 Every command emits one JSON object. The run directory contains frozen config,
 plan revisions, normalized agent receipts, contexts, isolated worktrees,
 append-only events, evidence manifests, state, and—only after every gate
 passes—`receipt.json`.
+
+## Repository intelligence and project memory
+
+Before generated planning, the controller inspects the target commit:
+
+- If supported source code exists, it creates or refreshes
+  `graphify-out/graph.json`. A small local metadata receipt prevents needless
+  extraction until the commit changes.
+- If the repository has no code yet, Graphify reports `deferred`; the planner
+  starts from the request and project memory. After successful implementation,
+  the controller builds the first graph before merge authorization.
+- If `VISION.md` or `FEATURE_MAP.md` is absent from an existing repository, the
+  generated plan must assign creation of that file to an implementation owner.
+- Graphify output is added to the repository's local Git exclude and is never a
+  product artifact. The durable run keeps compact intelligence and project-
+  memory receipts under `.factory/runs/RUN_ID/intelligence/`.
+
+The graph is an index for finding relevant code, not proof. Planner and
+implementer instructions require focused graph queries followed by verification
+against current source files. This avoids broad context dumps without trusting
+a stale or lossy map.
 
 ## The plan contract
 
@@ -167,6 +214,14 @@ The planner and controller share a small contract:
     "mode": "tests",
     "reason": "This backend-only change has no user interface behavior."
   },
+  "research": [
+    {
+      "question": "Where does export behavior belong?",
+      "finding": "The existing export service owns serialization.",
+      "evidence": ["Graphify: ExportService", "src/export/service.py"]
+    }
+  ],
+  "assumptions": ["Preserve the existing UTF-8 download convention."],
   "success_criteria": [
     {"id": "SC-1", "description": "A user can export the current dataset as CSV."}
   ],
@@ -197,7 +252,17 @@ visual proof for UI, interaction, responsive, or explicitly demonstrated
 features—not for documentation, refactors, backend-only work, or tiny non-UI
 changes.
 
-Version 1 plans make approved outcomes explicit. The reviewer must return one
+Generated version 1 plans also require non-empty repository research and an
+explicit assumptions array. The controller validates their shape; the
+independent plan reviewer scores grounding, coverage, feasibility, minimality,
+and alignment using anchored half-point ratings. Grounding and feasibility are
+critical: either may fail below the numeric scale. The controller recomputes
+the weighted total and accepts `pass` only at the configured threshold (8.5 by
+default). A failed judgment and its rubric-linked improvements return to the
+planner. Three unsuccessful quality cycles fail closed; exact human approval is
+still required after a pass.
+
+Version 1 plans make approved outcomes explicit. The implementation reviewer must return one
 pass/fail entry with concrete inspected evidence for every success criterion in
 the original order; missing, duplicate, unknown, or failed-but-unrouted criteria
 cannot authorize merge. Each issue must name exact `target_files` inside its
@@ -237,6 +302,14 @@ and Claude Code subscription sessions are not API-metered factory budgets:
 ```yaml
 planner:
   timeout_seconds: 7200
+plan_review:
+  min_score: 8.5
+  max_cycles: 3
+  timeout_seconds: 7200
+intelligence:
+  provider: graphify
+  required: true
+  auto_install: true
 implementers:
   - id: product
     timeout_seconds: 14400
@@ -363,8 +436,9 @@ by local state alone.
 
 The canonical repository-mutation path today is `scripts/factory.py`. The
 factory config also compiles into an inspectable Pi Graph Core workflow showing
-the same bounded topology: parallel roles, evidence, per-cycle pass/repair
-branches, five guarded merge exits, and final human escalation.
+the same bounded topology: repository intelligence, planning and its independent
+quality gate, parallel roles, evidence, per-cycle pass/repair branches, five
+guarded merge exits, and final human escalation.
 
 Generated YAML is intentionally not committed:
 
@@ -379,8 +453,9 @@ piw graph /tmp/factory.steps.yaml
 ```
 
 The compiled graph is currently a policy/template surface, not a second
-authoritative lifecycle state store. Keeping one canonical controller avoids
-the two-engine drift this repository previously had.
+authoritative lifecycle state store. Its plan-review node blocks a low score;
+the canonical controller owns the feedback-bearing three-cycle revision loop.
+Keeping one lifecycle owner avoids two-engine drift.
 
 ## Verification
 
@@ -391,12 +466,15 @@ the two-engine drift this repository previously had.
 .venv/bin/python -m py_compile scripts/*.py tests/*.py
 ```
 
-The deterministic suite currently covers 67 cases, including:
+The deterministic suite currently covers 73 cases, including:
 
 - simple single-owner first-pass work;
 - a two-owner feature with directed design repair;
 - a three-owner application with two directed repairs;
 - clarification and generated planning;
+- Graphify deferral, first indexing, commit-aware reuse, and stale refresh;
+- missing project-memory assignment and a two-cycle under-8.5 plan revision;
+- refusal of a plan judge's forged weighted score;
 - wrong-plan approval, scope escape, overlapping ownership, forged receipts,
   stale evidence citations, and failed approved commands;
 - real concurrent lanes, second-writer exclusion, durable caught failures;
@@ -421,7 +499,7 @@ The deterministic suite currently covers 67 cases, including:
   human escalation.
 
 CI runs the suite on Ubuntu and macOS with Python 3.10 and 3.14, compiles the
-24-node policy graph, and validates it with the public Pi Graph Core release.
+26-node policy graph, and validates it with the public Pi Graph Core release.
 The measured hill-climb and candidate ledger are in
 [`docs/IMPROVEMENT.md`](docs/IMPROVEMENT.md) and
 [`docs/improvement-ledger.jsonl`](docs/improvement-ledger.jsonl).

@@ -36,14 +36,28 @@ The controller rejects likely secret-bearing `.env` files (except conventional
 template names), caches, compiled bytecode, and dependency directories before
 integration. This is defense in depth, not secret scanning or sandboxing.
 
+Generated planning runs Graphify locally against repository contents. Its
+generated `graphify-out/` directory is locally ignored and must not be committed;
+the graph can reveal source paths, symbols, and relationships. The default
+auto-install uses pinned `graphifyy==0.9.48` through `uv`, but package download
+and parser execution remain a software-supply-chain boundary. Disable
+`intelligence.auto_install`, preinstall an audited build, or set
+`PI_GRAPH_FACTORY_GRAPHIFY` to a trusted command in restricted environments.
+
+The independent plan judge is an AI quality control, not an authorization
+boundary. The controller validates its schema, recomputes its weighted score,
+limits revision cycles, and still requires exact human plan approval. Its
+rubric has not yet been calibrated against a large human-rated plan corpus.
+
 Configured timeouts terminate overdue adapter process groups; timeouts may be
 disabled. Optional token and cost ceilings stop later dispatches based on
 normalized receipts. They are disabled by default for subscription-backed
 harnesses. An already-running parallel batch can cross a configured local
 ceiling, and provider-side limits remain the hard spend boundary.
 
-The controller mechanically checks plan identity, file scope, Git changes,
-approved commands, evidence provenance, review citations, and target drift.
+The controller mechanically checks generated-plan judgment, plan identity, file
+scope, Git changes, approved commands, evidence provenance, review citations,
+and target drift.
 Resume additionally verifies recorded process identity, owner scope, commit
 shape, and durable receipts before continuing interrupted work. Those checks do
 not make arbitrary code safe.

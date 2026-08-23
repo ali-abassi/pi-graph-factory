@@ -14,6 +14,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 FACTORY = ROOT / "scripts" / "factory.py"
 ADAPTER = ROOT / "tests" / "benchmark_adapter.py"
+GRAPHIFY = ROOT / "tests" / "fake_graphify.py"
 
 
 class FactoryBenchmarkTests(unittest.TestCase):
@@ -28,7 +29,11 @@ class FactoryBenchmarkTests(unittest.TestCase):
         (self.repo / ".gitignore").write_text(".factory/\n", encoding="utf-8")
         subprocess.run(["git", "add", ".gitignore"], cwd=self.repo, check=True)
         subprocess.run(["git", "commit", "-qm", "baseline"], cwd=self.repo, check=True)
-        self.env = {**os.environ, "PI_GRAPH_FACTORY_ADAPTER": str(ADAPTER)}
+        self.env = {
+            **os.environ,
+            "PI_GRAPH_FACTORY_ADAPTER": str(ADAPTER),
+            "PI_GRAPH_FACTORY_GRAPHIFY": f"{sys.executable} {GRAPHIFY}",
+        }
 
     def tearDown(self) -> None:
         self.temp.cleanup()

@@ -14,6 +14,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 FACTORY = ROOT / "scripts" / "factory.py"
 FIXTURE = ROOT / "tests" / "fixture_adapter.py"
+GRAPHIFY = ROOT / "tests" / "fake_graphify.py"
 
 
 class FactoryLifecycleTests(unittest.TestCase):
@@ -26,7 +27,17 @@ class FactoryLifecycleTests(unittest.TestCase):
         subprocess.run(["git", "config", "user.email", "fixture@example.test"], cwd=self.repo, check=True)
         subprocess.run(["git", "config", "user.name", "Fixture"], cwd=self.repo, check=True)
         (self.repo / ".gitignore").write_text(".factory/\n", encoding="utf-8")
-        subprocess.run(["git", "add", ".gitignore"], cwd=self.repo, check=True)
+        (self.repo / "VISION.md").write_text(
+            "# Vision\n\nBuild a reliable reviewed text application.\n", encoding="utf-8"
+        )
+        (self.repo / "FEATURE_MAP.md").write_text(
+            "# Feature map\n\n- Reviewed text artifact\n", encoding="utf-8"
+        )
+        subprocess.run(
+            ["git", "add", ".gitignore", "VISION.md", "FEATURE_MAP.md"],
+            cwd=self.repo,
+            check=True,
+        )
         subprocess.run(["git", "commit", "-qm", "baseline"], cwd=self.repo, check=True)
         self.config = self.root / "factory.yaml"
         value = yaml.safe_load((ROOT / "factory.yaml").read_text())
@@ -41,8 +52,12 @@ class FactoryLifecycleTests(unittest.TestCase):
         value["merge"] = {"target": "main", "apply": True}
         self.config.write_text(yaml.safe_dump(value, sort_keys=False), encoding="utf-8")
         self.counter = self.root / "review-count"
-        self.env = {**os.environ, "PI_GRAPH_FACTORY_ADAPTER": str(FIXTURE),
-                    "PI_GRAPH_FACTORY_REVIEW_COUNTER": str(self.counter)}
+        self.env = {
+            **os.environ,
+            "PI_GRAPH_FACTORY_ADAPTER": str(FIXTURE),
+            "PI_GRAPH_FACTORY_GRAPHIFY": f"{sys.executable} {GRAPHIFY}",
+            "PI_GRAPH_FACTORY_REVIEW_COUNTER": str(self.counter),
+        }
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -212,7 +227,11 @@ class FactoryLifecycleTests(unittest.TestCase):
         self.assertEqual(json.loads(plan_path.read_text())["success_criteria"][0]["id"], "SC-1")
         state = json.loads((run / "state.json").read_text())
         self.assertEqual(state["plan_revision"], 1)
+        self.assertEqual(state["planning_cycles"], 1)
+        self.assertEqual(state["plan_judgment"]["overall_score"], 9.0)
+        self.assertEqual(state["plan_judgment"]["verdict"], "pass")
         self.assertTrue((run / "receipts" / "planner-1.json").is_file())
+        self.assertTrue((run / "receipts" / "plan-review-1-cycle-1-attempt-1.json").is_file())
         self.assertEqual(subprocess.check_output(
             ["git", "-C", str(self.repo), "status", "--porcelain"], text=True,
         ), "")
@@ -225,8 +244,47 @@ class FactoryLifecycleTests(unittest.TestCase):
         self.assertEqual(planned["phase"], "awaiting_plan_approval")
         state = json.loads((run / "state.json").read_text(encoding="utf-8"))
         self.assertEqual(state["planner_attempts"], 2)
-        self.assertTrue((run / "receipts" / "planner-1-attempt-1.json").is_file())
-        self.assertTrue((run / "receipts" / "planner-1-attempt-2.json").is_file())
+        self.assertTrue(
+            (run / "receipts" / "planner-1-cycle-1-attempt-1.json").is_file()
+        )
+        self.assertTrue(
+            (run / "receipts" / "planner-1-cycle-1-attempt-2.json").is_file()
+        )
+
+    def test_low_plan_score_is_revised_until_it_clears_the_quality_gate(self) -> None:
+        run = self.initialize(run_id="plan-quality-loop-run")
+        marker = self.root / "low-plan-score-observed"
+        self.env["PI_GRAPH_FACTORY_LOW_PLAN_SCORE_ONCE"] = str(marker)
+        planned = self.command("plan", "--run", str(run), "--generate")
+        self.assertEqual(planned["judgment"]["overall_score"], 9.0)
+        state = json.loads((run / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["planning_cycles"], 2)
+        self.assertTrue((run / "plans" / "plan-1-cycle-1.json").is_file())
+        self.assertTrue((run / "plans" / "plan-1-cycle-2.json").is_file())
+        events = [json.loads(line) for line in (run / "events.jsonl").read_text().splitlines()]
+        self.assertIn("plan_revision_requested", [event["event"] for event in events])
+
+    def test_generated_plan_restores_missing_project_memory(self) -> None:
+        subprocess.run(
+            ["git", "rm", "-q", "VISION.md", "FEATURE_MAP.md"],
+            cwd=self.repo,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-qm", "remove project memory"],
+            cwd=self.repo,
+            check=True,
+        )
+        run = self.initialize(run_id="missing-project-memory-run")
+        planned = self.command("plan", "--run", str(run), "--generate")
+        planned_value = json.loads(Path(planned["plan"]).read_text(encoding="utf-8"))
+        assigned = set(planned_value["tasks"][0]["files"])
+        self.assertTrue({"VISION.md", "FEATURE_MAP.md"} <= assigned)
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        completed = self.command("run", "--run", str(run))
+        self.assertEqual(completed["phase"], "merged")
+        self.assertTrue((self.repo / "VISION.md").is_file())
+        self.assertTrue((self.repo / "FEATURE_MAP.md").is_file())
 
     def test_failed_review_protocol_resumes_from_integration(self) -> None:
         run = self.initialize(run_id="review-resume-run")
@@ -366,14 +424,20 @@ class FactoryLifecycleTests(unittest.TestCase):
 
     def test_new_repository_bootstrap_has_safe_ignore_defaults(self) -> None:
         target = self.root / "new-repository"
+        target.mkdir()
         initialized = self.command(
             "init", "--repo", str(target), "--new-repo", "--config", str(self.config),
             "--request", "Build a new application.", "--id", "new-repository-run",
         )
         self.assertEqual(initialized["phase"], "intake")
         ignored = (target / ".gitignore").read_text(encoding="utf-8")
-        for entry in (".factory/", ".env", "__pycache__/", "*.py[cod]", "node_modules/"):
+        for entry in (
+            ".factory/", ".env", "__pycache__/", "*.py[cod]", "node_modules/",
+            "graphify-out/",
+        ):
             self.assertIn(entry, ignored)
+        self.assertIn("Build a new application.", (target / "VISION.md").read_text())
+        self.assertTrue((target / "FEATURE_MAP.md").is_file())
         self.assertEqual(
             subprocess.check_output(
                 ["git", "-C", str(target), "status", "--porcelain"], text=True,
@@ -465,7 +529,9 @@ class FactoryLifecycleTests(unittest.TestCase):
 
     def test_planner_usage_limit_stops_implementation_batch(self) -> None:
         config = yaml.safe_load(self.config.read_text())
-        config["limits"]["max_total_tokens"] = 1
+        # Planner and independent plan judge each report two fixture tokens.
+        # Let planning finish, then prove the implementation batch cannot start.
+        config["limits"]["max_total_tokens"] = 3
         config_path = self.root / "planner-budget-factory.yaml"
         config_path.write_text(yaml.safe_dump(config, sort_keys=False))
         run = self.initialize(config_path, "planner-budget-run")

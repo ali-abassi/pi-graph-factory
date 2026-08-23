@@ -15,6 +15,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 FACTORY = ROOT / "scripts" / "factory.py"
 ADAPTER = ROOT / "tests" / "concurrency_adapter.py"
+GRAPHIFY = ROOT / "tests" / "fake_graphify.py"
 
 
 class FactoryReliabilityTests(unittest.TestCase):
@@ -33,6 +34,7 @@ class FactoryReliabilityTests(unittest.TestCase):
         self.env = {
             **os.environ,
             "PI_GRAPH_FACTORY_ADAPTER": str(ADAPTER),
+            "PI_GRAPH_FACTORY_GRAPHIFY": f"{sys.executable} {GRAPHIFY}",
             "PI_GRAPH_FACTORY_READY_DIR": str(self.ready),
         }
 

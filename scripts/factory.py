@@ -28,8 +28,16 @@ from jsonschema import Draft202012Validator
 
 try:
     from delivery import execute_delivery
+    from repository_intelligence import (
+        IntelligenceError,
+        ensure_repository_intelligence,
+    )
 except ModuleNotFoundError:  # imported as scripts.factory in the test/package path
     from scripts.delivery import execute_delivery
+    from scripts.repository_intelligence import (
+        IntelligenceError,
+        ensure_repository_intelligence,
+    )
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -43,6 +51,7 @@ GENERATED_DIRECTORIES = {
     ".pytest_cache",
     ".ruff_cache",
     ".venv",
+    "graphify-out",
     "node_modules",
 }
 GENERATED_FILES = {".DS_Store"}
@@ -62,7 +71,19 @@ __pycache__/
 .ruff_cache/
 .venv/
 node_modules/
+graphify-out/
 """
+
+PROJECT_DOCS = ("VISION.md", "FEATURE_MAP.md")
+PROJECT_DOC_CONTEXT_LIMIT = 25_000
+PLAN_RUBRIC_VERSION = "plan-quality-v1"
+PLAN_JUDGE_DIMENSIONS = {
+    "grounding": {"weight": 0.30, "critical": True},
+    "coverage": {"weight": 0.25, "critical": False},
+    "feasibility": {"weight": 0.20, "critical": True},
+    "minimality": {"weight": 0.15, "critical": False},
+    "alignment": {"weight": 0.10, "critical": False},
+}
 
 
 class FactoryError(RuntimeError):
@@ -341,6 +362,24 @@ def load_config(path: Path) -> dict[str, Any]:
         "health_commands": [],
         "rollback_commands": [],
     })
+    value.setdefault("intelligence", {
+        "provider": "graphify",
+        "required": True,
+        "auto_install": True,
+    })
+    if "plan_review" not in value:
+        reviewer = value.get("review", {})
+        value["plan_review"] = {
+            "harness": reviewer.get("harness", "pi"),
+            "model": reviewer.get("model", value.get("model", "")),
+            "thinking": reviewer.get("thinking", "high"),
+            "instructions": "agents/plan_reviewer.md",
+            "skills": [],
+            "tools": ["read", "grep", "find", "ls"],
+            "min_score": 8.5,
+            "max_cycles": 3,
+            "timeout_seconds": reviewer.get("timeout_seconds"),
+        }
     value.setdefault("evidence", {}).setdefault("policy", "always")
     value.setdefault("limits", {}).setdefault("termination_grace_seconds", 5)
     value["limits"].setdefault("command_timeout_seconds", None)
@@ -412,20 +451,230 @@ def ensure_clean(repo: Path) -> None:
         raise FactoryError("target repository has tracked changes; commit or stash them before factory work")
 
 
-def ensure_repo(path: Path, new_repo: bool) -> Path:
+def ensure_repo(path: Path, new_repo: bool, request: str = "") -> Path:
     path = path.expanduser().resolve()
     if not path.exists() and new_repo:
         path.mkdir(parents=True)
+    if new_repo and path.is_dir() and not (path / ".git").exists():
+        if any(path.iterdir()):
+            raise FactoryError("new repository target exists and is not empty")
         git(path, "init", "-b", "main")
         git(path, "config", "user.email", "factory@example.invalid")
         git(path, "config", "user.name", "Pi Graph Factory")
         (path / ".gitignore").write_text(DEFAULT_GITIGNORE, encoding="utf-8")
-        git(path, "add", ".gitignore")
+        (path / "VISION.md").write_text(
+            "# Vision\n\n## Mission\n\n"
+            + request.strip()
+            + "\n\n## Decision principles\n\n"
+            "- Prefer the smallest complete solution.\n"
+            "- Preserve working behavior unless the approved request changes it.\n"
+            "- Prove user-visible outcomes before release.\n",
+            encoding="utf-8",
+        )
+        (path / "FEATURE_MAP.md").write_text(
+            "# Feature map\n\nNo implemented features yet. Update this map when the "
+            "factory adds or materially changes a product capability.\n",
+            encoding="utf-8",
+        )
+        git(path, "add", ".gitignore", *PROJECT_DOCS)
         git(path, "commit", "-m", "Initialize repository")
     if not (path / ".git").exists():
         raise FactoryError(f"not a Git repository: {path}")
     ensure_clean(path)
     return path
+
+
+def read_project_memory(repo: Path) -> dict[str, Any]:
+    documents = {}
+    missing = []
+    truncated = []
+    for name in PROJECT_DOCS:
+        path = repo / name
+        if path.is_file():
+            content = path.read_text(encoding="utf-8")
+            documents[name] = content[:PROJECT_DOC_CONTEXT_LIMIT]
+            if len(content) > PROJECT_DOC_CONTEXT_LIMIT:
+                truncated.append(name)
+        else:
+            missing.append(name)
+    return {"documents": documents, "missing": missing, "truncated": truncated}
+
+
+def prepare_repository_context(
+    run: Path,
+    state: dict[str, Any],
+    config: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    repo = Path(state["repo"])
+    policy = config["intelligence"]
+    try:
+        intelligence = ensure_repository_intelligence(
+            repo,
+            auto_install=policy["auto_install"],
+            timeout_seconds=config["limits"]["command_timeout_seconds"],
+            termination_grace_seconds=config["limits"]["termination_grace_seconds"],
+        )
+    except IntelligenceError as error:
+        if policy["required"]:
+            raise FactoryError(str(error)) from error
+        intelligence = {
+            "provider": "graphify",
+            "status": "unavailable",
+            "reason": str(error),
+            "source_commit": state["base_commit"],
+            "graph": None,
+        }
+    memory = read_project_memory(repo)
+    atomic_json(run / "intelligence" / "graphify.json", intelligence)
+    atomic_json(run / "intelligence" / "project-memory.json", memory)
+    state["repository_intelligence"] = intelligence
+    state["project_memory"] = {
+        "files": sorted(memory["documents"]),
+        "missing": memory["missing"],
+        "truncated": memory["truncated"],
+    }
+    save_state(
+        run,
+        state,
+        "repository_context_prepared",
+        {
+            "intelligence_status": intelligence["status"],
+            "missing_project_docs": memory["missing"],
+            "truncated_project_docs": memory["truncated"],
+        },
+    )
+    return intelligence, memory
+
+
+def durable_project_memory(run: Path) -> dict[str, Any]:
+    path = run / "intelligence" / "project-memory.json"
+    if not path.is_file():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def refresh_completed_repository_intelligence(
+    run: Path,
+    state: dict[str, Any],
+    config: dict[str, Any],
+    repository: Path,
+) -> None:
+    try:
+        receipt = ensure_repository_intelligence(
+            repository,
+            auto_install=config["intelligence"]["auto_install"],
+            timeout_seconds=config["limits"]["command_timeout_seconds"],
+            termination_grace_seconds=config["limits"]["termination_grace_seconds"],
+        )
+    except IntelligenceError as error:
+        if config["intelligence"]["required"]:
+            raise FactoryError(str(error)) from error
+        receipt = {
+            "provider": "graphify",
+            "status": "unavailable",
+            "reason": str(error),
+            "graph": None,
+        }
+    atomic_json(run / "intelligence" / "post-implementation-graphify.json", receipt)
+    state["post_implementation_intelligence"] = receipt
+    save_state(
+        run,
+        state,
+        "repository_intelligence_refreshed",
+        {"status": receipt["status"], "graph": receipt.get("graph")},
+    )
+
+
+def validate_plan_judgment(
+    receipt: dict[str, Any],
+    minimum_score: float,
+) -> dict[str, Any]:
+    output = receipt.get("output")
+    if receipt.get("status") != "passed" or not isinstance(output, dict):
+        raise FactoryError("plan reviewer did not return a typed judgment")
+    if output.get("rubric_version") != PLAN_RUBRIC_VERSION:
+        raise FactoryError("plan reviewer used the wrong rubric version")
+    dimensions = output.get("dimensions")
+    if not isinstance(dimensions, list) or len(dimensions) != len(PLAN_JUDGE_DIMENSIONS) or {
+        item.get("name") for item in dimensions if isinstance(item, dict)
+    } != set(PLAN_JUDGE_DIMENSIONS):
+        raise FactoryError("plan review must score every rubric dimension exactly once")
+    scores = {}
+    critical_failure = False
+    for item in dimensions:
+        name = item["name"]
+        score = item.get("score")
+        if score is None:
+            if not PLAN_JUDGE_DIMENSIONS[name]["critical"]:
+                raise FactoryError("only a critical plan dimension may use below-bar score")
+            critical_failure = True
+        elif (
+            isinstance(score, bool)
+            or not isinstance(score, (int, float))
+            or not math.isfinite(float(score))
+            or score < 7
+            or score > 10
+            or score * 2 != int(score * 2)
+        ):
+            raise FactoryError("plan review scores must use half-point anchors from 7 to 10")
+        if not isinstance(item.get("evidence"), str) or not item["evidence"].strip():
+            raise FactoryError("every plan review dimension needs evidence")
+        if not isinstance(item.get("reasoning"), str) or not item["reasoning"].strip():
+            raise FactoryError("every plan review dimension needs reasoning")
+        if not isinstance(item.get("gap_to_next"), str) or not item["gap_to_next"].strip():
+            raise FactoryError("every plan review dimension needs a gap_to_next")
+        scores[name] = score
+    if bool(output.get("critical_failure")) != critical_failure:
+        raise FactoryError("plan review critical_failure does not match dimension scores")
+    computed_score = None
+    if not critical_failure:
+        weighted = sum(
+            float(scores[name]) * spec["weight"]
+            for name, spec in PLAN_JUDGE_DIMENSIONS.items()
+        )
+        computed_score = math.floor(weighted * 2 + 0.5) / 2
+    if output.get("overall_score") != computed_score:
+        raise FactoryError("plan review overall_score does not match weighted dimensions")
+    expected_verdict = (
+        "pass"
+        if computed_score is not None and computed_score >= minimum_score
+        else "revise"
+    )
+    if output.get("verdict") != expected_verdict:
+        raise FactoryError("plan review verdict does not match the configured threshold")
+    if (
+        not isinstance(output.get("overall_reasoning"), str)
+        or not output["overall_reasoning"].strip()
+    ):
+        raise FactoryError("plan review requires overall_reasoning")
+    improvements = output.get("improvements")
+    if not isinstance(improvements, list) or (expected_verdict == "revise" and not improvements):
+        raise FactoryError("a failed plan review requires actionable improvements")
+    for improvement in improvements:
+        if (
+            not isinstance(improvement, dict)
+            or improvement.get("dimension") not in PLAN_JUDGE_DIMENSIONS
+            or not isinstance(improvement.get("suggestion"), str)
+            or not improvement["suggestion"].strip()
+            or not isinstance(improvement.get("why_raises_score"), str)
+            or not improvement["why_raises_score"].strip()
+            or isinstance(improvement.get("current_anchor"), bool)
+            or not isinstance(improvement.get("current_anchor"), (int, float))
+            or isinstance(improvement.get("target_anchor"), bool)
+            or not isinstance(improvement.get("target_anchor"), (int, float))
+            or not math.isfinite(float(improvement["current_anchor"]))
+            or not math.isfinite(float(improvement["target_anchor"]))
+            or improvement["current_anchor"] * 2
+            != int(improvement["current_anchor"] * 2)
+            or improvement["target_anchor"] * 2
+            != int(improvement["target_anchor"] * 2)
+            or not 7 <= improvement["current_anchor"] < improvement["target_anchor"] <= 10
+        ):
+            raise FactoryError("plan review improvements must be specific and rubric-linked")
+        dimension_score = scores[improvement["dimension"]]
+        if dimension_score is not None and improvement["current_anchor"] != dimension_score:
+            raise FactoryError("plan review improvement current_anchor must match its score")
+    return output
 
 
 def validate_plan(
@@ -435,6 +684,7 @@ def validate_plan(
     require_versioned: bool = False,
     evidence_capture_commands: set[str] | None = None,
     evidence_policy: str = "always",
+    required_project_docs: set[str] | None = None,
 ) -> None:
     required = {"summary", "tasks", "acceptance", "risks", "open_questions"}
     if not isinstance(plan, dict):
@@ -477,6 +727,30 @@ def validate_plan(
                 raise FactoryError("success criterion descriptions must be non-empty")
             criterion["description"] = description.strip()
             criterion_ids.add(criterion_id)
+        if require_versioned:
+            research = plan.get("research")
+            if not isinstance(research, list) or not research:
+                raise FactoryError("generated plans require non-empty research findings")
+            for finding in research:
+                if (
+                    not isinstance(finding, dict)
+                    or not {"question", "finding", "evidence"} <= set(finding)
+                    or not isinstance(finding["question"], str)
+                    or not finding["question"].strip()
+                    or not isinstance(finding["finding"], str)
+                    or not finding["finding"].strip()
+                    or not isinstance(finding["evidence"], list)
+                    or not finding["evidence"]
+                    or not all(isinstance(item, str) and item.strip() for item in finding["evidence"])
+                ):
+                    raise FactoryError(
+                        "every generated-plan research finding needs question, finding, and evidence"
+                    )
+            assumptions = plan.get("assumptions")
+            if not isinstance(assumptions, list) or not all(
+                isinstance(item, str) and item.strip() for item in assumptions
+            ):
+                raise FactoryError("generated plan assumptions must be an array of strings")
     if not required <= set(plan):
         raise FactoryError(f"plan is missing fields: {sorted(required - set(plan))}")
     if not isinstance(plan["summary"], str) or not plan["summary"].strip():
@@ -528,6 +802,19 @@ def validate_plan(
                     f"{task['owner']} and {other_owner}"
                 )
             ownership.append((pattern, task["owner"]))
+    missing_docs = {
+        document
+        for document in (required_project_docs or set())
+        if not any(
+            matches_scope(document, task["files"])
+            for task in plan["tasks"]
+        )
+    }
+    if missing_docs:
+        raise FactoryError(
+            "generated plan must assign missing project memory files: "
+            + ", ".join(sorted(missing_docs))
+        )
     capture_overlap = sorted(
         (
             set(plan["acceptance"])
@@ -567,12 +854,12 @@ def validate_plan(
 def cmd_init(args: argparse.Namespace) -> dict[str, Any]:
     config_path = Path(args.config).expanduser().resolve()
     config = load_config(config_path)
-    repo = ensure_repo(Path(args.repo), args.new_repo)
     request = args.request
     if args.request_file:
         request = Path(args.request_file).read_text(encoding="utf-8")
     if not request or not request.strip():
         raise FactoryError("request must not be empty")
+    repo = ensure_repo(Path(args.repo), args.new_repo, request)
     base = git(repo, "rev-parse", "HEAD")
     identifier = args.id or f"factory-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d-%H%M%S')}"
     run = Path(args.out).expanduser().resolve() if args.out else repo / ".factory" / "runs" / identifier
@@ -606,9 +893,11 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
     source = "file"
     planner_receipt = None
     planner_receipts: list[dict[str, Any]] = []
+    plan_judgment = None
     plan_number = int(state.get("plan_revision", 0)) + 1
     if args.generate:
         source = "planner"
+        intelligence, memory = prepare_repository_context(run, state, config)
         planner_context = {
             "request": state["request"],
             "answers": state["answers"],
@@ -619,53 +908,153 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
                 for item in config["implementers"]
             ],
             "evidence": config["evidence"],
+            "repository_intelligence": intelligence,
+            "project_memory": memory,
+            "required_project_docs": memory["missing"],
         }
-        for attempt in range(1, 3):
-            enforce_dispatch_limits(state, config["limits"], "plan")
-            planner_receipt = invoke_agent(
-                run, state, config["planner"], "plan", Path(state["repo"]), planner_context,
-                config["limits"],
-            )
-            record_usage(state, planner_receipt)
-            planner_receipts.append(planner_receipt)
+        for quality_cycle in range(1, config["plan_review"]["max_cycles"] + 1):
+            planner_context["quality_cycle"] = quality_cycle
+            planner_attempt_context = planner_context
+            for attempt in range(1, 3):
+                enforce_dispatch_limits(state, config["limits"], "plan")
+                planner_receipt = invoke_agent(
+                    run, state, config["planner"], "plan", Path(state["repo"]),
+                    planner_attempt_context, config["limits"],
+                )
+                record_usage(state, planner_receipt)
+                planner_receipts.append(planner_receipt)
+                atomic_json(
+                    run / "receipts" / (
+                        f"planner-{plan_number}-cycle-{quality_cycle}-attempt-{attempt}.json"
+                    ),
+                    planner_receipt,
+                )
+                save_state(
+                    run,
+                    state,
+                    "planner_attempt_completed",
+                    {"revision": plan_number, "cycle": quality_cycle, "attempt": attempt,
+                     "receipt_sha256": planner_receipt["receipt_sha256"]},
+                )
+                if planner_receipt["status"] != "passed" or not isinstance(
+                    planner_receipt["output"], dict
+                ):
+                    validation_error = "planner did not return a typed plan object"
+                else:
+                    plan = planner_receipt["output"]
+                    try:
+                        validate_plan(
+                            plan,
+                            {item["id"] for item in config["implementers"]},
+                            require_versioned=True,
+                            evidence_capture_commands=set(
+                                config["evidence"].get("capture_commands", [])
+                            ),
+                            evidence_policy=config["evidence"]["policy"],
+                            required_project_docs=set(memory["missing"]),
+                        )
+                        break
+                    except FactoryError as error:
+                        validation_error = str(error)
+                if attempt == 2:
+                    raise FactoryError(
+                        f"planner could not produce a valid plan: {validation_error}"
+                    )
+                planner_attempt_context = {
+                    **planner_attempt_context,
+                    "previous_invalid_plan": planner_receipt.get("output"),
+                    "controller_validation_error": validation_error,
+                    "repair_instruction": (
+                        "Return a complete corrected plan. Change only what the "
+                        "controller error requires."
+                    ),
+                }
             atomic_json(
-                run / "receipts" / f"planner-{plan_number}-attempt-{attempt}.json",
-                planner_receipt,
+                run / "plans" / f"plan-{plan_number}-cycle-{quality_cycle}.json",
+                plan,
             )
+            judge_context = {
+                "request": state["request"],
+                "answers": state["answers"],
+                "plan": plan,
+                "repository_intelligence": intelligence,
+                "project_memory": memory,
+                "evidence_contract": config["evidence"],
+                "minimum_score": config["plan_review"]["min_score"],
+                "rubric_version": PLAN_RUBRIC_VERSION,
+            }
+            for judge_attempt in range(1, 3):
+                enforce_dispatch_limits(
+                    state, config["limits"], f"plan-review:{quality_cycle}"
+                )
+                judge_receipt = invoke_agent(
+                    run,
+                    state,
+                    config["plan_review"],
+                    f"plan-review:{quality_cycle}",
+                    Path(state["repo"]),
+                    judge_context,
+                    config["limits"],
+                )
+                record_usage(state, judge_receipt)
+                atomic_json(
+                    run / "receipts" / (
+                        f"plan-review-{plan_number}-cycle-{quality_cycle}-"
+                        f"attempt-{judge_attempt}.json"
+                    ),
+                    judge_receipt,
+                )
+                try:
+                    plan_judgment = validate_plan_judgment(
+                        judge_receipt, config["plan_review"]["min_score"]
+                    )
+                    validation_error = None
+                except FactoryError as error:
+                    validation_error = str(error)
+                save_state(
+                    run,
+                    state,
+                    "plan_review_attempt_completed",
+                    {"revision": plan_number, "cycle": quality_cycle,
+                     "attempt": judge_attempt, "validation_error": validation_error},
+                )
+                if validation_error is None:
+                    break
+                if judge_attempt == 2:
+                    raise FactoryError(
+                        f"plan reviewer could not produce a valid judgment: {validation_error}"
+                    )
+                judge_context = {
+                    **judge_context,
+                    "previous_invalid_judgment": judge_receipt.get("output"),
+                    "controller_validation_error": validation_error,
+                    "repair_instruction": (
+                        "Return a corrected judgment for the same plan and rubric."
+                    ),
+                }
+            if plan_judgment["verdict"] == "pass":
+                break
             save_state(
                 run,
                 state,
-                "planner_attempt_completed",
-                {"revision": plan_number, "attempt": attempt,
-                 "receipt_sha256": planner_receipt["receipt_sha256"]},
+                "plan_revision_requested",
+                {"revision": plan_number, "cycle": quality_cycle,
+                 "score": plan_judgment["overall_score"],
+                 "improvements": plan_judgment["improvements"]},
             )
-            if planner_receipt["status"] != "passed" or not isinstance(
-                planner_receipt["output"], dict
-            ):
-                validation_error = "planner did not return a typed plan object"
-            else:
-                plan = planner_receipt["output"]
-                try:
-                    validate_plan(
-                        plan,
-                        {item["id"] for item in config["implementers"]},
-                        require_versioned=True,
-                        evidence_capture_commands=set(
-                            config["evidence"].get("capture_commands", [])
-                        ),
-                        evidence_policy=config["evidence"]["policy"],
-                    )
-                    break
-                except FactoryError as error:
-                    validation_error = str(error)
-            if attempt == 2:
-                raise FactoryError(f"planner could not produce a valid plan: {validation_error}")
+            if quality_cycle == config["plan_review"]["max_cycles"]:
+                raise FactoryError(
+                    "plan did not reach the configured quality threshold after "
+                    f"{quality_cycle} cycles"
+                )
             planner_context = {
                 **planner_context,
-                "previous_invalid_plan": planner_receipt.get("output"),
-                "controller_validation_error": validation_error,
+                "previous_plan": plan,
+                "plan_review_feedback": plan_judgment["improvements"],
                 "repair_instruction": (
-                    "Return a complete corrected plan. Change only what the controller error requires."
+                    "Revise the plan to close every rubric-linked gap. Ask a question "
+                    "only if the repository, request, vision, and feature map cannot support "
+                    "a defensible assumption."
                 ),
             }
     else:
@@ -683,6 +1072,7 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
     state["approved_plan_sha256"] = None
     state["phase"] = "clarification" if unanswered else "awaiting_plan_approval"
     state["plan_revision"] = plan_number
+    state["plan_source"] = source
     plan_path = run / "plans" / f"plan-{plan_number}.json"
     atomic_json(plan_path, plan)
     if planner_receipt is not None:
@@ -690,14 +1080,18 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
         atomic_json(receipt_path, planner_receipt)
         state["planner_receipt_sha256"] = digest_json(planner_receipt)
         state["planner_attempts"] = len(planner_receipts)
+        state["planning_cycles"] = quality_cycle
+    state["plan_judgment"] = plan_judgment
     save_state(run, state, "plan_submitted", {
         "plan_sha256": state["plan_sha256"],
         "blocking_questions": [x["id"] for x in unanswered],
         "source": source,
         "revision": plan_number,
+        "quality_score": plan_judgment.get("overall_score") if plan_judgment else None,
     })
     return {"ok": True, "phase": state["phase"], "plan_sha256": state["plan_sha256"],
-            "plan": str(plan_path), "source": source, "open_questions": unanswered}
+            "plan": str(plan_path), "source": source, "open_questions": unanswered,
+            "judgment": plan_judgment}
 
 
 def cmd_answer(args: argparse.Namespace) -> dict[str, Any]:
@@ -726,6 +1120,11 @@ def cmd_approve(args: argparse.Namespace) -> dict[str, Any]:
         raise FactoryError(f"plan cannot be approved during phase {state['phase']}")
     if args.sha256 != state["plan_sha256"]:
         raise FactoryError("approval digest does not match the current plan")
+    if state.get("plan_source") == "planner" and (
+        not state.get("plan_judgment")
+        or state["plan_judgment"].get("verdict") != "pass"
+    ):
+        raise FactoryError("generated plan has no passing independent plan review")
     state["approved_plan_sha256"] = args.sha256
     state["approved_at"] = now()
     state["phase"] = "approved"
@@ -924,7 +1323,9 @@ def execute_lane(
         f"implement:{owner}",
         workspace,
         {"request": state["request"], "plan": state["plan"], "tasks": tasks,
-         "evidence": evidence_spec},
+         "evidence": evidence_spec,
+         "repository_intelligence": state.get("repository_intelligence"),
+         "project_memory": durable_project_memory(run)},
         limits,
     )
     output = receipt["output"]
@@ -1366,6 +1767,8 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
             "plan": state["plan"],
             "issues": owned,
             "cycle": cycle,
+            "repository_intelligence": state.get("repository_intelligence"),
+            "project_memory": durable_project_memory(run),
         }
         receipt = None
         correction_files: list[str] | None = None
@@ -1937,6 +2340,7 @@ def continue_review(
             "integration": state["integration"],
             "evidence": evidence,
             "cycle": cycle,
+            "project_memory": durable_project_memory(run),
         }
         reviewer_receipt = None
         review = None
@@ -2022,6 +2426,9 @@ def continue_review(
                                                      "commit": state["integration"]["commit"]})
     if final_evidence is None or final_review is None:
         raise FactoryError("review loop ended without a final evidence-backed verdict")
+    refresh_completed_repository_intelligence(
+        run, state, config, integration_path
+    )
     state["operation"] = {"kind": "merge"}
     save_state(
         run,
@@ -2176,6 +2583,9 @@ def cmd_inspect(args: argparse.Namespace) -> dict[str, Any]:
             "contexts": [str(path) for path in sorted((run / "contexts").glob("*.json"))],
             "receipts": [str(path) for path in sorted((run / "receipts").glob("*.json"))],
             "evidence": [str(path) for path in sorted((run / "evidence").glob("*.json"))],
+            "intelligence": [
+                str(path) for path in sorted((run / "intelligence").glob("*.json"))
+            ],
         },
     }
 
