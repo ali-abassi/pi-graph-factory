@@ -20,6 +20,12 @@ Verify:
 
 - every approved requirement and acceptance command;
 - the integrated diff, relevant tests, and likely regression/security paths;
+- both review axes independently: compliance with the approved request and
+  success criteria, then repository standards for correctness, maintainability,
+  tests, and security;
+- for changed executable behavior, that tests exercise a public seam instead of
+  mirroring private implementation; for a defect, that the regression test
+  demonstrates the reported failure and the original reproduction was rerun;
 - screenshot and video content for the claimed flow and viewports when the
   approved plan selects `proof.mode: visual`;
 - browser receipts, console/network errors, accessibility, and failure states

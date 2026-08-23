@@ -265,3 +265,30 @@
 - **Assurance boundary:** deterministic control flow and rubric arithmetic are
   proven; semantic plan scoring is not yet calibrated against a frozen
   human-rated corpus. The next step-by-step live runs become that corpus.
+
+## Engineering-discipline and semantic-context climb v13
+
+- **Trigger:** the graph-first planner still received an AST-only map, while
+  implementation and review prompts had no shared public-seam TDD, defect
+  diagnosis, or evidence-bound prose discipline. Adding every useful upstream
+  skill as a stage would have duplicated the controller and inflated context.
+- **Candidate:** enrich Graphify docs and community labels with DeepSeek V4
+  Flash through Pi's Baseten credential; keep the key out of arguments and
+  receipts; cache by commit plus enrichment profile; and fall back explicitly
+  to AST-only when enrichment is optional. Adapt TDD and bug diagnosis into
+  existing implementation lanes, make review evaluate behavior and repository
+  quality separately, and synthesize ten anti-slop sources into one protected-
+  span clear-prose skill. Keep triage, specs, tickets, architecture discovery,
+  and wayfinding at documented edge boundaries.
+- **Result:** a live semantic extraction produced 537 nodes and 1,195 edges.
+  All 81 repository tests pass, including model dispatch, output redaction,
+  credential non-persistence, profile-aware caching, and AST fallback. The
+  26-step policy graph satisfies every local validator clause; Ruff, bytecode
+  compilation, dependency audit, Bandit medium/high, and Gitleaks pass.
+- **Simplicity boundary:** no new controller state, agent, scheduler, prose
+  scorer, detector, vector store, or mandatory external tracker was added.
+  Conditional skills load into roles that already own the corresponding work.
+- **Assurance boundary:** semantic extraction sends supported content to the
+  configured provider and remains probabilistic. The AST is local, important
+  planner claims still require source verification, and public defaults expose
+  the fallback instead of pretending enrichment succeeded.

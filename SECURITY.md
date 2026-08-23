@@ -39,8 +39,17 @@ integration. This is defense in depth, not secret scanning or sandboxing.
 Generated planning runs Graphify locally against repository contents. Its
 generated `graphify-out/` directory is locally ignored and must not be committed;
 the graph can reveal source paths, symbols, and relationships. The default
-auto-install uses pinned `graphifyy==0.9.48` through `uv`, but package download
-and parser execution remain a software-supply-chain boundary. Disable
+semantic configuration sends supported repository docs, papers, and images to
+the configured DeepSeek-compatible endpoint and uses the model to label code
+communities; code AST extraction remains local. Do not enable it for sensitive
+material unless that provider is an approved data processor. The Pi credential
+bridge keeps the key out of command arguments and receipts and redacts it from
+captured Graphify output, but the child process necessarily receives it in its
+environment.
+
+Auto-install uses pinned `graphifyy==0.9.48` (and its `openai` extra for semantic
+backends) through `uv`, but package download, parser execution, and semantic
+provider calls remain supply-chain and data-egress boundaries. Disable
 `intelligence.auto_install`, preinstall an audited build, or set
 `PI_GRAPH_FACTORY_GRAPHIFY` to a trusted command in restricted environments.
 

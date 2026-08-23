@@ -15,6 +15,9 @@ for any individual run.
   assumptions, or unresolved human-only decisions.
 - Store the request, frozen factory contract, base commit, target branch, and run ledger.
 - Build or refresh ignored local Graphify repository intelligence when code exists.
+- Enrich repository docs and Graphify community labels with configurable semantic
+  extraction; the default uses DeepSeek V4 Flash through Pi's Baseten credential
+  without persisting the key.
 - Defer Graphify for a code-free new project, then create it after implementation.
 - Read `VISION.md` and `FEATURE_MAP.md` as durable project decision context.
 - Generate versioned plans with research, assumptions, success criteria, ownership,
@@ -32,6 +35,10 @@ for any individual run.
 - Apply a smallest-complete-change policy through implementer instructions and skills.
 - Apply the Ponytail solution ladder in product and design lanes across Pi,
   Claude Code, and Codex harnesses.
+- Apply red-to-green tests at approved public seams for executable behavior and a
+  reproduce-diagnose-regress loop for defect work.
+- Apply one evidence-bound clear-prose discipline across planner, plan judge,
+  implementers, and reviewer without adding a writing stage or detector score.
 
 ## Proof and review
 
@@ -61,3 +68,6 @@ for any individual run.
   user-reviewed corpus of real plans.
 - Hostile-code sandboxing, universal semantic review, automatic conflict resolution,
   provider-side budget enforcement, and exactly-once deployment are not claimed.
+- Issue triage, tracker publication, multi-run ticket maps, wayfinding, and
+  architecture opportunity reports remain explicit edge adapters rather than a
+  second controller lifecycle.

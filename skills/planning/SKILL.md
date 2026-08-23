@@ -14,3 +14,7 @@ boundary.
 
 Return plan version 1 with a small ordered `success_criteria` array. Give every
 criterion a stable id and one observable outcome the reviewer can verify.
+For executable behavior, identify the public test seam and plan the smallest
+vertical slice that can first fail and then pass. For a defect, require a
+reproduction, a regression test at the real seam, and a rerun of the original
+reproduction. Do not impose test-first ceremony on documentation or metadata.

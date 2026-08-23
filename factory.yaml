@@ -7,7 +7,7 @@ planner:
   model: openai-codex/gpt-5.6-sol
   thinking: high
   instructions: agents/planner.md
-  skills: [skills/planning, skills/repository-intelligence]
+  skills: [skills/planning, skills/repository-intelligence, skills/clear-prose]
   tools: [read, grep, find, ls, bash]
   timeout_seconds: 7200
 
@@ -16,7 +16,7 @@ plan_review:
   model: openai-codex/gpt-5.6-sol
   thinking: high
   instructions: agents/plan_reviewer.md
-  skills: []
+  skills: [skills/clear-prose]
   tools: [read, grep, find, ls]
   min_score: 8.5
   max_cycles: 3
@@ -26,6 +26,14 @@ intelligence:
   provider: graphify
   required: true
   auto_install: true
+  enrichment:
+    enabled: true
+    required: false
+    backend: deepseek
+    model: deepseek-ai/DeepSeek-V4-Flash-0731
+    mode: deep
+    base_url: https://inference.baseten.co/v1
+    pi_auth_model: baseten/deepseek-ai/DeepSeek-V4-Flash-0731
 
 implementers:
   - id: product
@@ -34,7 +42,7 @@ implementers:
     model: openai-codex/gpt-5.6-terra
     thinking: medium
     instructions: agents/implementer.md
-    skills: [skills/implementation, skills/ponytail]
+    skills: [skills/implementation, skills/tdd, skills/diagnosing-bugs, skills/ponytail, skills/clear-prose]
     tools: [read, edit, write, bash]
     timeout_seconds: 14400
   - id: design
@@ -43,7 +51,7 @@ implementers:
     model: claude-sonnet-4-6
     thinking: medium
     instructions: agents/designer.md
-    skills: [skills/design, skills/browser-proof, skills/ponytail]
+    skills: [skills/design, skills/tdd, skills/diagnosing-bugs, skills/browser-proof, skills/ponytail, skills/clear-prose]
     tools: [read, edit, write, bash]
     timeout_seconds: 14400
 
@@ -52,7 +60,7 @@ review:
   model: openai-codex/gpt-5.6-sol
   thinking: high
   instructions: agents/reviewer.md
-  skills: [skills/review, skills/ponytail-review]
+  skills: [skills/review, skills/ponytail-review, skills/clear-prose]
   tools: [read, grep, find, ls, bash]
   max_cycles: 5
   timeout_seconds: 7200

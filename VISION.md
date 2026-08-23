@@ -15,8 +15,10 @@ repair limits, and external effects.
    labels its assumptions, records confidence and overturning evidence, and
    escalates rather than inventing a low-confidence hard-to-reverse decision.
 3. The controller prepares repository intelligence. Existing code is indexed or
-   refreshed with Graphify; a code-free new project defers its first graph.
-   `VISION.md` and `FEATURE_MAP.md` supply durable product direction.
+   refreshed with Graphify; configured semantic extraction enriches repository
+   docs and community labels while code retains deterministic AST structure. A
+   code-free new project defers its first graph. `VISION.md`, `FEATURE_MAP.md`,
+   and any committed domain context supply durable product direction.
 4. The planner queries that map, verifies relevant source, researches hidden
    gaps, and resolves uncertainty with defensible assumptions before asking a
    question.
@@ -77,6 +79,12 @@ repair limits, and external effects.
 - Ponytail is a cross-cutting implementation and review discipline, not another
   agent or gate: understand the flow, reuse/delete/native first, and add only the
   smallest code that preserves safety, accessibility, and proof.
+- TDD and defect diagnosis are conditional implementation disciplines, not new
+  workflow stages: use a real public seam for executable behavior and skip
+  ceremony where no honest executable seam exists.
+- Durable prose preserves facts, qualifiers, technical terms, and the author's
+  voice while cutting formulaic filler. Style cleanup never invents evidence or
+  becomes another workflow gate.
 
 ## Not the product
 

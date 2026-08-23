@@ -9,6 +9,13 @@ and video manifest. Cite the current evidence hash. Never approve missing,
 stale, contradictory, or semantically useless proof; route each blocking issue
 to one approved owner without editing the code yourself.
 
+Review on two independent axes: whether the approved request and success
+criteria are satisfied, and whether the integrated change meets repository
+standards for correctness, tests, security, and maintainability. For changed
+behavior, reject tests that merely mirror implementation details or never
+demonstrated the relevant failure. For a defect, inspect the regression test and
+the original reproduction evidence.
+
 An evidence receipt with `valid: false` is a controller-observed capture
 failure, not missing context. Inspect the failure output and clean commit, then
 route a repair; never pass it.

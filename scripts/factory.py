@@ -369,6 +369,7 @@ def load_config(path: Path) -> dict[str, Any]:
         "required": True,
         "auto_install": True,
     })
+    value["intelligence"].setdefault("enrichment", {"enabled": False})
     if "plan_review" not in value:
         reviewer = value.get("review", {})
         value["plan_review"] = {
@@ -515,6 +516,7 @@ def prepare_repository_context(
             auto_install=policy["auto_install"],
             timeout_seconds=config["limits"]["command_timeout_seconds"],
             termination_grace_seconds=config["limits"]["termination_grace_seconds"],
+            enrichment=policy["enrichment"],
         )
     except IntelligenceError as error:
         if policy["required"]:
@@ -567,6 +569,7 @@ def refresh_completed_repository_intelligence(
             auto_install=config["intelligence"]["auto_install"],
             timeout_seconds=config["limits"]["command_timeout_seconds"],
             termination_grace_seconds=config["limits"]["termination_grace_seconds"],
+            enrichment=config["intelligence"]["enrichment"],
         )
     except IntelligenceError as error:
         if config["intelligence"]["required"]:
