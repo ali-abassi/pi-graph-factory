@@ -18,6 +18,11 @@ parser.add_argument("--out", type=Path, required=True)
 args = parser.parse_args()
 spec = yaml.safe_load(args.config.read_text())
 evidence = spec["evidence"]
+capture = []
+for command in evidence.get("capture_commands", []):
+    completed = subprocess.run(["bash", "-c", command], text=True, capture_output=True, check=False)
+    capture.append({"command": command, "passed": completed.returncode == 0,
+                    "output": (completed.stdout + completed.stderr)[-1000:]})
 tests = []
 for command in evidence.get("test_commands", []):
     completed = subprocess.run(["bash", "-c", command], text=True, capture_output=True, check=False)
@@ -26,6 +31,11 @@ for command in evidence.get("test_commands", []):
 screens = [path for path in evidence["screenshots"] if Path(path).is_file() and Path(path).stat().st_size]
 video = evidence.get("video") or ""
 video_ok = not video or (Path(video).is_file() and Path(video).stat().st_size > 0)
-status = "pass" if len(screens) == len(evidence["screenshots"]) and video_ok and all(x["passed"] for x in tests) else "fail"
-args.out.write_text(json.dumps({"status": status, "screenshots": screens, "video": video, "tests": tests}) + "\n")
+artifacts = [path for path in evidence.get("artifacts", [])
+             if Path(path).is_file() and Path(path).stat().st_size]
+status = "pass" if (len(screens) == len(evidence["screenshots"]) and video_ok
+                    and len(artifacts) == len(evidence.get("artifacts", []))
+                    and all(x["passed"] for x in capture) and all(x["passed"] for x in tests)) else "fail"
+args.out.write_text(json.dumps({"status": status, "capture": capture, "screenshots": screens,
+                                "video": video, "artifacts": artifacts, "tests": tests}) + "\n")
 raise SystemExit(0 if status == "pass" else 1)

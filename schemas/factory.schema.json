@@ -30,8 +30,10 @@
       "type": "object", "additionalProperties": false,
       "required": ["screenshots", "video"],
       "properties": {
+        "capture_commands": {"type": "array", "items": {"type": "string"}},
         "screenshots": {"type": "array", "items": {"type": "string"}},
         "video": {"type": ["string", "null"]},
+        "artifacts": {"type": "array", "items": {"type": "string"}},
         "test_commands": {"type": "array", "items": {"type": "string"}}
       }
     },

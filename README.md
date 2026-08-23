@@ -135,7 +135,11 @@ The planner and controller share a small contract:
 
 ```json
 {
+  "version": 1,
   "summary": "Add CSV export",
+  "success_criteria": [
+    {"id": "SC-1", "description": "A user can export the current dataset as CSV."}
+  ],
   "tasks": [
     {
       "id": "export-api",
@@ -156,6 +160,14 @@ actual staged paths—not the model's claim—must match the approved owner scop
 The controller then runs each task's approved commands before committing its
 lane, and reruns top-level acceptance on the integrated commit every review
 cycle.
+
+Version 1 plans make approved outcomes explicit. The reviewer must return one
+pass/fail entry with concrete inspected evidence for every success criterion in
+the original order; missing, duplicate, unknown, or failed-but-unrouted criteria
+cannot authorize merge. Each issue must name exact `target_files` inside its
+routed owner's approved scope, preventing a valid-looking issue from dispatching
+the wrong lane. Unversioned plan files remain accepted only for legacy
+compatibility. Generated plans always use version 1.
 
 Plan commands are executable code. Approval therefore means reviewing file
 scope and commands as well as prose.
@@ -209,6 +221,18 @@ Proof paths must survive lane commits and integration, so keep them in a
 project-owned tracked directory such as `evidence/factory/`, never under the
 controller's ignored `.factory/` run-state directory.
 
+`capture_commands` run on the clean integrated worktree before evidence tests
+and again after every repair. They may change only declared screenshots, video,
+and `artifacts`; the controller commits those exact proof files, rejects stray
+writes, and binds review to the resulting commit. This lets frontend capture
+exercise backend or product work from other lanes without weakening lane
+isolation.
+
+Task, plan, and evidence-test acceptance commands are read-only predicates.
+They cannot repeat configured capture commands or mutate repository files after
+scope/proof validation. Reviewers are also mechanically prevented from changing
+the integration tree they judge.
+
 For every review cycle the controller:
 
 1. runs approved integrated acceptance and configured evidence commands;
@@ -222,6 +246,21 @@ Any repair changes the commit, invalidates the old proof, and triggers capture
 and review again. File existence and provenance are mechanical. Semantic visual
 quality still depends on the configured browser/native capture and independent
 reviewer.
+
+If a declared capture command fails without writing outside its declared proof
+paths, the controller restores the clean integration commit, hashes a failed
+capture receipt, and asks the independent reviewer to route a repair inside the
+same five-cycle budget. Partial proof can never authorize merge.
+
+Malformed reviewer JSON gets one controller-guided validation retry against the
+same commit, evidence, and review cycle. Both attempts are durable; a second
+invalid response fails closed rather than consuming repair cycles or looping.
+Malformed planner JSON is normalized into a usage-bearing invalid receipt and
+gets the same two-attempt bound; a single JSON code fence is accepted, while
+arbitrary surrounding prose is not. A repair that completed its code change but
+returned the wrong `addressed` ids gets one receipt-only correction with read
+tools and an exact staged-diff fingerprint. Any correction-time mutation or
+second invalid receipt fails closed.
 
 ## Merge policy
 
@@ -272,7 +311,7 @@ the two-engine drift this repository previously had.
 .venv/bin/python -m py_compile scripts/*.py tests/*.py
 ```
 
-The deterministic suite currently covers 28 cases, including:
+The deterministic suite currently covers 54 cases, including:
 
 - simple single-owner first-pass work;
 - a two-owner feature with directed design repair;
@@ -283,6 +322,19 @@ The deterministic suite currently covers 28 cases, including:
 - real concurrent lanes, second-writer exclusion, durable caught failures;
 - agent process-group timeout, token-limit refusal, safe new-repository
   bootstrap, and generated/secret-bearing artifact refusal;
+- versioned success-criteria requirements, exact review coverage, and refusal
+  of omitted or partial outcome accounting;
+- post-integration capture refresh, capture-command failure, and declared-only
+  proof writes;
+- refusal of duplicate capture/acceptance commands, acceptance-time repository
+  mutation, ignored proof artifacts, and reviewer writes;
+- failed-capture cleanup, forced repair routing, recapture, and refusal of a
+  reviewer pass against invalid proof;
+- one corrected reviewer-protocol retry and bounded refusal after two malformed
+  reviewer responses;
+- planner JSON normalization and one bounded typed-plan correction;
+- exact review-issue target files bound to the routed owner's approved scope;
+- one read-only repair-receipt correction and refusal of correction-time writes;
 - fresh proof after repair, successful merge, target/config drift, and bounded
   human escalation.
 

@@ -43,14 +43,46 @@ alpha from an unattended production service.
 
 ## Evidence
 
-- 28 deterministic repository tests across simple, medium, complex, refusal,
+- 54 deterministic repository tests across simple, medium, complex, refusal,
   lifecycle, concurrency, and graph cases.
+- Versioned approved outcomes must receive exact independent-review coverage
+  with concrete inspected evidence; failed outcomes require routed ownership.
+- Visual proof is regenerated on the integrated commit and after every repair;
+  capture commands may write only declared tracked artifacts. Acceptance and
+  review must leave that commit unchanged.
 - 4/4 fresh adversarial promotion cases.
 - SIGKILL holdout proving lock release, contiguous events, and fail-closed retry.
 - A live Luna/xhigh browser application run reached `merge_ready` with four
   passing target tests, screenshot, WebM, and a clean browser receipt. Manual
   audit caught committed bytecode that the model reviewer missed; the promoted
   controller now rejects that artifact class mechanically.
+- A live two-lane Luna/xhigh run exposed a duplicated capture command that
+  dirtied proof after its commit. The run is explicitly invalid; the controller
+  now rejects capture/acceptance overlap and any acceptance/reviewer mutation
+  before review. Its independent reviewer also rejected a semantically weak
+  video and routed the failed criterion back to design.
+- A fresh fixed-controller medium run then stopped on a genuine generated
+  capture defect before review. Failed capture is now cleaned back to the exact
+  integration commit, represented by a hash-bound invalid receipt, and forced
+  through independent review/repair/recapture inside the existing cycle budget.
+- The first three-lane complex run exercised that invalid-capture path, then
+  exposed a one-character evidence-hash transcription error from the reviewer.
+  Review protocol validation now gets one durable correction attempt; a second
+  malformed response fails closed.
+- A clean two-lane Luna/xhigh medium run reached `merge_ready` in one cycle with
+  12/12 reviewed success criteria, six passing target tests, clean desktop and
+  mobile screenshots, and a readable 36.2-second WebM. It used 240,052
+  accounted tokens and $0.01878568; automatic merge was disabled and target
+  `main` remained untouched.
+- Later three-lane and existing-repository bug-fix runs produced valid
+  commit-bound screenshots/video and exposed three additional protocol gaps:
+  issue ownership was not bound to exact files, fenced planner JSON stopped at
+  the adapter, and repair receipts omitted `addressed` because the public prompt
+  did not specify it. The promoted candidate binds issue target files to owner
+  scopes, normalizes one JSON fence with a two-attempt planner bound, and gives
+  repair receipts one read-only fingerprinted correction. The final live
+  bug-fix run still stopped after two invalid repair receipts; it is refusal
+  evidence, not a `merge_ready` claim.
 - Pi Graph Core v0.1.0 and Pi Graph v0.3.0 validation of the 24-node topology.
 - Full risk register: [`risk-register.json`](risk-register.json).
 
@@ -58,5 +90,7 @@ alpha from an unattended production service.
 
 The next high-value work is explicit inspect-and-resume for interrupted
 worktrees and a frozen Luna-driven application corpus with stronger browser or
-native proof scoring. Sandboxing and provider-side budgets are deployment
-adapters, not reasons to inflate the core controller.
+native proof scoring. Agent-created background processes also remain inside the
+trusted OS boundary; the live corpus exposed and manually terminated three
+stale debug servers from a timed-out repair. Sandboxing and provider-side
+budgets are deployment adapters, not reasons to inflate the core controller.

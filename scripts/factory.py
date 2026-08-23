@@ -63,6 +63,12 @@ class FactoryError(RuntimeError):
     pass
 
 
+class EvidenceFailure(FactoryError):
+    def __init__(self, message: str, evidence: dict[str, Any]):
+        super().__init__(message)
+        self.evidence = evidence
+
+
 @contextmanager
 def run_lock(run: Path):
     path = run / ".controller.lock"
@@ -137,7 +143,34 @@ def staged_files(repo: Path) -> list[str]:
     return sorted(os.fsdecode(raw) for raw in result.stdout.split(b"\0") if raw)
 
 
-def run_commands(cwd: Path, commands: list[str], label: str) -> list[dict[str, Any]]:
+def staged_change_digest(repo: Path) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(repo), "diff", "--cached", "--binary", "--full-index", "HEAD", "--"],
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode:
+        raise FactoryError(
+            f"cannot fingerprint staged changes: {result.stderr.decode(errors='replace').strip()}"
+        )
+    return digest_bytes(result.stdout)
+
+
+def worktree_changed_files(repo: Path) -> list[str]:
+    tracked = set(git(repo, "diff", "--name-only").splitlines())
+    tracked.update(git(repo, "diff", "--cached", "--name-only").splitlines())
+    untracked = git(repo, "ls-files", "--others", "--exclude-standard", "-z")
+    tracked.update(value for value in untracked.split("\0") if value)
+    return sorted(tracked)
+
+
+def run_commands(
+    cwd: Path,
+    commands: list[str],
+    label: str,
+    *,
+    raise_on_failure: bool = True,
+) -> list[dict[str, Any]]:
     receipts = []
     for command in commands:
         result = subprocess.run(
@@ -156,11 +189,13 @@ def run_commands(cwd: Path, commands: list[str], label: str) -> list[dict[str, A
             "output": (result.stdout + result.stderr)[-2000:],
         }
         receipts.append(receipt)
-        if result.returncode:
+        if result.returncode and raise_on_failure:
             raise FactoryError(
                 f"approved acceptance command failed for {label}: {command!r} "
-                f"(exit {result.returncode})"
+                f"(exit {result.returncode}): {receipt['output'][-500:]}"
             )
+        if result.returncode:
+            break
     return receipts
 
 
@@ -265,6 +300,20 @@ def load_config(path: Path) -> dict[str, Any]:
     if errors:
         raise FactoryError("invalid factory contract: " + "; ".join(
             f"{'.'.join(map(str, error.absolute_path))}: {error.message}" for error in errors))
+    for field in ("capture_commands", "test_commands"):
+        value["evidence"][field] = [
+            validate_acceptance_command(command, f"evidence {field}")
+            for command in value["evidence"].get(field, [])
+        ]
+    overlap = sorted(
+        set(value["evidence"]["capture_commands"])
+        & set(value["evidence"]["test_commands"])
+    )
+    if overlap:
+        raise FactoryError(
+            "evidence test_commands must not repeat state-changing capture_commands: "
+            + ", ".join(repr(command) for command in overlap)
+        )
     return value
 
 
@@ -318,10 +367,43 @@ def ensure_repo(path: Path, new_repo: bool) -> Path:
     return path
 
 
-def validate_plan(plan: dict[str, Any], implementers: set[str]) -> None:
+def validate_plan(
+    plan: dict[str, Any],
+    implementers: set[str],
+    *,
+    require_versioned: bool = False,
+    evidence_capture_commands: set[str] | None = None,
+) -> None:
     required = {"summary", "tasks", "acceptance", "risks", "open_questions"}
     if not isinstance(plan, dict):
         raise FactoryError("plan must be a JSON object")
+    version = plan.get("version")
+    if require_versioned and version != 1:
+        raise FactoryError("generated plans must use version 1 with success_criteria")
+    if version is not None and version != 1:
+        raise FactoryError(f"unsupported plan version: {version!r}")
+    if version == 1:
+        criteria = plan.get("success_criteria")
+        if not isinstance(criteria, list) or not criteria:
+            raise FactoryError("version 1 plans require non-empty success_criteria")
+        if len(criteria) > 50:
+            raise FactoryError("version 1 plans support at most 50 success criteria")
+        criterion_ids: set[str] = set()
+        for criterion in criteria:
+            if not isinstance(criterion, dict) or not {"id", "description"} <= set(criterion):
+                raise FactoryError("every success criterion needs id and description")
+            criterion_id = criterion["id"]
+            if (
+                not isinstance(criterion_id, str)
+                or not TASK_ID.fullmatch(criterion_id)
+                or criterion_id in criterion_ids
+            ):
+                raise FactoryError(f"invalid or duplicate success criterion id: {criterion_id!r}")
+            description = criterion["description"]
+            if not isinstance(description, str) or not description.strip():
+                raise FactoryError("success criterion descriptions must be non-empty")
+            criterion["description"] = description.strip()
+            criterion_ids.add(criterion_id)
     if not required <= set(plan):
         raise FactoryError(f"plan is missing fields: {sorted(required - set(plan))}")
     if not isinstance(plan["summary"], str) or not plan["summary"].strip():
@@ -373,6 +455,22 @@ def validate_plan(plan: dict[str, Any], implementers: set[str]) -> None:
                     f"{task['owner']} and {other_owner}"
                 )
             ownership.append((pattern, task["owner"]))
+    capture_overlap = sorted(
+        (
+            set(plan["acceptance"])
+            | {
+                command
+                for task in plan["tasks"]
+                for command in task["acceptance"]
+            }
+        )
+        & (evidence_capture_commands or set())
+    )
+    if capture_overlap:
+        raise FactoryError(
+            "plan acceptance must not repeat configured evidence capture commands: "
+            + ", ".join(repr(command) for command in capture_overlap)
+        )
     questions = plan["open_questions"]
     if not isinstance(questions, list):
         raise FactoryError("open_questions must be an array")
@@ -447,6 +545,7 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
                 {"id": item["id"], "scope": item["scope"]}
                 for item in config["implementers"]
             ],
+            "evidence": config["evidence"],
         }
         for attempt in range(1, 3):
             enforce_dispatch_limits(state, config["limits"], "plan")
@@ -474,7 +573,14 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
             else:
                 plan = planner_receipt["output"]
                 try:
-                    validate_plan(plan, {item["id"] for item in config["implementers"]})
+                    validate_plan(
+                        plan,
+                        {item["id"] for item in config["implementers"]},
+                        require_versioned=True,
+                        evidence_capture_commands=set(
+                            config["evidence"].get("capture_commands", [])
+                        ),
+                    )
                     break
                 except FactoryError as error:
                     validation_error = str(error)
@@ -490,7 +596,11 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
             }
     else:
         plan = json.loads(Path(args.file).read_text(encoding="utf-8"))
-        validate_plan(plan, {item["id"] for item in config["implementers"]})
+        validate_plan(
+            plan,
+            {item["id"] for item in config["implementers"]},
+            evidence_capture_commands=set(config["evidence"].get("capture_commands", [])),
+        )
     unanswered = [item for item in plan["open_questions"]
                   if item.get("blocking") and item["id"] not in state["answers"]]
     state["plan"] = plan
@@ -709,6 +819,7 @@ def execute_lane(
     workspace: Path,
     branch: str,
     limits: dict[str, Any],
+    evidence_spec: dict[str, Any],
 ) -> dict[str, Any]:
     receipt = invoke_agent(
         run,
@@ -716,7 +827,8 @@ def execute_lane(
         agent,
         f"implement:{owner}",
         workspace,
-        {"request": state["request"], "plan": state["plan"], "tasks": tasks},
+        {"request": state["request"], "plan": state["plan"], "tasks": tasks,
+         "evidence": evidence_spec},
         limits,
     )
     output = receipt["output"]
@@ -737,11 +849,19 @@ def execute_lane(
             f"implementer {owner} changed-file receipt does not match Git: "
             f"claimed={claimed}, actual={actual}"
         )
+    before_acceptance = staged_change_digest(workspace)
     acceptance = run_commands(
         workspace,
         acceptance_for_tasks(tasks),
         f"implementation owner {owner}",
     )
+    git(workspace, "add", "-A")
+    after_acceptance_files = staged_files(workspace)
+    if after_acceptance_files != actual or staged_change_digest(workspace) != before_acceptance:
+        raise FactoryError(
+            f"implementation acceptance for {owner} mutated repository files; "
+            "acceptance commands must be read-only predicates"
+        )
     receipt["verification"] = {"changed_files": actual, "acceptance": acceptance}
     commit = commit_lane(workspace, owner)
     return {"owner": owner, "branch": branch, "commit": commit, "receipt": receipt}
@@ -777,32 +897,108 @@ def file_receipt(root: Path, path: Path) -> dict[str, Any]:
             "sha256": digest_bytes(path.read_bytes())}
 
 
+def restore_declared_capture_changes(integration: Path, changed: list[str]) -> None:
+    tracked = []
+    untracked = []
+    for raw in changed:
+        if git(integration, "ls-files", "--error-unmatch", "--", raw, check=False):
+            tracked.append(raw)
+        else:
+            untracked.append(raw)
+    if tracked:
+        git(integration, "restore", "--staged", "--worktree", "--", *tracked)
+    for raw in untracked:
+        path = evidence_path(integration, raw)
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+        elif path.exists():
+            raise FactoryError(f"capture failure left a non-file artifact requiring inspection: {raw}")
+    remaining = worktree_changed_files(integration)
+    if remaining:
+        raise FactoryError(
+            "capture failure cleanup did not restore the integration boundary: "
+            + ", ".join(remaining)
+        )
+
+
 def capture_evidence(run: Path, state: dict[str, Any], config: dict[str, Any],
                      integration: Path, cycle: int) -> dict[str, Any]:
+    if worktree_changed_files(integration):
+        raise FactoryError("integration worktree must be clean before evidence capture")
+    declared = [
+        *config["evidence"]["screenshots"],
+        config["evidence"].get("video"),
+        *config["evidence"].get("artifacts", []),
+    ]
+    declared = [value for value in declared if value]
+    capture = run_commands(
+        integration,
+        list(dict.fromkeys(config["evidence"].get("capture_commands", []))),
+        "configured evidence capture",
+        raise_on_failure=False,
+    )
+    changed = worktree_changed_files(integration)
+    unexpected = [value for value in changed if value not in declared]
+    if unexpected:
+        raise FactoryError(
+            "evidence capture changed files outside declared artifacts: " + ", ".join(unexpected)
+        )
+    if capture and not all(item["passed"] for item in capture):
+        restore_declared_capture_changes(integration, changed)
+        source_commit = git(integration, "rev-parse", "HEAD")
+        receipt = {
+            "valid": False,
+            "cycle": cycle,
+            "captured_at": now(),
+            "source_commit": source_commit,
+            "approved_plan_sha256": state["approved_plan_sha256"],
+            "capture": capture,
+            "files": [],
+            "tests": [],
+            "failure": "configured evidence capture failed before proof could be committed",
+        }
+        receipt["sha256"] = digest_json(receipt)
+        atomic_json(run / "evidence" / f"cycle-{cycle}.json", receipt)
+        raise EvidenceFailure("configured evidence capture failed; reviewer repair required", receipt)
+    if changed:
+        git(integration, "add", "--", *changed)
+        git(integration, "commit", "-m", f"factory: capture evidence cycle {cycle}")
     approved = list(dict.fromkeys(state["plan"]["acceptance"]))
     configured = list(dict.fromkeys(config["evidence"].get("test_commands", [])))
     tests = run_commands(integration, approved, "integrated plan")
     tests.extend(run_commands(integration, configured, "configured evidence"))
+    test_changes = worktree_changed_files(integration)
+    if test_changes:
+        raise FactoryError(
+            "evidence acceptance mutated the committed review boundary; "
+            "acceptance commands must be read-only predicates: " + ", ".join(test_changes)
+        )
     evidence_files = []
-    for raw in [*config["evidence"]["screenshots"], config["evidence"].get("video")]:
+    for raw in declared:
         if not raw:
             continue
         path = evidence_path(integration, raw)
         if not path.is_file() or not path.stat().st_size:
             raise FactoryError(f"required evidence missing: {raw}")
+        try:
+            git(integration, "ls-files", "--error-unmatch", "--", raw)
+        except FactoryError as error:
+            raise FactoryError(f"required evidence is not tracked in the proof commit: {raw}") from error
         evidence_files.append(file_receipt(integration, path))
     if not tests or not all(item["passed"] for item in tests):
         raise FactoryError("one or more evidence test commands failed")
     source_commit = git(integration, "rev-parse", "HEAD")
-    receipt = {"cycle": cycle, "captured_at": now(), "source_commit": source_commit,
+    receipt = {"valid": True, "cycle": cycle, "captured_at": now(), "source_commit": source_commit,
                "approved_plan_sha256": state["approved_plan_sha256"],
-               "files": evidence_files, "tests": tests}
+               "capture": capture, "files": evidence_files, "tests": tests}
     receipt["sha256"] = digest_json(receipt)
     atomic_json(run / "evidence" / f"cycle-{cycle}.json", receipt)
     return receipt
 
 
-def review_output(receipt: dict[str, Any], evidence: dict[str, Any]) -> dict[str, Any]:
+def review_output(
+    receipt: dict[str, Any], evidence: dict[str, Any], plan: dict[str, Any]
+) -> dict[str, Any]:
     output = receipt.get("output")
     if not isinstance(output, dict) or output.get("verdict") not in {"pass", "repair"}:
         raise FactoryError("reviewer output must contain verdict pass|repair")
@@ -814,9 +1010,37 @@ def review_output(receipt: dict[str, Any], evidence: dict[str, Any]) -> dict[str
         raise FactoryError("reviewer did not cite the current evidence receipt")
     if output["verdict"] == "pass" and output["issues"]:
         raise FactoryError("reviewer cannot pass with unresolved issues")
+    if not evidence.get("valid", True) and output["verdict"] == "pass":
+        raise FactoryError("reviewer cannot pass when evidence capture is invalid")
     if output["verdict"] == "repair" and not output["issues"]:
         raise FactoryError("repair verdict requires issues")
+    failed_criteria: set[str] = set()
+    approved_criterion_ids: set[str] = set()
+    owner_patterns: dict[str, list[str]] = {}
+    if plan.get("version") == 1:
+        expected = [item["id"] for item in plan["success_criteria"]]
+        criteria = output.get("criteria")
+        if not isinstance(criteria, list):
+            raise FactoryError("version 1 reviewer output must contain a criteria array")
+        observed = [item.get("id") if isinstance(item, dict) else None for item in criteria]
+        if observed != expected:
+            raise FactoryError("reviewer criteria must exactly cover the approved criteria in order")
+        approved_criterion_ids = set(expected)
+        for item in criteria:
+            if not {"id", "status", "evidence"} <= set(item):
+                raise FactoryError("every reviewed criterion needs id, status, and evidence")
+            if item["status"] not in {"pass", "fail"}:
+                raise FactoryError("reviewed criterion status must be pass|fail")
+            if not isinstance(item["evidence"], str) or not item["evidence"].strip():
+                raise FactoryError("reviewed criterion evidence must be non-empty")
+            if item["status"] == "fail":
+                failed_criteria.add(item["id"])
+        if output["verdict"] == "pass" and failed_criteria:
+            raise FactoryError("reviewer cannot pass with failed success criteria")
+        for task in plan["tasks"]:
+            owner_patterns.setdefault(task["owner"], []).extend(task["files"])
     issue_ids: set[str] = set()
+    cited_failed_criteria: set[str] = set()
     for issue in output["issues"]:
         if not isinstance(issue, dict) or not {"id", "owner", "message"} <= set(issue):
             raise FactoryError("every review issue needs id, owner, and message")
@@ -824,7 +1048,46 @@ def review_output(receipt: dict[str, Any], evidence: dict[str, Any]) -> dict[str
             raise FactoryError("review issue ids must be unique non-empty strings")
         if not isinstance(issue["message"], str) or not issue["message"].strip():
             raise FactoryError("review issue messages must be non-empty")
+        criterion_id = issue.get("criterion_id")
+        if criterion_id is not None:
+            if criterion_id not in approved_criterion_ids:
+                raise FactoryError(f"review issue cites unknown success criterion: {criterion_id!r}")
+            cited_failed_criteria.add(criterion_id)
+        if plan.get("version") == 1:
+            target_files = issue.get("target_files")
+            if not isinstance(target_files, list) or not target_files:
+                raise FactoryError("every version 1 review issue needs target_files")
+            if not all(isinstance(target, str) for target in target_files):
+                raise FactoryError(
+                    "review issue target_files must be exact repository-relative paths"
+                )
+            if len(set(target_files)) != len(target_files):
+                raise FactoryError("review issue target_files must be unique")
+            for target in target_files:
+                normalized = target.replace("\\", "/")
+                if (
+                    not normalized
+                    or normalized != target
+                    or normalized.startswith("/")
+                    or GLOB_MAGIC.search(normalized)
+                    or any(part in {"", ".", ".."} for part in normalized.split("/"))
+                ):
+                    raise FactoryError(
+                        "review issue target_files must be exact repository-relative paths"
+                    )
+            owner = issue.get("owner")
+            patterns = owner_patterns.get(owner)
+            if not patterns:
+                raise FactoryError(f"review issue has unknown owner: {owner!r}")
+            outside = [target for target in target_files if not matches_scope(target, patterns)]
+            if outside:
+                raise FactoryError(
+                    f"review issue target_files outside routed owner {owner} scope: "
+                    + ", ".join(outside)
+                )
         issue_ids.add(issue["id"])
+    if failed_criteria - cited_failed_criteria:
+        raise FactoryError("every failed success criterion requires a routed review issue")
     return output
 
 
@@ -841,30 +1104,103 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
     for owner, owned in grouped.items():
         enforce_dispatch_limits(state, config["limits"], f"repair:{cycle}:{owner}")
         tasks = [task for task in state["plan"]["tasks"] if task["owner"] == owner]
-        receipt = invoke_agent(run, state, agents[owner], f"repair:{cycle}:{owner}", integration,
-                               {"request": state["request"], "plan": state["plan"],
-                                "issues": owned, "cycle": cycle},
-                               config["limits"])
-        record_usage(state, receipt)
-        output = receipt["output"]
-        if (
-            receipt["status"] != "passed"
-            or not isinstance(output, dict)
-            or output.get("status") != "pass"
-            or not output.get("checks")
-        ):
-            raise FactoryError(f"repair agent {owner} did not return passing checks")
         expected_issues = {issue["id"] for issue in owned}
-        if set(output.get("addressed", [])) != expected_issues:
-            raise FactoryError(f"repair agent {owner} did not address exactly its assigned issues")
+        repair_context = {
+            "request": state["request"],
+            "plan": state["plan"],
+            "issues": owned,
+            "cycle": cycle,
+        }
+        receipt = None
+        correction_files: list[str] | None = None
+        correction_digest: str | None = None
+        for attempt in range(1, 3):
+            agent = agents[owner]
+            role = f"repair:{cycle}:{owner}"
+            if attempt == 2:
+                agent = {**agent, "skills": [], "tools": ["read"]}
+                role += ":protocol-correction"
+            receipt = invoke_agent(
+                run,
+                state,
+                agent,
+                role,
+                integration,
+                repair_context,
+                config["limits"],
+            )
+            record_usage(state, receipt)
+            atomic_json(
+                run / "receipts" / f"repair-{cycle}-{owner}-attempt-{attempt}.json",
+                receipt,
+            )
+            output = receipt["output"]
+            if (
+                receipt["status"] != "passed"
+                or not isinstance(output, dict)
+                or output.get("status") != "pass"
+                or not output.get("checks")
+            ):
+                raise FactoryError(f"repair agent {owner} did not return passing checks")
+            addressed = output.get("addressed")
+            validation_error = None
+            if not isinstance(addressed, list) or set(addressed) != expected_issues:
+                validation_error = (
+                    f"repair agent {owner} did not address exactly its assigned issues"
+                )
+            save_state(
+                run,
+                state,
+                "repair_protocol_attempt_completed",
+                {
+                    "cycle": cycle,
+                    "owner": owner,
+                    "attempt": attempt,
+                    "validation_error": validation_error,
+                },
+            )
+            if validation_error is None:
+                break
+            git(integration, "add", "-A")
+            current_files = staged_files(integration)
+            validate_lane_changes(owner, tasks, current_files)
+            if attempt == 2:
+                raise FactoryError(validation_error)
+            correction_files = current_files
+            correction_digest = staged_change_digest(integration)
+            repair_context = {
+                **repair_context,
+                "previous_invalid_receipt": output,
+                "controller_validation_error": validation_error,
+                "repair_instruction": (
+                    "Return a complete corrected receipt for work already performed. "
+                    "Do not edit, create, delete, stage, or commit any file."
+                ),
+            }
+        if receipt is None:
+            raise FactoryError(f"repair agent {owner} ended without a typed receipt")
         git(integration, "add", "-A")
         actual = staged_files(integration)
+        if correction_files is not None and (
+            actual != correction_files or staged_change_digest(integration) != correction_digest
+        ):
+            raise FactoryError(
+                f"repair receipt correction for {owner} mutated repository files"
+            )
         validate_lane_changes(owner, tasks, actual)
+        before_acceptance = staged_change_digest(integration)
         acceptance = run_commands(
             integration,
             acceptance_for_tasks(tasks),
             f"repair owner {owner}",
         )
+        git(integration, "add", "-A")
+        after_acceptance_files = staged_files(integration)
+        if after_acceptance_files != actual or staged_change_digest(integration) != before_acceptance:
+            raise FactoryError(
+                f"repair acceptance for {owner} mutated repository files; "
+                "acceptance commands must be read-only predicates"
+            )
         receipt["verification"] = {"changed_files": actual, "acceptance": acceptance}
         git(integration, "commit", "-m", f"factory: repair cycle {cycle} ({owner})")
         receipts.append(receipt)
@@ -884,6 +1220,23 @@ def verify_merge_preconditions(repo: Path, state: dict[str, Any], evidence: dict
         raise FactoryError("evidence was not captured against the approved plan")
     if not all(item["passed"] for item in evidence["tests"]):
         raise FactoryError("evidence contains a failed test")
+    if not evidence.get("valid", True):
+        raise FactoryError("final evidence capture is invalid")
+    integration_changes = worktree_changed_files(integration)
+    if integration_changes:
+        raise FactoryError(
+            "integration worktree changed after proof capture: " + ", ".join(integration_changes)
+        )
+    for item in evidence["files"]:
+        path = evidence_path(integration, item["path"])
+        try:
+            git(integration, "ls-files", "--error-unmatch", "--", item["path"])
+        except FactoryError as error:
+            raise FactoryError(
+                f"reviewed evidence is not tracked in the integration commit: {item['path']}"
+            ) from error
+        if not path.is_file() or digest_bytes(path.read_bytes()) != item["sha256"]:
+            raise FactoryError(f"reviewed evidence hash no longer matches: {item['path']}")
     if git(repo, "rev-parse", state["target_branch"]) != state["base_commit"]:
         raise FactoryError("target branch drifted after factory initialization")
     ensure_clean(repo)
@@ -928,6 +1281,7 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
                 workspace,
                 branch,
                 config["limits"],
+                config["evidence"],
             ): owner
             for owner, tasks, workspace, branch in lane_specs
         }
@@ -959,16 +1313,69 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     final_evidence = None
     final_review = None
     for cycle in range(1, config["review"]["max_cycles"] + 1):
-        evidence = capture_evidence(run, state, config, integration_path, cycle)
-        enforce_dispatch_limits(state, config["limits"], f"review:{cycle}")
-        reviewer_receipt = invoke_agent(
-            run, state, config["review"], f"review:{cycle}", integration_path,
-            {"request": state["request"], "plan": state["plan"],
-             "integration": state["integration"], "evidence": evidence, "cycle": cycle},
-            config["limits"],
-        )
-        record_usage(state, reviewer_receipt)
-        review = review_output(reviewer_receipt, evidence)
+        try:
+            evidence = capture_evidence(run, state, config, integration_path, cycle)
+        except EvidenceFailure as failure:
+            evidence = failure.evidence
+        state["integration"]["commit"] = evidence["source_commit"]
+        review_context = {
+            "request": state["request"],
+            "plan": state["plan"],
+            "integration": state["integration"],
+            "evidence": evidence,
+            "cycle": cycle,
+        }
+        reviewer_receipt = None
+        review = None
+        for attempt in range(1, 3):
+            enforce_dispatch_limits(state, config["limits"], f"review:{cycle}:attempt:{attempt}")
+            reviewer_receipt = invoke_agent(
+                run,
+                state,
+                config["review"],
+                f"review:{cycle}",
+                integration_path,
+                review_context,
+                config["limits"],
+            )
+            record_usage(state, reviewer_receipt)
+            reviewer_changes = worktree_changed_files(integration_path)
+            if reviewer_changes:
+                raise FactoryError(
+                    "reviewer mutated the integration worktree: " + ", ".join(reviewer_changes)
+                )
+            atomic_json(
+                run / "receipts" / f"reviewer-{cycle}-attempt-{attempt}.json",
+                reviewer_receipt,
+            )
+            try:
+                review = review_output(reviewer_receipt, evidence, state["plan"])
+                validation_error = None
+            except FactoryError as error:
+                validation_error = str(error)
+            save_state(
+                run,
+                state,
+                "reviewer_attempt_completed",
+                {"cycle": cycle, "attempt": attempt, "validation_error": validation_error},
+            )
+            if validation_error is None:
+                break
+            if attempt == 2:
+                raise FactoryError(
+                    f"reviewer could not produce valid output: {validation_error}"
+                )
+            review_context = {
+                **review_context,
+                "previous_invalid_review": reviewer_receipt.get("output"),
+                "controller_validation_error": validation_error,
+                "repair_instruction": (
+                    "Return a complete corrected review for the same evidence. "
+                    "Change only what the controller error requires."
+                ),
+            }
+        if reviewer_receipt is None or review is None:
+            raise FactoryError("reviewer validation ended without a typed result")
         cycle_record = {"cycle": cycle, "evidence": evidence, "review": review,
                         "review_receipt": reviewer_receipt, "repairs": []}
         state["cycles"].append(cycle_record)
@@ -987,7 +1394,8 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         state["integration"]["commit"] = git(integration_path, "rev-parse", "HEAD")
         save_state(run, state, "repair_completed", {"cycle": cycle,
                                                      "commit": state["integration"]["commit"]})
-    assert final_evidence is not None and final_review is not None
+    if final_evidence is None or final_review is None:
+        raise FactoryError("review loop ended without a final evidence-backed verdict")
     verify_merge_preconditions(repo, state, final_evidence, final_review, integration_path)
     state["final_review"] = final_review
     state["final_evidence_sha256"] = final_evidence["sha256"]

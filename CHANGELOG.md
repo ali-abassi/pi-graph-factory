@@ -7,10 +7,18 @@ All notable changes to Pi Graph Factory are documented here.
 ### Added
 
 - Configured `plan --generate` with durable typed plan revisions and planner receipts.
+- Versioned success criteria with exact independent-review coverage and routed
+  failures.
 - Concurrent isolated implementation lanes for active approved owners.
 - One-writer controller locking and durable caught-failure receipts.
 - Per-agent process-group timeouts, durable normalized receipts, and aggregate
   token/cost dispatch ceilings.
+- Post-integration evidence capture commands with declared-output confinement,
+  proof commits, and automatic recapture after every repair.
+- Evidence-failure receipts that let independent review route capture defects
+  through the existing bounded repair loop.
+- One durable controller-guided retry for malformed reviewer output against the
+  same evidence and cycle.
 - Simple, medium, complex, adversarial, and concurrency benchmark suites.
 - Public security, contribution, improvement, and release documentation.
 
@@ -27,6 +35,8 @@ All notable changes to Pi Graph Factory are documented here.
   environment files, caches, bytecode, virtual environments, and dependencies.
 - Default screenshot, video, and browser-receipt paths now use the tracked
   `evidence/factory/` directory so proof survives isolated-lane integration.
+- Acceptance commands are enforced as read-only predicates and cannot repeat
+  configured evidence capture commands.
 
 ### Security
 
@@ -34,4 +44,6 @@ All notable changes to Pi Graph Factory are documented here.
 - Failed controller transitions make `status` fail closed.
 - Generated caches, compiled bytecode, dependency directories, and likely
   secret-bearing `.env` files are rejected before integration.
+- Ignored/untracked evidence, post-capture acceptance writes, and reviewer
+  mutations are rejected before merge authorization.
 - Automatic merge remains disabled by default.

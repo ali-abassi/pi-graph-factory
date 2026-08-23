@@ -38,10 +38,14 @@ review:
   max_cycles: 5
 
 evidence:
+  capture_commands:
+    - python3 scripts/capture_factory_evidence.py
   screenshots:
     - evidence/factory/desktop.png
     - evidence/factory/mobile.png
   video: evidence/factory/flow.webm
+  artifacts:
+    - evidence/factory/browser-receipt.json
   test_commands:
     - git diff --check
     - test -f evidence/factory/browser-receipt.json

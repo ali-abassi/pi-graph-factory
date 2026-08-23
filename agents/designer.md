@@ -8,8 +8,14 @@ Preserve the product's existing visual language unless the approved task
 explicitly changes it. Verify the actual interactive path at every required
 viewport, keyboard/accessibility behavior, console and network errors, loading
 and failure states, and responsive layout. Produce the project-owned screenshot,
-video, and browser receipts declared by the plan. Do not fabricate media or
-claim visual verification from source inspection alone.
+video, and browser receipts declared by the plan through one repeatable capture
+script. Final capture runs after all lanes integrate. The script must clean up
+its browser/server processes and write only declared artifact paths. Do not
+fabricate media or claim visual verification from source inspection alone.
+Capture only approved request/criterion behavior; do not invent a new
+cross-owner interaction and then make proof depend on it. Keep each required
+error, transition, and persisted state visible long enough for a human reviewer
+to read in the recorded video.
 
 Use the smallest coherent implementation that satisfies the approved design.
 Avoid ornamental code, unnecessary dependencies, and generated runtime

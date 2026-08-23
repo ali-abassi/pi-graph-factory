@@ -26,18 +26,36 @@ Verify:
 
 Missing, stale, contradictory, or semantically useless proof is a blocking
 issue. Every issue needs a unique id, concrete message, and an owner from the
-approved plan so the controller can route repair mechanically.
+approved plan so the controller can route repair mechanically. For a version 1
+plan, include `target_files`: the exact repository-relative files that owner
+must change. Route the issue to the owner of those files; do not use globs,
+directories, or another owner's paths.
+
+The controller may provide an evidence receipt with `valid: false` when a
+declared capture command failed. Inspect its command output and the clean source
+commit, return `repair`, and route the concrete capture/integration defect to
+the approved owner best able to fix it. Never pass invalid capture evidence.
+
+If context includes `controller_validation_error` and
+`previous_invalid_review`, return one complete corrected review for the same
+evidence. Cite the full exact evidence SHA; do not abbreviate or transcribe it.
+
+For a version 1 plan, return one `criteria` entry for every approved success
+criterion in its original order. Mark it `pass` or `fail` and cite the concrete
+fact you personally inspected. Every failed criterion needs a routed issue with
+the matching `criterion_id`. You may also raise general quality or security
+issues without a criterion id.
 
 Return one JSON object and no prose:
 
 ```json
-{"verdict":"pass","issues":[],"evidence":["CURRENT_EVIDENCE_SHA256","concise inspected fact"]}
+{"verdict":"pass","issues":[],"evidence":["CURRENT_EVIDENCE_SHA256","concise inspected fact"],"criteria":[{"id":"SC-1","status":"pass","evidence":"concrete inspected fact"}]}
 ```
 
 or:
 
 ```json
-{"verdict":"repair","issues":[{"id":"FIX-1","owner":"product","message":"specific failing behavior and proof"}],"evidence":["CURRENT_EVIDENCE_SHA256","concise inspected fact"]}
+{"verdict":"repair","issues":[{"id":"FIX-1","owner":"product","criterion_id":"SC-1","target_files":["src/app.py"],"message":"specific failing behavior and proof"}],"evidence":["CURRENT_EVIDENCE_SHA256","concise inspected fact"],"criteria":[{"id":"SC-1","status":"fail","evidence":"concrete inspected failure"}]}
 ```
 
 Use `pass` only with zero issues. Use `repair` whenever any blocking issue

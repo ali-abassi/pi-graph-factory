@@ -33,6 +33,7 @@ class FactoryLifecycleTests(unittest.TestCase):
         value["implementers"] = [value["implementers"][0]]
         value["review"]["max_cycles"] = 5
         value["evidence"] = {
+            "capture_commands": ["cp app.txt evidence/flow.webm"],
             "screenshots": ["evidence/desktop.png"],
             "video": "evidence/flow.webm",
             "test_commands": ["test -s app.txt", "test -f evidence/browser-receipt.json"],
@@ -100,9 +101,77 @@ class FactoryLifecycleTests(unittest.TestCase):
         self.assertEqual(len(state["cycles"]), 2)
         self.assertNotEqual(state["cycles"][0]["evidence"]["source_commit"],
                             state["cycles"][1]["evidence"]["source_commit"])
+        first_video = next(item for item in state["cycles"][0]["evidence"]["files"]
+                           if item["path"] == "evidence/flow.webm")
+        second_video = next(item for item in state["cycles"][1]["evidence"]["files"]
+                            if item["path"] == "evidence/flow.webm")
+        self.assertNotEqual(first_video["sha256"], second_video["sha256"])
+        self.assertTrue(state["cycles"][1]["evidence"]["capture"][0]["passed"])
         receipt = json.loads((run / "receipt.json").read_text())
         self.assertEqual(receipt["merge"]["status"], "merged")
         self.assertEqual(receipt["evidence_sha256"], state["final_evidence_sha256"])
+
+    def test_capture_failure_is_reviewed_repaired_and_recaptured(self) -> None:
+        config = yaml.safe_load(self.config.read_text())
+        config["evidence"]["capture_commands"] = [
+            "grep -q reviewed app.txt && cp app.txt evidence/flow.webm"
+        ]
+        config_path = self.root / "capture-repair-factory.yaml"
+        config_path.write_text(yaml.safe_dump(config, sort_keys=False))
+        run = self.initialize(config_path, "capture-repair-run")
+        planned = self.command(
+            "plan",
+            "--run",
+            str(run),
+            "--file",
+            str(self.write_plan(self.root / "capture-repair-plan.json", [])),
+        )
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        completed = self.command("run", "--run", str(run))
+        self.assertEqual(completed["phase"], "merged")
+        state = json.loads((run / "state.json").read_text())
+        self.assertFalse(state["cycles"][0]["evidence"]["valid"])
+        self.assertEqual(state["cycles"][0]["evidence"]["files"], [])
+        self.assertTrue(state["cycles"][1]["evidence"]["valid"])
+        self.assertTrue(state["cycles"][1]["evidence"]["files"])
+        self.assertEqual(state["cycles"][0]["review"]["verdict"], "repair")
+        self.assertEqual(state["cycles"][1]["review"]["verdict"], "pass")
+
+    def test_malformed_repair_receipt_gets_one_read_only_correction(self) -> None:
+        run = self.initialize(run_id="repair-protocol-correction-run")
+        planned = self.command(
+            "plan",
+            "--run",
+            str(run),
+            "--file",
+            str(self.write_plan(self.root / "repair-protocol-plan.json", [])),
+        )
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        marker = self.root / "invalid-repair-observed"
+        self.env["PI_GRAPH_FACTORY_INVALID_REPAIR_MARKER"] = str(marker)
+        completed = self.command("run", "--run", str(run))
+        self.assertEqual(completed["phase"], "merged")
+        self.assertEqual((self.repo / "app.txt").read_text(encoding="utf-8"),
+                         "implemented\nreviewed 1\n")
+        self.assertTrue((run / "receipts" / "repair-1-product-attempt-1.json").is_file())
+        self.assertTrue((run / "receipts" / "repair-1-product-attempt-2.json").is_file())
+
+    def test_repair_receipt_correction_cannot_mutate_the_worktree(self) -> None:
+        run = self.initialize(run_id="repair-protocol-mutation-run")
+        planned = self.command(
+            "plan",
+            "--run",
+            str(run),
+            "--file",
+            str(self.write_plan(self.root / "repair-protocol-mutation.json", [])),
+        )
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        self.env["PI_GRAPH_FACTORY_INVALID_REPAIR_MARKER"] = str(
+            self.root / "invalid-repair-mutation-observed"
+        )
+        self.env["PI_GRAPH_FACTORY_REPAIR_CORRECTION_MUTATION"] = "1"
+        failed = self.command("run", "--run", str(run), expected=2)
+        self.assertIn("receipt correction for product mutated", failed["error"])
 
     def test_conflicting_file_ownership_is_rejected_before_approval(self) -> None:
         config = yaml.safe_load(self.config.read_text())
@@ -139,12 +208,25 @@ class FactoryLifecycleTests(unittest.TestCase):
         plan_path = Path(planned["plan"])
         self.assertTrue(plan_path.is_file())
         self.assertEqual(json.loads(plan_path.read_text())["tasks"][0]["owner"], "product")
+        self.assertEqual(json.loads(plan_path.read_text())["version"], 1)
+        self.assertEqual(json.loads(plan_path.read_text())["success_criteria"][0]["id"], "SC-1")
         state = json.loads((run / "state.json").read_text())
         self.assertEqual(state["plan_revision"], 1)
         self.assertTrue((run / "receipts" / "planner-1.json").is_file())
         self.assertEqual(subprocess.check_output(
             ["git", "-C", str(self.repo), "status", "--porcelain"], text=True,
         ), "")
+
+    def test_malformed_planner_output_gets_one_bounded_retry(self) -> None:
+        run = self.initialize(run_id="planner-protocol-retry-run")
+        marker = self.root / "invalid-plan-observed"
+        self.env["PI_GRAPH_FACTORY_INVALID_PLAN_MARKER"] = str(marker)
+        planned = self.command("plan", "--run", str(run), "--generate")
+        self.assertEqual(planned["phase"], "awaiting_plan_approval")
+        state = json.loads((run / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["planner_attempts"], 2)
+        self.assertTrue((run / "receipts" / "planner-1-attempt-1.json").is_file())
+        self.assertTrue((run / "receipts" / "planner-1-attempt-2.json").is_file())
 
     def test_new_repository_bootstrap_has_safe_ignore_defaults(self) -> None:
         target = self.root / "new-repository"
@@ -281,6 +363,73 @@ class FactoryLifecycleTests(unittest.TestCase):
         path.write_text(json.dumps(value))
         failed = self.command("plan", "--run", str(run), "--file", str(path), expected=2)
         self.assertIn("raw shell command", failed["error"])
+
+    def test_lane_acceptance_cannot_mutate_files_after_scope_validation(self) -> None:
+        run = self.initialize(run_id="lane-acceptance-mutation-run")
+        path = self.write_plan(self.root / "lane-acceptance-mutation.json", [])
+        value = json.loads(path.read_text())
+        value["tasks"][0]["acceptance"].append(
+            "printf 'scope bypass' > reviewer-was-here.txt"
+        )
+        path.write_text(json.dumps(value))
+        planned = self.command("plan", "--run", str(run), "--file", str(path))
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        failed = self.command("run", "--run", str(run), expected=2)
+        self.assertIn("acceptance for product mutated repository files", failed["error"])
+
+    def test_reviewer_cannot_mutate_the_integration_it_is_judging(self) -> None:
+        run = self.initialize(run_id="reviewer-mutation-run")
+        planned = self.command(
+            "plan",
+            "--run",
+            str(run),
+            "--file",
+            str(self.write_plan(self.root / "reviewer-mutation.json", [])),
+        )
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        self.env["PI_GRAPH_FACTORY_REVIEW_MUTATION"] = "1"
+        failed = self.command("run", "--run", str(run), expected=2)
+        self.assertIn("reviewer mutated the integration worktree", failed["error"])
+
+    def test_malformed_reviewer_output_gets_one_bounded_retry(self) -> None:
+        run = self.initialize(run_id="reviewer-validation-retry-run")
+        planned = self.command(
+            "plan",
+            "--run",
+            str(run),
+            "--file",
+            str(self.write_plan(self.root / "reviewer-validation-retry.json", [])),
+        )
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        self.env["PI_GRAPH_FACTORY_INVALID_REVIEW_ONCE"] = "1"
+        completed = self.command("run", "--run", str(run))
+        self.assertEqual(completed["phase"], "merged")
+        retries = [
+            json.loads(line)["payload"]
+            for line in (run / "events.jsonl").read_text().splitlines()
+            if json.loads(line)["event"] == "reviewer_attempt_completed"
+        ]
+        self.assertIsNotNone(retries[0]["validation_error"])
+        self.assertIsNone(retries[1]["validation_error"])
+        self.assertTrue((run / "receipts" / "reviewer-1-attempt-1.json").is_file())
+        self.assertTrue((run / "receipts" / "reviewer-1-attempt-2.json").is_file())
+
+    def test_two_malformed_reviewer_outputs_fail_closed(self) -> None:
+        run = self.initialize(run_id="reviewer-validation-exhausted-run")
+        planned = self.command(
+            "plan",
+            "--run",
+            str(run),
+            "--file",
+            str(self.write_plan(self.root / "reviewer-validation-exhausted.json", [])),
+        )
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        self.env["PI_GRAPH_FACTORY_INVALID_REVIEW_ALWAYS"] = "1"
+        failed = self.command("run", "--run", str(run), expected=2)
+        self.assertIn("reviewer could not produce valid output", failed["error"])
+        self.assertTrue((run / "receipts" / "reviewer-1-attempt-1.json").is_file())
+        self.assertTrue((run / "receipts" / "reviewer-1-attempt-2.json").is_file())
+        self.assertFalse((run / "receipts" / "reviewer-1-attempt-3.json").exists())
 
 
 def git_head(repo: Path, ref: str = "HEAD") -> str:

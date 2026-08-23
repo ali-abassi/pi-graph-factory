@@ -71,3 +71,139 @@
   provider-to-browser wiring and bounded merge authorization, while the manual
   audit demonstrates why semantic review remains a documented conditional-go
   boundary rather than a production-quality guarantee.
+
+## Traceability climb v4
+
+- **Objective:** make an approved idea's observable outcomes survive planning,
+  implementation, evidence capture, review, and repair without relying on prose
+  memory.
+- **Frozen evaluator:** `tests/test_traceability.py` and
+  `tests/traceability_adapter.py` after the valid baseline.
+- **Baseline:** 1/4. The incumbent accepted a versioned plan with no success
+  criteria and authorized merge when review omitted or partially covered them;
+  exact extra fields were harmless but unenforced.
+- **Candidate:** plan version 1 requires ordered unique success criteria;
+  generated plans must be versioned; reviewer output must cover every criterion
+  exactly with pass/fail and inspected evidence; failed criteria require a
+  routed issue. Unversioned file plans remain a legacy compatibility boundary.
+- **Promotion rule:** 4/4 frozen traceability cases, all prior tests and graph
+  validators, then fresh unknown-id/failed-without-routing challenges and live
+  medium/complex Luna runs. No loosening of scope, evidence, budget, or merge
+  controls.
+
+## Integrated capture climb v5
+
+- **Trigger:** multi-owner live-case design showed that a design lane cannot
+  prove behavior owned by another isolated lane before integration.
+- **Frozen evaluator:** `tests/test_capture_freshness.py` after the baseline.
+- **Baseline:** 0/2. Configured capture commands were ignored, stale proof was
+  hashed, and a failing capture command did not stop review.
+- **Candidate:** run configured capture commands on a clean integrated
+  worktree, reject writes outside declared proof artifacts, commit the exact
+  proof state, run acceptance, and repeat after every repair. Planner and
+  implementer contexts now include the frozen evidence contract.
+- **Result:** 2/2 development cases, 34/34 full tests, both graph validators,
+  and 2/2 fresh stray-write/clean-boundary challenges pass.
+- **Assurance boundary:** capture provenance and freshness are mechanical;
+  whether a screenshot or video proves the intended behavior remains a semantic
+  reviewer and target-test responsibility.
+
+## Exact review-boundary climb v6
+
+- **Trigger:** the first live two-lane Luna/xhigh medium run generated a sound
+  versioned plan, integrated both owners, and committed fresh browser proof.
+  The plan also repeated the configured capture command in top-level
+  acceptance, so acceptance regenerated three artifacts after the proof commit.
+  The review manifest named the commit while hashing the dirty replacements.
+- **Live result:** invalid by construction, despite all mechanical commands
+  passing. The independent reviewer separately failed `SC-7` because the WebM
+  did not visibly show blank-title rejection or clear reload transitions and
+  routed one repair to the design owner. The stopped run used 243,526 accounted
+  tokens and $0.02286416 across planner, two implementers, and reviewer.
+- **Candidate:** capture and test command lists must be disjoint; plan/task
+  acceptance cannot repeat capture; acceptance commands are enforced as
+  read-only predicates after implementation, repair, and proof capture;
+  declared proof must be tracked; reviewers cannot mutate integration; final
+  merge rechecks cleanliness and every reviewed file hash.
+- **Promotion rule:** all prior suites plus duplicate-command,
+  acceptance-mutation, ignored-proof, lane-scope-bypass, and reviewer-mutation
+  refusals. Repeat the live medium run on the promoted controller before any
+  complex live claim.
+
+## Capture recovery climb v7
+
+- **Trigger:** the clean v6 medium rerun integrated both owners but its generated
+  capture script required an unapproved empty-state CTA focus behavior that the
+  product lane did not implement. Capture exited 1 and correctly stopped before
+  review, leaving no false proof, but the defect could not enter the existing
+  reviewer-directed repair loop.
+- **Candidate:** a failed capture may write only declared artifacts; the
+  controller restores those partial writes to the exact integration commit,
+  persists a hash-bound `valid: false` receipt, and invokes the independent
+  reviewer. Invalid evidence can only receive `repair`; after scoped repair the
+  normal next cycle recaptures everything. Unexpected capture writes still fail
+  immediately without agent repair.
+- **Simplicity boundary:** this reuses the one canonical review/repair state
+  machine, owner routing, and five-cycle cap. It adds no scheduler, queue,
+  alternate merge path, or automatic acceptance of missing evidence.
+- **Promotion rule:** preserve the frozen failed-capture refusal while proving
+  partial-write cleanup, reviewer-pass refusal, routed repair, fresh recapture,
+  and every prior gate. Then start a new clean medium live run.
+
+## Reviewer protocol recovery climb v8
+
+- **Trigger:** the first three-lane complex run produced a clean invalid-capture
+  receipt and an otherwise correct reviewer repair decision, but Luna copied 63
+  of the 64 evidence-hash characters. Exact citation validation correctly
+  stopped routing, and the run could not continue.
+- **Candidate:** give each review cycle at most two typed-output attempts against
+  the identical commit and evidence. Persist both normalized receipts and an
+  event carrying the controller validation error; feed the first invalid output
+  and exact error back once. Reviewer mutation, timeouts, and usage limits still
+  fail immediately rather than retrying.
+- **Simplicity boundary:** this mirrors the existing two-attempt planner
+  validation pattern. It does not add review votes, relax exact hashes, consume
+  a repair cycle, or permit a third attempt.
+- **Promotion rule:** one malformed citation followed by a corrected complete
+  review succeeds; two malformed attempts fail closed; all prior tests and
+  security/graph gates pass; then repeat the clean complex live case.
+
+## Routing and adapter protocol climb v9
+
+- **Trigger:** the v8 complex reviewer correctly identified a frontend/backend
+  contract mismatch but routed it to the backend despite naming `web/app.js` as
+  the defective file. A later high-reasoning planner returned a complete plan
+  inside a JSON fence, which the provider adapter discarded before the
+  controller's existing correction path could run.
+- **Candidate:** every version 1 issue names exact repository-relative
+  `target_files`; each must match the routed owner's approved patterns. Pi model
+  output becomes a usage-bearing typed invalid receipt when it is not JSON; one
+  JSON code fence is normalized, arbitrary surrounding prose remains invalid,
+  and planner validation keeps its existing two-attempt ceiling.
+- **Result:** the frozen wrong-owner and missing-target challenges improved from
+  0/2 to 2/2. The live fenced plan then completed on its first controller
+  attempt, preserved exact approval, and launched three correctly isolated
+  lanes.
+
+## Repair receipt protocol climb v10
+
+- **Trigger:** a complex release repair produced valid screenshots, WebM, and
+  an all-true browser receipt, but its typed response omitted `addressed`; the
+  controller correctly refused to infer accountability. The public implementer
+  prompt showed only the initial implementation shape and never documented the
+  field the controller required.
+- **Candidate:** a structurally passing repair with wrong `addressed` ids gets
+  one receipt-only correction using read tools. The already-produced staged
+  diff is scope-validated and fingerprinted before that call; any file mutation
+  or second invalid receipt fails closed. The implementer instructions now give
+  exact initial-repair and receipt-correction shapes.
+- **Result:** the deterministic recovery and mutation challenges both pass; all
+  54 repository tests pass. A focused existing-repository bug-fix run integrated
+  strict backend/frontend validation and generated valid commit-bound proof.
+  Its reviewer then found whitespace validation drift and incomplete network
+  history coverage. The repair fixed the frontend files but repeated the
+  prompt-driven receipt omission twice, so the pre-prompt-fix live run stopped
+  safely. No complex live `merge_ready` claim is made.
+- **Simplicity boundary:** no resume engine, queue, extra review vote, inferred
+  issue completion, or relaxed evidence rule was added. Interrupted live runs
+  remain inspectable refusals and automatic merge remains off.

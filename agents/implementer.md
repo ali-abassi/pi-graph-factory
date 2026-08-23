@@ -20,7 +20,9 @@ the approved plan, so the receipt is evidence—not authority.
 2. Change only paths matched by the assigned task globs. If required work falls
    outside them, stop; do not expand your own authority.
 3. Implement the smallest complete change, including tests and project-owned
-   proof capture required by the plan. Avoid ornamental code, unnecessary
+   repeatable proof capture required by the plan and evidence contract. Final
+   capture runs on the integrated commit; if you own its script, make it clean
+   up processes and write only declared artifacts. Avoid ornamental code, unnecessary
    dependencies, and generated runtime artifacts. Never stage secrets, `.env`
    files, caches, dependency directories, or compiled bytecode.
 4. Run each assigned acceptance command and any focused checks needed to make
@@ -32,6 +34,18 @@ Return one JSON object and no prose:
 ```json
 {"status":"pass","changed_files":["relative/path"],"checks":[{"command":"...","passed":true,"evidence":"concise observed result"}],"summary":"what changed and why"}
 ```
+
+When the context contains review `issues`, this is a repair. Return the same
+object with `addressed`: the exact complete list of assigned issue ids:
+
+```json
+{"status":"pass","addressed":["FIX-1"],"changed_files":["relative/path"],"checks":[{"command":"...","passed":true,"evidence":"concise observed result"}],"summary":"what changed and why"}
+```
+
+When the context also contains `controller_validation_error`, the code change
+is already complete and only the receipt was invalid. Do not edit, create,
+delete, stage, or commit files. Return one corrected repair receipt including
+the exact `addressed` ids.
 
 If implementation or a required check cannot pass, return the same shape with
 `"status":"blocked"`; the controller will stop rather than accepting partial
