@@ -851,6 +851,58 @@ def validate_lane_changes(owner: str, tasks: list[dict[str, Any]], actual: list[
         )
 
 
+def discard_untracked_scope_escapes(
+    run: Path,
+    owner: str,
+    tasks: list[dict[str, Any]],
+    workspace: Path,
+    actual: list[str],
+    baseline_tracked: set[str],
+    reported: list[str],
+    agent_receipt_sha256: str,
+) -> tuple[list[str], dict[str, Any] | None]:
+    unsafe = [path for path in actual if is_unsafe_repository_artifact(path)]
+    if unsafe:
+        validate_lane_changes(owner, tasks, actual)
+    patterns = [pattern for task in tasks for pattern in task["files"]]
+    escaped = [path for path in actual if not matches_scope(path, patterns)]
+    if not escaped:
+        validate_lane_changes(owner, tasks, actual)
+        return actual, None
+    if any(path in baseline_tracked for path in escaped):
+        validate_lane_changes(owner, tasks, actual)
+
+    git(workspace, "reset", "-q", "HEAD", "--", *escaped)
+    git(workspace, "clean", "-f", "--", *escaped)
+    git(workspace, "add", "-A")
+    corrected = staged_files(workspace)
+    validate_lane_changes(owner, tasks, corrected)
+    escaped_set = set(escaped)
+    corrected_claim = sorted(path for path in reported if path not in escaped_set)
+    if corrected_claim != corrected:
+        raise FactoryError(
+            f"implementer {owner} changed-file receipt does not match Git after "
+            f"untracked scope correction: claimed={corrected_claim}, actual={corrected}"
+        )
+
+    correction = {
+        "schema": "pi-graph-factory.scope-correction.v1",
+        "owner": owner,
+        "action": "discard_untracked_scope_escapes",
+        "discarded_files": sorted(escaped),
+        "reported_changed_files": sorted(reported),
+        "verified_changed_files": corrected,
+        "agent_receipt_sha256": agent_receipt_sha256,
+        "observed_at": now(),
+    }
+    correction["receipt_sha256"] = digest_json(correction)
+    atomic_json(
+        run / "receipts" / f"scope-correction-{owner}-{correction['receipt_sha256'][:12]}.json",
+        correction,
+    )
+    return corrected, correction
+
+
 def load_config(path: Path) -> dict[str, Any]:
     value = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
@@ -2485,6 +2537,9 @@ def execute_lane(
             receipt,
         )
         return {"owner": owner, "branch": branch, "commit": commit, "receipt": receipt}
+    baseline_tracked = {
+        path for path in git(workspace, "ls-files", "-z").split("\0") if path
+    }
     receipt = invoke_agent(
         run,
         state,
@@ -2508,9 +2563,18 @@ def execute_lane(
         raise FactoryError(f"implementer {owner} did not return a passing receipt")
     git(workspace, "add", "-A")
     actual = staged_files(workspace)
-    validate_lane_changes(owner, tasks, actual)
     claimed = sorted(output["changed_files"])
-    if claimed != actual:
+    actual, scope_correction = discard_untracked_scope_escapes(
+        run,
+        owner,
+        tasks,
+        workspace,
+        actual,
+        baseline_tracked,
+        claimed,
+        receipt["receipt_sha256"],
+    )
+    if scope_correction is None and claimed != actual:
         raise FactoryError(
             f"implementer {owner} changed-file receipt does not match Git: "
             f"claimed={claimed}, actual={actual}"
@@ -2540,6 +2604,8 @@ def execute_lane(
         "acceptance": acceptance,
         "prompt_evaluation": prompt_evaluation,
     }
+    if scope_correction is not None:
+        receipt["scope_correction"] = scope_correction
     commit = commit_lane(workspace, owner)
     return {"owner": owner, "branch": branch, "commit": commit, "receipt": receipt}
 
@@ -3483,7 +3549,15 @@ def continue_implementation(
                     run,
                     state,
                     "lane_completed",
-                    {"owner": owner, "commit": completed["commit"]},
+                    {
+                        "owner": owner,
+                        "commit": completed["commit"],
+                        "discarded_untracked_scope_escapes": (
+                            completed["receipt"].get("scope_correction", {}).get(
+                                "discarded_files", []
+                            )
+                        ),
+                    },
                 )
     if first_failure is not None:
         raise first_failure

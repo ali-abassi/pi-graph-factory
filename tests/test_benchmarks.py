@@ -134,15 +134,23 @@ class FactoryBenchmarkTests(unittest.TestCase):
         self.assertIn("repaired in cycle 1", (self.repo / "ui.txt").read_text(encoding="utf-8"))
         self.assertIn("repaired in cycle 2", (self.repo / "guide.txt").read_text(encoding="utf-8"))
 
-    def test_implementation_outside_approved_scope_is_refused(self) -> None:
+    def test_untracked_implementation_scope_escape_is_discarded(self) -> None:
         self.env["PI_GRAPH_FACTORY_ESCAPE_OWNER"] = "product"
         _, result = self.execute(
             ["product"],
             [self.task("fix", "product", ["product.txt", "evidence/**"], ["test -s product.txt"])],
             ["test -s product.txt"],
-            expected=2,
         )
-        self.assertIn("outside approved scope", result["error"])
+        self.assertEqual(result["phase"], "merged")
+        self.assertFalse((self.repo / "outside-approved-scope.txt").exists())
+        run = Path(result["run"])
+        state = json.loads((run / "state.json").read_text())
+        self.assertEqual(
+            state["lane_receipts"]["product"]["receipt"]["scope_correction"][
+                "discarded_files"
+            ],
+            ["outside-approved-scope.txt"],
+        )
 
     def test_overlapping_ownership_is_refused_before_approval(self) -> None:
         initialized = self.command(

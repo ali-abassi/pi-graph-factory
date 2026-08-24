@@ -92,7 +92,29 @@ class FactoryReliabilityTests(unittest.TestCase):
         completed = self.cli("run", "--run", str(run))
         self.assertEqual(completed["phase"], "merged")
 
-    def test_transition_failure_is_durable_and_status_fails_closed(self) -> None:
+    def test_untracked_scope_escape_is_discarded_and_recorded(self) -> None:
+        run = self.approved_run(["product"])
+        self.env["PI_GRAPH_FACTORY_EXPECTED_LANES"] = "1"
+        self.env["PI_GRAPH_FACTORY_RELIABILITY_MODE"] = "escape"
+        completed = self.cli("run", "--run", str(run))
+        self.assertEqual(completed["phase"], "merged")
+        self.assertFalse((self.repo / "outside.txt").exists())
+        state = json.loads((run / "state.json").read_text())
+        correction = state["lane_receipts"]["product"]["receipt"]["scope_correction"]
+        self.assertEqual(correction["discarded_files"], ["outside.txt"])
+        self.assertTrue(
+            next((run / "receipts").glob("scope-correction-product-*.json"), None)
+        )
+        events = [json.loads(line) for line in (run / "events.jsonl").read_text().splitlines()]
+        lane = next(event for event in events if event["event"] == "lane_completed")
+        self.assertEqual(
+            lane["payload"]["discarded_untracked_scope_escapes"], ["outside.txt"]
+        )
+
+    def test_tracked_scope_escape_is_durable_and_fails_closed(self) -> None:
+        (self.repo / "outside.txt").write_text("tracked baseline\n", encoding="utf-8")
+        subprocess.run(["git", "add", "outside.txt"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-qm", "track protected file"], cwd=self.repo, check=True)
         run = self.approved_run(["product"])
         self.env["PI_GRAPH_FACTORY_EXPECTED_LANES"] = "1"
         self.env["PI_GRAPH_FACTORY_RELIABILITY_MODE"] = "escape"
@@ -103,6 +125,18 @@ class FactoryReliabilityTests(unittest.TestCase):
         self.assertIn("outside approved scope", status["state"]["last_error"]["message"])
         events = [json.loads(line) for line in (run / "events.jsonl").read_text().splitlines()]
         self.assertEqual(events[-1]["event"], "transition_failed")
+
+    def test_unreported_untracked_scope_escape_is_discovered_and_discarded(self) -> None:
+        run = self.approved_run(["product"])
+        self.env["PI_GRAPH_FACTORY_EXPECTED_LANES"] = "1"
+        self.env["PI_GRAPH_FACTORY_RELIABILITY_MODE"] = "silent_escape"
+        completed = self.cli("run", "--run", str(run))
+        self.assertEqual(completed["phase"], "merged")
+        self.assertFalse((self.repo / "outside.txt").exists())
+        state = json.loads((run / "state.json").read_text())
+        correction = state["lane_receipts"]["product"]["receipt"]["scope_correction"]
+        self.assertEqual(correction["discarded_files"], ["outside.txt"])
+        self.assertNotIn("outside.txt", correction["reported_changed_files"])
 
     def test_second_writer_is_refused_by_run_lock(self) -> None:
         run = self.approved_run(["product"])

@@ -52,8 +52,9 @@ if args.role.startswith("implement:"):
         (evidence / "flow.webm").write_bytes(b"\x1aE\xdf\xa3\x00reliability")
         (evidence / "browser-receipt.json").write_text('{"console_errors":[]}\n', encoding="utf-8")
         changed.extend(["evidence/desktop.png", "evidence/flow.webm", "evidence/browser-receipt.json"])
-    if mode == "escape":
+    if mode in {"escape", "silent_escape"}:
         Path("outside.txt").write_text("escape\n", encoding="utf-8")
+    if mode == "escape":
         changed.append("outside.txt")
     output = {"status": "pass", "changed_files": sorted(changed),
               "checks": ["barrier passed"], "summary": owner}
@@ -67,4 +68,3 @@ print(json.dumps({
     "role": args.role, "output": output,
     "usage": {"input": 1, "output": 1, "total": 2, "cost": 0},
 }, separators=(",", ":")))
-

@@ -308,6 +308,12 @@ The planner and controller share a small contract:
 File patterns must stay inside the repository. Different owners cannot receive
 patterns the controller considers overlapping. After implementation, Git's
 actual staged paths—not the model's claim—must match the approved owner scope.
+If a lane creates new out-of-scope scaffolding in its disposable worktree, the
+controller discards those exact untracked paths, records a scope-correction
+receipt, and validates the remaining Git change and reported file list again.
+An out-of-scope edit to any tracked file still fails closed. Generated caches,
+secret-bearing files, acceptance-command mutations, and integration drift are
+never corrected this way.
 The controller then runs each task's approved commands before committing its
 lane, and reruns top-level acceptance on the integrated commit every review
 cycle.
