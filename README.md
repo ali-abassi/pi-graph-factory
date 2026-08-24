@@ -314,6 +314,11 @@ receipt, and validates the remaining Git change and reported file list again.
 An out-of-scope edit to any tracked file still fails closed. Generated caches,
 secret-bearing files, acceptance-command mutations, and integration drift are
 never corrected this way.
+Agents should not commit lane work. If one creates only linear descendant
+commits on its assigned disposable branch, the controller records their hashes,
+soft-resets to the pre-dispatch baseline, and validates the complete delta before
+creating the authoritative lane commit. A detached/switched branch, amended or
+replaced baseline, or merge commit fails closed.
 The controller then runs each task's approved commands before committing its
 lane, and reruns top-level acceptance on the integrated commit every review
 cycle.

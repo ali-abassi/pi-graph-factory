@@ -903,6 +903,58 @@ def discard_untracked_scope_escapes(
     return corrected, correction
 
 
+def normalize_agent_created_commits(
+    run: Path,
+    owner: str,
+    workspace: Path,
+    branch: str,
+    baseline_head: str,
+    agent_receipt_sha256: str,
+) -> dict[str, Any] | None:
+    agent_head = git(workspace, "rev-parse", "HEAD")
+    if agent_head == baseline_head:
+        return None
+    if git(workspace, "branch", "--show-current") != branch:
+        raise FactoryError(f"implementer {owner} changed or detached its lane branch")
+    ancestor = subprocess.run(
+        ["git", "-C", str(workspace), "merge-base", "--is-ancestor", baseline_head, agent_head],
+        capture_output=True,
+        check=False,
+    )
+    if ancestor.returncode:
+        raise FactoryError(f"implementer {owner} rewrote or replaced its lane baseline")
+    merges = git(workspace, "rev-list", "--merges", f"{baseline_head}..{agent_head}").splitlines()
+    if merges:
+        raise FactoryError(f"implementer {owner} created merge history in its lane")
+    commits = git(
+        workspace, "rev-list", "--reverse", f"{baseline_head}..{agent_head}"
+    ).splitlines()
+    if not commits:
+        raise FactoryError(f"implementer {owner} changed lane HEAD without a recoverable commit")
+
+    agent_tree = git(workspace, "rev-parse", f"{agent_head}^{{tree}}")
+    git(workspace, "reset", "--soft", baseline_head)
+    if git(workspace, "rev-parse", "HEAD") != baseline_head:
+        raise FactoryError(f"implementer {owner} commit normalization did not restore baseline")
+    recovery = {
+        "schema": "pi-graph-factory.agent-commit-recovery.v1",
+        "owner": owner,
+        "action": "normalize_linear_descendant_commits",
+        "baseline_head": baseline_head,
+        "agent_head": agent_head,
+        "agent_tree": agent_tree,
+        "agent_commits": commits,
+        "agent_receipt_sha256": agent_receipt_sha256,
+        "observed_at": now(),
+    }
+    recovery["receipt_sha256"] = digest_json(recovery)
+    atomic_json(
+        run / "receipts" / f"agent-commit-recovery-{owner}-{recovery['receipt_sha256'][:12]}.json",
+        recovery,
+    )
+    return recovery
+
+
 def load_config(path: Path) -> dict[str, Any]:
     value = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
@@ -2537,6 +2589,7 @@ def execute_lane(
             receipt,
         )
         return {"owner": owner, "branch": branch, "commit": commit, "receipt": receipt}
+    baseline_head = git(workspace, "rev-parse", "HEAD")
     baseline_tracked = {
         path for path in git(workspace, "ls-files", "-z").split("\0") if path
     }
@@ -2561,6 +2614,14 @@ def execute_lane(
         or not isinstance(output.get("changed_files"), list)
     ):
         raise FactoryError(f"implementer {owner} did not return a passing receipt")
+    agent_commit_recovery = normalize_agent_created_commits(
+        run,
+        owner,
+        workspace,
+        branch,
+        baseline_head,
+        receipt["receipt_sha256"],
+    )
     git(workspace, "add", "-A")
     actual = staged_files(workspace)
     claimed = sorted(output["changed_files"])
@@ -2606,6 +2667,8 @@ def execute_lane(
     }
     if scope_correction is not None:
         receipt["scope_correction"] = scope_correction
+    if agent_commit_recovery is not None:
+        receipt["agent_commit_recovery"] = agent_commit_recovery
     commit = commit_lane(workspace, owner)
     return {"owner": owner, "branch": branch, "commit": commit, "receipt": receipt}
 
@@ -3555,6 +3618,11 @@ def continue_implementation(
                         "discarded_untracked_scope_escapes": (
                             completed["receipt"].get("scope_correction", {}).get(
                                 "discarded_files", []
+                            )
+                        ),
+                        "normalized_agent_commits": (
+                            completed["receipt"].get("agent_commit_recovery", {}).get(
+                                "agent_commits", []
                             )
                         ),
                     },

@@ -7,6 +7,7 @@ import argparse
 import base64
 import json
 import os
+import subprocess
 import time
 from pathlib import Path
 
@@ -52,10 +53,20 @@ if args.role.startswith("implement:"):
         (evidence / "flow.webm").write_bytes(b"\x1aE\xdf\xa3\x00reliability")
         (evidence / "browser-receipt.json").write_text('{"console_errors":[]}\n', encoding="utf-8")
         changed.extend(["evidence/desktop.png", "evidence/flow.webm", "evidence/browser-receipt.json"])
-    if mode in {"escape", "silent_escape"}:
+    if mode in {"escape", "silent_escape", "commit_escape"}:
         Path("outside.txt").write_text("escape\n", encoding="utf-8")
-    if mode == "escape":
+    if mode in {"escape", "commit_escape"}:
         changed.append("outside.txt")
+    if mode in {"commit", "commit_escape"}:
+        subprocess.run(["git", "add", "-A"], check=True)
+        subprocess.run(
+            ["git", "commit", "-qm", f"agent commit by {owner}"], check=True
+        )
+    if mode == "amend_baseline":
+        subprocess.run(["git", "add", "-A"], check=True)
+        subprocess.run(
+            ["git", "commit", "--amend", "-qm", f"amended by {owner}"], check=True
+        )
     output = {"status": "pass", "changed_files": sorted(changed),
               "checks": ["barrier passed"], "summary": owner}
 elif args.role.startswith("review:"):

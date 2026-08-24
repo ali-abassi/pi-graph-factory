@@ -138,6 +138,42 @@ class FactoryReliabilityTests(unittest.TestCase):
         self.assertEqual(correction["discarded_files"], ["outside.txt"])
         self.assertNotIn("outside.txt", correction["reported_changed_files"])
 
+    def test_linear_agent_commit_is_normalized_and_recorded(self) -> None:
+        run = self.approved_run(["product"])
+        self.env["PI_GRAPH_FACTORY_EXPECTED_LANES"] = "1"
+        self.env["PI_GRAPH_FACTORY_RELIABILITY_MODE"] = "commit"
+        completed = self.cli("run", "--run", str(run))
+        self.assertEqual(completed["phase"], "merged")
+        state = json.loads((run / "state.json").read_text())
+        recovery = state["lane_receipts"]["product"]["receipt"][
+            "agent_commit_recovery"
+        ]
+        self.assertEqual(len(recovery["agent_commits"]), 1)
+        self.assertNotEqual(recovery["agent_head"], state["lane_receipts"]["product"]["commit"])
+        self.assertTrue(
+            next((run / "receipts").glob("agent-commit-recovery-product-*.json"), None)
+        )
+        events = [json.loads(line) for line in (run / "events.jsonl").read_text().splitlines()]
+        lane = next(event for event in events if event["event"] == "lane_completed")
+        self.assertEqual(lane["payload"]["normalized_agent_commits"], recovery["agent_commits"])
+
+    def test_committed_tracked_scope_escape_still_fails_closed(self) -> None:
+        (self.repo / "outside.txt").write_text("tracked baseline\n", encoding="utf-8")
+        subprocess.run(["git", "add", "outside.txt"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-qm", "track protected file"], cwd=self.repo, check=True)
+        run = self.approved_run(["product"])
+        self.env["PI_GRAPH_FACTORY_EXPECTED_LANES"] = "1"
+        self.env["PI_GRAPH_FACTORY_RELIABILITY_MODE"] = "commit_escape"
+        failed = self.cli("run", "--run", str(run), expected=2)
+        self.assertIn("outside approved scope", failed["error"])
+
+    def test_amended_lane_baseline_fails_closed(self) -> None:
+        run = self.approved_run(["product"])
+        self.env["PI_GRAPH_FACTORY_EXPECTED_LANES"] = "1"
+        self.env["PI_GRAPH_FACTORY_RELIABILITY_MODE"] = "amend_baseline"
+        failed = self.cli("run", "--run", str(run), expected=2)
+        self.assertIn("rewrote or replaced its lane baseline", failed["error"])
+
     def test_second_writer_is_refused_by_run_lock(self) -> None:
         run = self.approved_run(["product"])
         self.env["PI_GRAPH_FACTORY_EXPECTED_LANES"] = "1"
