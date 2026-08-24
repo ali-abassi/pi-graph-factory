@@ -1125,9 +1125,16 @@ def validate_plan_judgment(
         computed_score = math.floor(weighted * 2 + 0.5) / 2
     if output.get("overall_score") != computed_score:
         raise FactoryError("plan review overall_score does not match weighted dimensions")
+    critical_dimensions_clear = all(
+        scores[name] is not None and float(scores[name]) >= minimum_score
+        for name, spec in PLAN_JUDGE_DIMENSIONS.items()
+        if spec["critical"]
+    )
     expected_verdict = (
         "pass"
-        if computed_score is not None and computed_score >= minimum_score
+        if computed_score is not None
+        and computed_score >= minimum_score
+        and critical_dimensions_clear
         else "revise"
     )
     if output.get("verdict") != expected_verdict:

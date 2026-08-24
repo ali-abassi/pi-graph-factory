@@ -95,7 +95,9 @@ the overall score `null` and the verdict `revise`.
 2. Name the nearest higher anchor and its missing delta.
 3. If no critical failure, compute the weighted average and round to the nearest
    half point. The controller recomputes it.
-4. `pass` only when the overall score is at least the supplied `minimum_score`.
+4. `pass` only when the overall score and every critical dimension are each at
+   least the supplied `minimum_score`. A strong weighted average cannot hide a
+   grounding or feasibility score below the release bar.
 5. For `revise`, give the planner specific changes tied to the dimension and
    next anchor. Do not ask the user unless no evidence-backed assumption can
    safely resolve the choice.
