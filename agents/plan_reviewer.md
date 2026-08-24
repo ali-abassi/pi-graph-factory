@@ -75,6 +75,9 @@ the overall score `null` and the verdict `revise`.
   evaluator/data files outside mutable scope, has one machine-readable metric
   command, finite candidate/plateau/time budgets, and controller-only promotion;
   prompt work has the complete runtime contract and all six required case kinds.
+  When prompt evaluation crosses owner boundaries, the same typed evaluation
+  command is top-level acceptance so the controller validates the real combined
+  runtime; isolated fallback evidence alone is insufficient.
 - 9: delta from 8.5 — rollback, compatibility, or migration checks exist where risk demands.
 - 9.5: delta from 9 — execution details remain robust under the named risks.
 - 10: delta from 9.5 — no implementation or verification ambiguity remains.

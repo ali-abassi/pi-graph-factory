@@ -48,6 +48,10 @@ final receipt must copy that identifier byte for byte; describe the runtime's
 mechanics and trust boundary in the task summary and host-enforcement fields.
 Evaluation commands must exercise the real runtime and end with typed
 `pi-graph-factory.prompt-evaluation.v1` case receipts; never use a no-op check.
+When the runtime spans another owner's files, keep each isolated lane's task
+checks independently executable and put the real cross-lane evaluation command
+in top-level acceptance too. The controller validates that typed receipt again
+on the integrated commit; an isolated fixture or fallback is never final proof.
 
 Use `optimization` only when the request is genuinely improvement-shaped and a
 repeatable evaluator can distinguish candidates. Do not build a loop for a

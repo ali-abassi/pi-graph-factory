@@ -232,6 +232,8 @@ def run_commands(
                 "command": command,
                 "passed": process.returncode == 0,
                 "exit_code": process.returncode,
+                "stdout": stdout[-2000:],
+                "stderr": stderr[-2000:],
                 "output": (stdout + stderr)[-2000:],
                 "timed_out": False,
             }
@@ -252,6 +254,8 @@ def run_commands(
                 "command": command,
                 "passed": False,
                 "exit_code": None,
+                "stdout": stdout[-2000:],
+                "stderr": stderr[-2000:],
                 "output": (stdout + stderr)[-2000:],
                 "timed_out": True,
                 "timeout_seconds": timeout_seconds,
@@ -647,7 +651,8 @@ def metric_score_from_receipts(
 ) -> float:
     if len(receipts) != 1:
         raise FactoryError("optimization evaluation must produce exactly one command receipt")
-    lines = [line.strip() for line in receipts[0]["output"].splitlines() if line.strip()]
+    stream = receipts[0].get("stdout", receipts[0]["output"])
+    lines = [line.strip() for line in stream.splitlines() if line.strip()]
     if not lines:
         raise FactoryError("optimization metric command returned no output")
     try:
@@ -684,7 +689,8 @@ def validate_prompt_evaluation(
     declared_cases = {case["id"]: case["kind"] for case in contract["cases"]}
     results: dict[str, dict[str, Any]] = {}
     for receipt in observed:
-        lines = [line.strip() for line in receipt["output"].splitlines() if line.strip()]
+        stream = receipt.get("stdout", receipt["output"])
+        lines = [line.strip() for line in stream.splitlines() if line.strip()]
         if not lines:
             raise FactoryError("prompt evaluation command returned no typed receipt")
         try:
@@ -2470,6 +2476,11 @@ def capture_evidence(run: Path, state: dict[str, Any], config: dict[str, Any],
             termination_grace_seconds=termination_grace,
         )
     )
+    prompt_evaluation = (
+        validate_prompt_evaluation(tests, state["plan"]["prompt_contract"])
+        if "prompt_contract" in state["plan"]
+        else None
+    )
     test_changes = worktree_changed_files(integration)
     if test_changes:
         raise FactoryError(
@@ -2493,7 +2504,8 @@ def capture_evidence(run: Path, state: dict[str, Any], config: dict[str, Any],
     source_commit = git(integration, "rev-parse", "HEAD")
     receipt = {"valid": True, "cycle": cycle, "captured_at": now(), "source_commit": source_commit,
                "approved_plan_sha256": state["approved_plan_sha256"],
-               "proof": proof, "capture": capture, "files": evidence_files, "tests": tests}
+               "proof": proof, "capture": capture, "files": evidence_files, "tests": tests,
+               "prompt_evaluation": prompt_evaluation}
     receipt["sha256"] = digest_json(receipt)
     atomic_json(run / "evidence" / f"cycle-{cycle}.json", receipt)
     return receipt

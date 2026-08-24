@@ -234,6 +234,17 @@ class FactoryCompilerTests(unittest.TestCase):
             plan["prompt_contract"],
         )
         self.assertEqual(len(validated["cases"]), 6)
+        validated = validate_prompt_evaluation(
+            [{
+                "command": command,
+                "stdout": json.dumps(typed) + "\n",
+                "stderr": "Ran 6 tests\nOK\n",
+                "output": json.dumps(typed) + "\nRan 6 tests\nOK\n",
+                "passed": True,
+            }],
+            plan["prompt_contract"],
+        )
+        self.assertEqual(validated["runtime"], plan["prompt_contract"]["runtime"])
         with self.assertRaisesRegex(FactoryError, "no typed receipt"):
             validate_prompt_evaluation(
                 [{"command": command, "output": "", "passed": True}],
