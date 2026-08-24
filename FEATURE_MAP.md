@@ -21,7 +21,7 @@ for any individual run.
 - Defer Graphify for a code-free new project, then create it after implementation.
 - Read `VISION.md` and `FEATURE_MAP.md` as durable project decision context.
 - Generate versioned plans with research, assumptions, success criteria, ownership,
-  executable acceptance, proportional proof, risks, and genuinely blocking questions.
+  executable acceptance, proportional proof, and risks.
 - Require optimization-shaped plans to freeze the objective, evaluation version,
   exact mutable/forbidden surfaces, metric and minimum gain, development,
   preservation, controller-only promotion commands, candidate/plateau/wall-time
@@ -32,11 +32,11 @@ for any individual run.
   every declared case passed.
 - Independently judge generated plans with the `plan-quality-v1` rubric, revise below
   8.5/10, and stop after three unsuccessful quality cycles.
-- Authorize the exact generated-plan SHA-256 automatically when the independent
-  judge clears the bar; preserve optional human-governed approval and require it
-  for externally supplied plans.
-- Start and advance the autonomous lifecycle with one controller command; pause
-  only for genuinely blocking context or a terminal escalation.
+- Return blocking planner questions to autonomous revision until they become
+  explicit evidence-backed reversible assumptions, then authorize the exact
+  generated-plan SHA-256 when the independent judge clears the bar.
+- Preserve optional human-governed approval and require it for externally supplied
+  plans; the default `start` and `advance` lifecycle has no human plan checkpoint.
 
 ## Implementation and integration
 

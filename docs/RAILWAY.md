@@ -51,7 +51,7 @@ Or pass a non-interactive Codex task after `--`:
 
 ```bash
 railway code --codex --new --name pi-graph-factory -- \
-  exec "Clone the target repository, install pi-graph-factory, and run factory start for the supplied request. Return only if blocking context or terminal escalation is required."
+  exec "Clone the target repository, install pi-graph-factory, and run factory start for the supplied request. Return the terminal receipt or exact failure evidence."
 ```
 
 Use `--keep-awake` only when the work must continue after disconnection. Push

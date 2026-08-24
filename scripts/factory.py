@@ -861,8 +861,9 @@ def load_config(path: Path) -> dict[str, Any]:
         "health_commands": [],
         "rollback_commands": [],
     })
-    # Frozen contracts created before autonomous approval remain human-governed.
-    value.setdefault("approval", {"mode": "human"})
+    # Missing legacy policy follows the public autonomous default. A human
+    # checkpoint must be requested explicitly in the frozen contract.
+    value.setdefault("approval", {"mode": "judge"})
     value.setdefault("intelligence", {
         "provider": "graphify",
         "required": True,
@@ -1454,6 +1455,7 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
         planner_context = {
             "request": state["request"],
             "intake": state.get("intake", {"mode": "direct", "status": "ready"}),
+            "approval": config["approval"],
             "answers": state["answers"],
             "base_commit": state["base_commit"],
             "target_branch": state["target_branch"],
@@ -1598,29 +1600,56 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
                         "Return a corrected judgment for the same plan and rubric."
                     ),
                 }
-            if plan_judgment["verdict"] == "pass":
+            blocking_questions = [
+                item for item in plan["open_questions"]
+                if item.get("blocking") and item["id"] not in state["answers"]
+            ]
+            autonomy_feedback = []
+            if config["approval"]["mode"] == "judge" and blocking_questions:
+                autonomy_feedback = [{
+                    "dimension": "grounding",
+                    "current_anchor": plan_judgment.get("overall_score"),
+                    "target_anchor": config["plan_review"]["min_score"],
+                    "suggestion": (
+                        "Resolve the blocking question as the safest evidence-backed, "
+                        "reversible assumption; record the assumption and what would "
+                        "change it instead of pausing for a person: "
+                        + item["question"]
+                    ),
+                    "why_raises_score": (
+                        "The autonomous contract requires planning to finish from the "
+                        "supplied intake, repository evidence, and project memory."
+                    ),
+                } for item in blocking_questions]
+            if plan_judgment["verdict"] == "pass" and not autonomy_feedback:
                 break
+            revision_feedback = [
+                *plan_judgment["improvements"],
+                *autonomy_feedback,
+            ]
             save_state(
                 run,
                 state,
                 "plan_revision_requested",
                 {"revision": plan_number, "cycle": quality_cycle,
                  "score": plan_judgment["overall_score"],
-                 "improvements": plan_judgment["improvements"]},
+                 "improvements": revision_feedback,
+                 "blocking_questions": [item["id"] for item in blocking_questions]},
             )
             if quality_cycle == config["plan_review"]["max_cycles"]:
                 raise FactoryError(
-                    "plan did not reach the configured quality threshold after "
+                    "plan did not reach the autonomous quality contract after "
                     f"{quality_cycle} cycles"
                 )
             planner_context = {
                 **planner_context,
                 "previous_plan": plan,
-                "plan_review_feedback": plan_judgment["improvements"],
+                "plan_review_feedback": revision_feedback,
+                "autonomy_feedback": autonomy_feedback,
                 "repair_instruction": (
-                    "Revise the plan to close every rubric-linked gap. Ask a question "
-                    "only if the repository, request, vision, and feature map cannot support "
-                    "a defensible assumption."
+                    "Revise the plan to close every rubric-linked gap. Under judge "
+                    "authority, resolve uncertainty with the safest evidence-backed, "
+                    "reversible assumption and record it instead of pausing for a person."
                 ),
             }
     else:

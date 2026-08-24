@@ -46,7 +46,13 @@ if args.role == "plan":
             "id": "human-context",
             "question": "Which irreversible product constraint cannot be inferred?",
             "blocking": True,
-        }] if os.environ.get("PI_GRAPH_FACTORY_BLOCKING_PLAN_QUESTION") == "1" else []),
+        }] if (
+            os.environ.get("PI_GRAPH_FACTORY_BLOCKING_PLAN_QUESTION_ALWAYS") == "1"
+            or (
+                os.environ.get("PI_GRAPH_FACTORY_BLOCKING_PLAN_QUESTION") == "1"
+                and not context.get("autonomy_feedback")
+            )
+        ) else []),
     }
     marker_value = os.environ.get("PI_GRAPH_FACTORY_INVALID_PLAN_MARKER")
     if marker_value and not Path(marker_value).exists():

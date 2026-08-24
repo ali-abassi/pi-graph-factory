@@ -20,7 +20,7 @@ Graphify + VISION.md + FEATURE_MAP.md
       v
 planner <-> independent plan judge (8.5/10, three cycles maximum)
       |
-      +-> blocking question only when evidence cannot resolve a material choice
+      +-> uncertainty returns as assumption-revision feedback
       |
       v
 judge authorizes the exact typed-plan SHA-256
@@ -65,14 +65,14 @@ Read [VISION.md](VISION.md) for the intended product and
   defensible assumptions before producing a durable typed plan.
 - An independent rubric judge whose score is recomputed by the controller.
   Plans below 8.5/10 return to the planner for at most three quality cycles.
-- Blocking questions only when the request, repository, graph, vision, feature
-  map, and a safe reversible assumption still cannot resolve a material choice.
+- Autonomous assumption revision when a planner proposes a blocking question;
+  the judge still applies the same quality threshold to the revised plan.
 - Judge authorization of the exact canonical generated-plan SHA-256 after every
   critical rubric dimension clears the configured bar. Human approval remains
   an opt-in mode and is always required for externally supplied plan files.
 - A single `start` command that initializes, plans, authorizes, implements,
-  proves, reviews, repairs, and reaches the configured merge outcome. It pauses
-  only for genuinely blocking context or a terminal escalation.
+  proves, reviews, repairs, and reaches the configured merge outcome without a
+  human planning checkpoint. Terminal failures remain explicit and inspectable.
 - One to ten active implementers running concurrently in isolated branches and
   worktrees.
 - Configured specialist ownership: product, UI design, copywriting, prompt
@@ -180,9 +180,15 @@ For a broad new idea, choose intake before initialization:
 See [Intake modes](docs/INTAKE.md) for the exact commands and contracts. All
 three paths converge on the same planner and independent plan-quality gate.
 
-If the result contains a genuinely blocking question, supply only that missing
-context. For a judge-authorized generated plan, the final answer automatically
-replans and continues the workflow:
+The default path does not stop for planning questions. If a candidate plan
+contains one, the controller sends it back to the planner, which must select the
+safest evidence-backed reversible assumption, record it, and face the independent
+judge again. Context belongs in the request, `VISION.md`, `FEATURE_MAP.md`, or an
+interactive/auto intake brief before `start`; after that command, the process owns
+the plan-to-merge lifecycle.
+
+The `answer` command exists only for contracts that explicitly select human
+governance:
 
 ```bash
 .venv/bin/python scripts/factory.py answer \
@@ -321,7 +327,10 @@ the weighted total and accepts `pass` only at the configured threshold (8.5 by
 default). A failed judgment and its rubric-linked improvements return to the
 planner. Three unsuccessful quality cycles fail closed. By default, a passing
 judgment authorizes the exact generated-plan hash; `approval.mode: human`
-restores a separate operator approval step.
+restores a separate operator approval step. If the planner proposes a blocking
+question under judge authority, the controller treats it as revision feedback:
+the planner must choose and record the safest evidence-backed reversible
+assumption before the plan can pass.
 
 Version 1 plans make approved outcomes explicit. The implementation reviewer must return one
 pass/fail entry with concrete inspected evidence for every success criterion in
@@ -566,14 +575,14 @@ Keeping one lifecycle owner avoids two-engine drift.
 .venv/bin/python -m py_compile scripts/*.py tests/*.py
 ```
 
-The deterministic suite currently covers 94 cases, including:
+The deterministic suite currently covers 96 cases, including:
 
 - simple single-owner first-pass work;
 - a two-owner feature with directed design repair;
 - a three-owner application with two directed repairs;
-- one-command autonomous execution, judge-bound plan authorization, genuine
-  clarification with automatic continuation after the answer, optional human
-  approval, and generated planning;
+- one-command autonomous execution, judge-bound plan authorization, automatic
+  assumption revision without a human pause, optional human approval, and
+  generated planning;
 - Graphify deferral, first indexing, commit-aware reuse, and stale refresh;
 - DeepSeek semantic-enrichment dispatch, credential non-persistence, and explicit
   AST fallback when optional enrichment is unavailable;

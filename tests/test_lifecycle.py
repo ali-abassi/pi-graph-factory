@@ -263,25 +263,58 @@ class FactoryLifecycleTests(unittest.TestCase):
         self.assertEqual(completed["phase"], "merged")
         self.assertEqual(completed["planning"]["approval"]["authority"], "plan-review")
 
-    def test_start_stops_only_for_blocking_context_then_answer_continues(self) -> None:
+    def test_start_resolves_planner_questions_without_a_human_checkpoint(self) -> None:
         self.env["PI_GRAPH_FACTORY_BLOCKING_PLAN_QUESTION"] = "1"
-        waiting = self.command(
+        completed = self.command(
             "start",
             "--repo", str(self.repo),
             "--config", str(self.config),
             "--request", "Create and prove a reviewed text application.",
             "--id", "autonomous-question-run",
         )
-        self.assertEqual(waiting["phase"], "clarification")
-        self.assertTrue(waiting["needs_human"])
-        self.assertEqual(waiting["open_questions"][0]["id"], "human-context")
+        self.assertEqual(completed["phase"], "merged")
+        self.assertEqual(completed["planning"]["open_questions"], [])
+        state = json.loads(
+            (Path(completed["run"]) / "state.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(state["planning_cycles"], 2)
+        events = [
+            json.loads(line)
+            for line in (Path(completed["run"]) / "events.jsonl").read_text().splitlines()
+        ]
+        revisions = [event for event in events if event["event"] == "plan_revision_requested"]
+        self.assertEqual(revisions[0]["payload"]["blocking_questions"], ["human-context"])
+
+    def test_missing_legacy_approval_policy_defaults_to_autonomous(self) -> None:
+        config = yaml.safe_load(self.config.read_text(encoding="utf-8"))
+        config.pop("approval")
+        config_path = self.root / "legacy-factory.yaml"
+        config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
         completed = self.command(
-            "answer",
-            "--run", waiting["run"],
-            "--question", "human-context",
-            "--answer", "Use the safest reversible default.",
+            "start",
+            "--repo", str(self.repo),
+            "--config", str(config_path),
+            "--request", "Create and prove a reviewed text application.",
+            "--id", "legacy-autonomous-run",
         )
         self.assertEqual(completed["phase"], "merged")
+        self.assertEqual(completed["planning"]["approval"]["authority"], "plan-review")
+
+    def test_unresolved_planner_question_fails_closed_without_waiting_for_a_human(self) -> None:
+        self.env["PI_GRAPH_FACTORY_BLOCKING_PLAN_QUESTION_ALWAYS"] = "1"
+        failed = self.command(
+            "start",
+            "--repo", str(self.repo),
+            "--config", str(self.config),
+            "--request", "Create and prove a reviewed text application.",
+            "--id", "unresolved-autonomous-question-run",
+            expected=2,
+        )
+        self.assertIn("autonomous quality contract", failed["error"])
+        run = self.repo / ".factory" / "runs" / "unresolved-autonomous-question-run"
+        state = json.loads((run / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["phase"], "intake")
+        self.assertNotEqual(state["phase"], "clarification")
 
     def test_human_approval_mode_remains_available(self) -> None:
         config = yaml.safe_load(self.config.read_text(encoding="utf-8"))

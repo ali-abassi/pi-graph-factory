@@ -9,8 +9,10 @@ All notable changes to Pi Graph Factory are documented here.
 - Judge-authorized autonomous execution: generated plans that clear every
   independent quality gate bind their exact hash and proceed without operator
   approval. `start` drives request-to-review in one command, `advance` resumes a
-  staged run, and answering the last genuine planning question continues
-  automatically. Human approval remains configurable and mandatory for plan files.
+  staged run, and blocking planner questions are revised into explicit reversible
+  assumptions instead of pausing for a person. Legacy contracts without an
+  approval policy now inherit the autonomous default. Human approval remains an
+  explicit opt-in and is mandatory for plan files.
 - Dedicated `prompt` and `optimization` owners. Prompt work uses a production
   runtime/trust/schema/host/evaluation contract with six required case kinds.
   Optimization uses an AutoAgent-shaped but finite controller-owned loop:

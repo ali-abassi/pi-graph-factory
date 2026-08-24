@@ -13,15 +13,16 @@ repair limits, and external effects.
    durable, readiness-classified intake artifact.
 2. Autonomous intake resolves evidence-backed and safely reversible choices,
    labels its assumptions, records confidence and overturning evidence, and
-   escalates rather than inventing a low-confidence hard-to-reverse decision.
+   refuses unresolved low-confidence hard-to-reverse decisions before a factory
+   run starts rather than inventing authority.
 3. The controller prepares repository intelligence. Existing code is indexed or
    refreshed with Graphify; configured semantic extraction enriches repository
    docs and community labels while code retains deterministic AST structure. A
    code-free new project defers its first graph. `VISION.md`, `FEATURE_MAP.md`,
    and any committed domain context supply durable product direction.
 4. The planner queries that map, verifies relevant source, researches hidden
-   gaps, and resolves uncertainty with defensible assumptions before asking a
-   question.
+   gaps, and resolves uncertainty with defensible reversible assumptions. Under
+   default judge authority it cannot pause the run to ask a person.
 5. A separate model judges grounding, coverage, feasibility, minimality, and
    alignment. Anything below 8.5/10 returns with advice for at most three cycles.
 6. When every critical rubric dimension and the weighted score clear the bar,
@@ -71,8 +72,8 @@ repair limits, and external effects.
 - Project vision and the feature map are durable decision context, not hidden
   permission to expand an approved request.
 - A passing independent anchored judgment authorizes generated plans by default;
-  a human supplies context only for genuinely unresolved consequential choices
-  or explicitly selects human-governed approval.
+  a human supplies desired context at intake and is not a normal downstream
+  planning gate. Human-governed approval remains an explicit policy override.
 - Evidence is proportional to the change and bound to the reviewed commit.
 - Usage is always observed; subscription users are not blocked by arbitrary
   token or dollar ceilings unless they explicitly configure enforcement.

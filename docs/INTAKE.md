@@ -92,17 +92,18 @@ is the backward-compatible default:
 
 Direct mode deliberately avoids ceremony when the task is already resolved.
 
-With the default judge authority, `start` owns every downstream transition. If
-the planner returns a genuinely blocking question, `answer` records the missing
-context and automatically resumes planning and execution. Use `init` instead
-when inspecting stages manually, and `approval.mode: human` when governance
-requires a separate exact-hash approval.
+With the default judge authority, `start` owns every downstream transition.
+Planner uncertainty is returned to the planner as bounded revision feedback; the
+planner must choose and document the safest evidence-backed reversible assumption
+before the independent judge may authorize implementation. Use `init` when
+inspecting stages manually, and `approval.mode: human` only when governance
+deliberately requires a separate exact-hash approval.
 
 ## Durable handoff
 
 Every mode writes its canonical input under `.factory/runs/RUN_ID/intake/`,
 stores content hashes and readiness in `state.json`, and includes intake
 provenance in the planner context. `factory inspect` lists the preserved intake
-artifacts. The planner may still ask a blocking question, but only when the
-brief, request, repository, Graphify map, `VISION.md`, `FEATURE_MAP.md`, and a
-safe reversible assumption cannot resolve a material decision.
+artifacts. Under the default judge authority, the planner cannot create a human
+checkpoint. It must resolve uncertainty from the available context, record the
+assumption and its reversal condition, and submit the revised plan to the judge.

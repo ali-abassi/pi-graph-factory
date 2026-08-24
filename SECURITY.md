@@ -61,6 +61,12 @@ large human-rated corpus; use `approval.mode: human` for high-impact work that
 requires an operator checkpoint. Externally supplied plans always require
 exact human approval because they bypass the generated-plan judge.
 
+Under the default judge authority, a generated plan cannot pause on a blocking
+question. The controller returns it for bounded revision into an explicit,
+evidence-backed reversible assumption. Exhausting that bounded quality loop
+fails closed; it does not silently guess, weaken the score, or authorize effects
+that the request and configured delivery boundary did not grant.
+
 Configured timeouts terminate overdue adapter process groups; timeouts may be
 disabled. Optional token and cost ceilings stop later dispatches based on
 normalized receipts. They are disabled by default for subscription-backed
