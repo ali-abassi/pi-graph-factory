@@ -126,6 +126,104 @@ class FactoryLifecycleTests(unittest.TestCase):
         self.assertEqual(receipt["merge"]["status"], "merged")
         self.assertEqual(receipt["evidence_sha256"], state["final_evidence_sha256"])
 
+    def test_transient_provider_failure_retries_the_same_lane_and_preserves_receipt(self) -> None:
+        config = yaml.safe_load(self.config.read_text())
+        config["limits"]["max_agent_attempts"] = 2
+        config["limits"]["agent_retry_backoff_seconds"] = 0
+        retry_config = self.root / "retry-factory.yaml"
+        retry_config.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+        marker = self.root / "transient-attempts"
+        self.env.update({
+            "PI_GRAPH_FACTORY_TRANSIENT_ROLE": "implement:product",
+            "PI_GRAPH_FACTORY_TRANSIENT_MARKER": str(marker),
+            "PI_GRAPH_FACTORY_TRANSIENT_FAILURES": "1",
+        })
+        run = self.initialize(config=retry_config, run_id="transient-provider-run")
+        planned = self.command(
+            "plan", "--run", str(run), "--file",
+            str(self.write_plan(self.root / "transient-provider-plan.json", [])),
+        )
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        completed = self.command("run", "--run", str(run))
+
+        self.assertEqual(completed["phase"], "merged")
+        self.assertEqual(marker.read_text(), "1")
+        failures = list(
+            (run / "receipts").glob(
+                "agent-implement-product-*-provider-attempt-1.json"
+            )
+        )
+        self.assertEqual(len(failures), 1)
+        failure = json.loads(failures[0].read_text())
+        self.assertEqual(failure["status"], "transient_failure")
+        self.assertTrue(failure["retryable"])
+        lane = json.loads((run / "state.json").read_text())["lane_receipts"]["product"]
+        self.assertEqual(lane["receipt"]["provider_attempts"], 2)
+        self.assertEqual(lane["receipt"]["transient_failures"], 1)
+
+    def test_transient_provider_failure_stops_at_the_configured_attempt_bound(self) -> None:
+        config = yaml.safe_load(self.config.read_text())
+        config["limits"]["max_agent_attempts"] = 2
+        config["limits"]["agent_retry_backoff_seconds"] = 0
+        retry_config = self.root / "bounded-retry-factory.yaml"
+        retry_config.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+        marker = self.root / "bounded-transient-attempts"
+        self.env.update({
+            "PI_GRAPH_FACTORY_TRANSIENT_ROLE": "implement:product",
+            "PI_GRAPH_FACTORY_TRANSIENT_MARKER": str(marker),
+            "PI_GRAPH_FACTORY_TRANSIENT_FAILURES": "5",
+        })
+        run = self.initialize(config=retry_config, run_id="bounded-transient-run")
+        planned = self.command(
+            "plan", "--run", str(run), "--file",
+            str(self.write_plan(self.root / "bounded-transient-plan.json", [])),
+        )
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        failed = self.command("run", "--run", str(run), expected=2)
+
+        self.assertIn("529 Overloaded", failed["error"])
+        self.assertEqual(marker.read_text(), "2")
+        failures = list(
+            (run / "receipts").glob(
+                "agent-implement-product-*-provider-attempt-*.json"
+            )
+        )
+        self.assertEqual(len(failures), 2)
+        self.assertTrue(all(json.loads(path.read_text())["retryable"] for path in failures))
+
+    def test_permanent_provider_failure_is_not_retried(self) -> None:
+        config = yaml.safe_load(self.config.read_text())
+        config["limits"]["max_agent_attempts"] = 3
+        config["limits"]["agent_retry_backoff_seconds"] = 0
+        retry_config = self.root / "permanent-failure-factory.yaml"
+        retry_config.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+        marker = self.root / "permanent-attempts"
+        self.env.update({
+            "PI_GRAPH_FACTORY_FATAL_ROLE": "implement:product",
+            "PI_GRAPH_FACTORY_FATAL_MARKER": str(marker),
+        })
+        run = self.initialize(config=retry_config, run_id="permanent-provider-run")
+        planned = self.command(
+            "plan", "--run", str(run), "--file",
+            str(self.write_plan(self.root / "permanent-provider-plan.json", [])),
+        )
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        failed = self.command("run", "--run", str(run), expected=2)
+
+        self.assertIn("Authentication failed", failed["error"])
+        self.assertNotIn("fixture-secret", failed["error"])
+        self.assertIn("[REDACTED]", failed["error"])
+        self.assertEqual(marker.read_text(), "1")
+        failures = list(
+            (run / "receipts").glob(
+                "agent-implement-product-*-provider-attempt-1.json"
+            )
+        )
+        self.assertEqual(len(failures), 1)
+        failure = json.loads(failures[0].read_text())
+        self.assertFalse(failure["retryable"])
+        self.assertNotIn("fixture-secret", failure["error"])
+
     def test_capture_failure_is_reviewed_repaired_and_recaptured(self) -> None:
         config = yaml.safe_load(self.config.read_text())
         config["evidence"]["capture_commands"] = [

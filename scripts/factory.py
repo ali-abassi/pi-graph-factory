@@ -886,6 +886,8 @@ def load_config(path: Path) -> dict[str, Any]:
     value.setdefault("evidence", {}).setdefault("policy", "always")
     value.setdefault("limits", {}).setdefault("termination_grace_seconds", 5)
     value["limits"].setdefault("command_timeout_seconds", None)
+    value["limits"].setdefault("max_agent_attempts", 3)
+    value["limits"].setdefault("agent_retry_backoff_seconds", 5)
     errors = sorted(Draft202012Validator(FACTORY_SCHEMA).iter_errors(value),
                     key=lambda error: [str(x) for x in error.absolute_path])
     if errors:
@@ -1851,6 +1853,50 @@ def enforce_dispatch_limits(state: dict[str, Any], limits: dict[str, Any], role:
         )
 
 
+def safe_agent_error(raw: str) -> str:
+    """Bound and redact provider diagnostics before persistence or display."""
+
+    excerpt = raw[-2000:]
+    excerpt = re.sub(
+        r"(?i)\b(authorization|api[-_ ]?key)\s*[:=]\s*\S+",
+        r"\1=[REDACTED]",
+        excerpt,
+    )
+    return re.sub(r"\b(?:sk|sk-ant)-[A-Za-z0-9_-]{16,}\b", "[REDACTED]", excerpt)
+
+
+def is_transient_agent_failure(message: str) -> bool:
+    """Recognize retryable provider/transport failures, never protocol failures."""
+
+    lowered = message.lower()
+    permanent = (
+        "authentication",
+        "unauthorized",
+        "invalid api key",
+        "invalid_api_key",
+        "permission denied",
+        "credit balance",
+        "billing",
+    )
+    if any(marker in lowered for marker in permanent):
+        return False
+    if re.search(r"\b(?:408|429|500|502|503|504|529)\b", lowered):
+        return True
+    return any(marker in lowered for marker in (
+        "overloaded",
+        "temporarily unavailable",
+        "temporary server error",
+        "too many requests",
+        "rate limit",
+        "connection reset",
+        "connection aborted",
+        "connection refused",
+        "remote end closed connection",
+        "service unavailable",
+        "gateway timeout",
+    ))
+
+
 def invoke_agent(run: Path, state: dict[str, Any], agent: dict[str, Any], role: str,
                  cwd: Path, context: dict[str, Any], limits: dict[str, Any]) -> dict[str, Any]:
     context_path = run / "contexts" / f"{role.replace(':', '-')}.json"
@@ -1863,56 +1909,92 @@ def invoke_agent(run: Path, state: dict[str, Any], agent: dict[str, Any], role: 
         command.extend(["--skill", skill])
     if agent.get("tools"):
         command.extend(["--tools", ",".join(agent["tools"])])
-    process = subprocess.Popen(
-        command,
-        cwd=cwd,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        encoding="utf-8",
-        errors="replace",
-        env={**os.environ, "WORKFLOW_DIR": str(ROOT)},
-        start_new_session=True,
-    )
     timeout = (
         agent["timeout_seconds"]
         if "timeout_seconds" in agent
         else limits.get("agent_timeout_seconds")
     )
     active_path = run / "active" / f"{role.replace(':', '-')}.json"
-    atomic_json(
-        active_path,
-        {
-            "role": role,
-            "pid": process.pid,
-            "process_group": process.pid,
-            "started_at": now(),
-            "cwd": str(cwd),
-            "timeout_seconds": timeout,
-        },
-    )
-    try:
-        stdout, stderr = process.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired as error:
+    max_attempts = limits.get("max_agent_attempts", 3)
+    backoff_seconds = limits.get("agent_retry_backoff_seconds", 5)
+    invocation_started_at = now()
+    invocation_id = hashlib.sha256(
+        f"{role}\0{invocation_started_at}\0{digest_json(context)}".encode()
+    ).hexdigest()[:12]
+    safe_role = role.replace(":", "-")
+    transient_failures = 0
+    for attempt in range(1, max_attempts + 1):
+        process = subprocess.Popen(
+            command,
+            cwd=cwd,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            encoding="utf-8",
+            errors="replace",
+            env={**os.environ, "WORKFLOW_DIR": str(ROOT)},
+            start_new_session=True,
+        )
+        atomic_json(
+            active_path,
+            {
+                "role": role,
+                "pid": process.pid,
+                "process_group": process.pid,
+                "started_at": now(),
+                "cwd": str(cwd),
+                "timeout_seconds": timeout,
+                "provider_attempt": attempt,
+                "max_provider_attempts": max_attempts,
+            },
+        )
         try:
-            os.killpg(process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        try:
-            process.communicate(timeout=limits["termination_grace_seconds"])
-        except subprocess.TimeoutExpired:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired as error:
             try:
-                os.killpg(process.pid, signal.SIGKILL)
+                os.killpg(process.pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
-            process.communicate()
-        raise FactoryError(
-            f"{role} adapter exceeded {timeout}s timeout"
-        ) from error
-    finally:
-        active_path.unlink(missing_ok=True)
-    if process.returncode:
-        raise FactoryError(f"{role} adapter failed: {(stderr or stdout)[-2000:]}")
+            try:
+                process.communicate(timeout=limits["termination_grace_seconds"])
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.communicate()
+            raise FactoryError(
+                f"{role} adapter exceeded {timeout}s timeout"
+            ) from error
+        finally:
+            active_path.unlink(missing_ok=True)
+        if not process.returncode:
+            break
+        message = safe_agent_error(stderr or stdout)
+        retryable = is_transient_agent_failure(message)
+        atomic_json(
+            run / "receipts" / (
+                f"agent-{safe_role}-{invocation_id}-provider-attempt-{attempt}.json"
+            ),
+            {
+                "schema": "pi-graph-factory.provider-attempt.v1",
+                "status": "transient_failure" if retryable else "failed",
+                "role": role,
+                "harness": agent["harness"],
+                "model": agent["model"],
+                "attempt": attempt,
+                "max_attempts": max_attempts,
+                "retryable": retryable,
+                "error": message,
+                "observed_at": now(),
+            },
+        )
+        if not retryable or attempt == max_attempts:
+            raise FactoryError(f"{role} adapter failed: {message}")
+        transient_failures += 1
+        time.sleep(min(backoff_seconds * (2 ** (attempt - 1)), 300))
+    else:  # pragma: no cover - the bounded loop always breaks or raises
+        raise FactoryError(f"{role} adapter exhausted provider attempts")
     try:
         payload = json.loads(stdout)
     except ValueError as error:
@@ -1926,8 +2008,9 @@ def invoke_agent(run: Path, state: dict[str, Any], agent: dict[str, Any], role: 
     if limits["require_usage"] and (usage["total"] is None or usage["cost"] is None):
         raise FactoryError(f"{role} adapter did not report required token and cost usage")
     payload["observed_at"] = now()
+    payload["provider_attempts"] = attempt
+    payload["transient_failures"] = transient_failures
     payload["receipt_sha256"] = digest_json(payload)
-    safe_role = role.replace(":", "-")
     atomic_json(
         run / "receipts" / f"agent-{safe_role}-{payload['receipt_sha256'][:12]}.json",
         payload,

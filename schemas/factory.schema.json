@@ -84,6 +84,8 @@
         "agent_timeout_seconds": {"type": ["integer", "null"], "minimum": 1},
         "command_timeout_seconds": {"type": ["integer", "null"], "minimum": 1},
         "termination_grace_seconds": {"type": "integer", "minimum": 1, "maximum": 300},
+        "max_agent_attempts": {"type": "integer", "minimum": 1, "maximum": 5},
+        "agent_retry_backoff_seconds": {"type": "integer", "minimum": 0, "maximum": 300},
         "max_total_tokens": {"type": ["integer", "null"], "minimum": 1},
         "max_total_cost_usd": {"type": ["number", "null"], "exclusiveMinimum": 0},
         "require_usage": {"type": "boolean"}

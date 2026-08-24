@@ -112,6 +112,8 @@ limits:
   agent_timeout_seconds: 14400
   command_timeout_seconds: 3600
   termination_grace_seconds: 30
+  max_agent_attempts: 3
+  agent_retry_backoff_seconds: 5
   max_total_tokens: null
   max_total_cost_usd: null
   require_usage: false

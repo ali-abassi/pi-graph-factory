@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -21,6 +22,29 @@ args = parser.parse_args()
 context = json.loads(args.context.read_text())
 time.sleep(float(os.environ.get("PI_GRAPH_FACTORY_ADAPTER_SLEEP", "0")))
 receipt_status = "passed"
+
+transient_role = os.environ.get("PI_GRAPH_FACTORY_TRANSIENT_ROLE")
+transient_marker_value = os.environ.get("PI_GRAPH_FACTORY_TRANSIENT_MARKER")
+if transient_role == args.role and transient_marker_value:
+    transient_marker = Path(transient_marker_value)
+    failures = int(transient_marker.read_text()) if transient_marker.exists() else 0
+    failure_limit = int(os.environ.get("PI_GRAPH_FACTORY_TRANSIENT_FAILURES", "1"))
+    if failures < failure_limit:
+        transient_marker.write_text(str(failures + 1), encoding="utf-8")
+        print("API Error: 529 Overloaded. This is a temporary server-side issue.", file=sys.stderr)
+        raise SystemExit(1)
+
+fatal_role = os.environ.get("PI_GRAPH_FACTORY_FATAL_ROLE")
+fatal_marker_value = os.environ.get("PI_GRAPH_FACTORY_FATAL_MARKER")
+if fatal_role == args.role and fatal_marker_value:
+    fatal_marker = Path(fatal_marker_value)
+    attempts = int(fatal_marker.read_text()) if fatal_marker.exists() else 0
+    fatal_marker.write_text(str(attempts + 1), encoding="utf-8")
+    print(
+        "Authentication failed: 401 Unauthorized; API key=sk-ant-fixture-secret-1234567890.",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
 
 if args.role == "plan":
     required_docs = context.get("required_project_docs", [])

@@ -495,6 +495,15 @@ returned the wrong `addressed` ids gets one receipt-only correction with read
 tools and an exact staged-diff fingerprint. Any correction-time mutation or
 second invalid receipt fails closed.
 
+Provider transport failures are a separate boundary. HTTP 408, 429, 5xx/529
+overload responses and recognized temporary connection failures receive a
+bounded retry of the same agent invocation. `limits.max_agent_attempts` includes
+the first call; `limits.agent_retry_backoff_seconds` controls exponential
+backoff. Every failed provider attempt is preserved as a redacted receipt, and
+the successful agent receipt records its attempt count. Authentication, billing,
+permission, timeout, malformed-output, and semantic failures are not retried by
+this mechanism.
+
 ## Merge policy
 
 `merge.apply: false` is the safe default. A successful run ends at
@@ -575,7 +584,7 @@ Keeping one lifecycle owner avoids two-engine drift.
 .venv/bin/python -m py_compile scripts/*.py tests/*.py
 ```
 
-The deterministic suite currently covers 96 cases, including:
+The deterministic suite currently covers 99 cases, including:
 
 - simple single-owner first-pass work;
 - a two-owner feature with directed design repair;
@@ -592,6 +601,8 @@ The deterministic suite currently covers 96 cases, including:
 - wrong-plan approval, scope escape, overlapping ownership, forged receipts,
   stale evidence citations, and failed approved commands;
 - real concurrent lanes, second-writer exclusion, durable caught failures;
+- bounded transient-provider recovery, attempt exhaustion, and immediate refusal
+  of permanent authentication failures with redacted diagnostics;
 - interrupted-agent termination, committed-lane and committed-repair recovery,
   and recovery of a reviewed fast-forward applied before state persistence;
 - agent process-group timeout, token-limit refusal, safe new-repository
