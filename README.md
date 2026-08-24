@@ -557,7 +557,7 @@ Keeping one lifecycle owner avoids two-engine drift.
 .venv/bin/python -m py_compile scripts/*.py tests/*.py
 ```
 
-The deterministic suite currently covers 85 cases, including:
+The deterministic suite currently covers 90 cases, including:
 
 - simple single-owner first-pass work;
 - a two-owner feature with directed design repair;
@@ -567,7 +567,8 @@ The deterministic suite currently covers 85 cases, including:
 - DeepSeek semantic-enrichment dispatch, credential non-persistence, and explicit
   AST fallback when optional enrichment is unavailable;
 - missing project-memory assignment and a two-cycle under-8.5 plan revision;
-- refusal of a plan judge's forged weighted score;
+- refusal of a plan judge's forged weighted score or a weak critical dimension
+  hidden behind a passing average;
 - wrong-plan approval, scope escape, overlapping ownership, forged receipts,
   stale evidence citations, and failed approved commands;
 - real concurrent lanes, second-writer exclusion, durable caught failures;
@@ -592,6 +593,9 @@ The deterministic suite currently covers 85 cases, including:
 - prompt engineering and optimization as scoped specialists, including refusal
   of incomplete prompt contracts or missing, overlapping, over-budget,
   under-gain, self-scored, or unpromoted experiments;
+- stdout-only typed metric/prompt receipts with stderr preserved as diagnostics,
+  plus integrated-runtime prompt revalidation;
+- refusal of pre-merge delivery commands and placeholder visual proof;
 - exact review-issue target files bound to the routed owner's approved scope;
 - one read-only repair-receipt correction and refusal of correction-time writes;
 - fresh proof after repair, successful merge, target/config drift, and bounded

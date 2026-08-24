@@ -376,3 +376,36 @@
   not an OS sandbox or crash-resumable search engine. An agent may still read or
   invoke resources visible in its environment. Use external isolation for an
   adversarial agent, and `piw optimize` for durable Pi Graph workflow search.
+
+## Live finish-line promotion climb v17
+
+- **Objective:** measure whether the public controller can autonomously take an
+  easy bug, a medium UI feature, and a hard three-owner prompt-backed CLI from
+  request through approved planning, implementation, proof, independent review,
+  guarded merge, and configured delivery without human repair of target code.
+- **Frozen baseline:** 1/3. The easy bug merged. The medium run stopped because
+  configured Claude tools were not preapproved. The hard run stopped because
+  prompt receipts were bound to prose instead of the plan's stable runtime id.
+- **Observed hardening:** require every critical plan dimension to clear the
+  quality floor; pass configured Claude tools; normalize one unambiguous fenced
+  receipt; bind repair issue ids and prompt runtime ids; reject placeholder
+  media; forbid deploy/health/rollback commands in pre-merge acceptance; parse
+  typed receipts from stdout while preserving stderr diagnostics; and revalidate
+  prompt evaluations against the integrated runtime.
+- **Promotion result:** 3/3. The easy CLI fix merged in one review cycle and a
+  hidden unknown-id check confirmed nonzero exit, stderr-only failure, and
+  byte-identical input. The medium offline task-board UI merged in two cycles
+  after review rejected proof captured from the wrong server; fresh desktop,
+  mobile, WebM, and browser receipts plus seven target tests passed. The hard
+  three-owner incident-handoff CLI merged in one review cycle after 17 target
+  tests and all six prompt-contract cases passed, then deployed locally and
+  passed its health check with deployed bytes identical to the reviewed source.
+- **Controller regression result:** 90/90 repository tests pass. The three
+  promoted runs used 18 known controller calls, 406,765 accounted tokens, and
+  $0.08390356 of reported model cost; two Claude calls in the medium run do not
+  expose usage through the subscription harness.
+- **Assurance boundary:** this is a deliberately varied three-case live sample,
+  not proof for every repository, provider outage, hostile-code threat model,
+  or remote production platform. The hard delivery target was a local executable;
+  real deployments still require project-specific deploy, health, and rollback
+  commands plus appropriate external isolation.

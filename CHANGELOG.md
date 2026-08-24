@@ -62,6 +62,17 @@ All notable changes to Pi Graph Factory are documented here.
 
 ### Changed
 
+- Generated plans cannot hide a weak critical dimension behind a strong
+  weighted average, and deploy/health/rollback commands are rejected from
+  pre-merge acceptance so delivery is always tested against the reviewed
+  merge.
+- Claude Code lanes receive their configured tool allowlist. Typed prompt and
+  optimization receipts are parsed from stdout independently of diagnostic
+  stderr, then prompt receipts are revalidated on the integrated commit rather
+  than trusted from an isolated lane.
+- Reviewer repair receipts carry exact issue ids, prompt evaluations bind to a
+  stable runtime id, and proportional proof cannot be satisfied by placeholder
+  screenshot or video files.
 - Questions are now reserved for material choices that repository evidence,
   project memory, and a safe reversible assumption cannot resolve.
 - The compiled policy graph now begins with repository intelligence and includes
