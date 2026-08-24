@@ -108,6 +108,26 @@ class FactoryCompilerTests(unittest.TestCase):
             evidence_policy="plan",
         )
 
+    def test_plan_cannot_use_controller_owned_delivery_as_acceptance(self) -> None:
+        plan = {
+            "summary": "Build and locally deploy one command.",
+            "tasks": [{
+                "id": "build",
+                "owner": "product",
+                "files": ["tool.py"],
+                "acceptance": ["python3 -m unittest discover -s tests -v"],
+            }],
+            "acceptance": ["python3 /tmp/deployed-tool --help"],
+            "risks": [],
+            "open_questions": [],
+        }
+        with self.assertRaisesRegex(FactoryError, "controller-owned delivery"):
+            validate_plan(
+                plan,
+                {"product"},
+                delivery_commands={"python3 /tmp/deployed-tool --help"},
+            )
+
     def test_prompt_owner_requires_an_executable_runtime_contract(self) -> None:
         implementers = {item["id"] for item in self.factory["implementers"]}
         command = "python3 -m unittest tests.test_prompt_contract -v"

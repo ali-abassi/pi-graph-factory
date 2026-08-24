@@ -14,6 +14,12 @@ placeholder, synthetic, empty, or `not_applicable` media for non-visual work.
 When `proof.mode: visual`, the capture command and every declared artifact are
 active and must have an executable post-integration path.
 
+Treat the supplied delivery contract as a distinct post-merge lifecycle stage.
+Deploy, health, and rollback commands are controller-owned and must never
+appear in task or top-level acceptance. Reject a plan that could pass before
+merge by inspecting an older deployment. Judge delivery feasibility from the
+configured contract; require repository-local pre-merge proof from the plan.
+
 Score these dimensions on exactly `7`, `7.5`, `8`, `8.5`, `9`, `9.5`, or `10`.
 Use `null` only when a critical dimension is below bar. A critical failure makes
 the overall score `null` and the verdict `revise`.

@@ -86,6 +86,12 @@ synthetic, empty, or `not_applicable` screenshots, videos, or receipts to
 satisfy an inactive visual contract. A clear proportional-proof reason is the
 reconciliation.
 
+The configured delivery contract is a later controller-owned lifecycle stage.
+Never put its deploy, health, or rollback commands in task or top-level
+acceptance: those commands run only after evidence-backed review and guarded
+merge. Pre-merge acceptance must prove the repository candidate itself and
+must not pass by observing an older external deployment.
+
 Every value in a task `acceptance` array or the top-level `acceptance` array
 must be a directly executable, single-line Bash command. Never wrap commands in
 backticks and never put prose such as “Run”, “Verify”, “Create”, or “Ensure” in

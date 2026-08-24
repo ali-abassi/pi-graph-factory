@@ -1186,6 +1186,7 @@ def validate_plan(
     *,
     require_versioned: bool = False,
     evidence_capture_commands: set[str] | None = None,
+    delivery_commands: set[str] | None = None,
     evidence_policy: str = "always",
     required_project_docs: set[str] | None = None,
 ) -> None:
@@ -1336,6 +1337,22 @@ def validate_plan(
             "plan acceptance must not repeat configured evidence capture commands: "
             + ", ".join(repr(command) for command in capture_overlap)
         )
+    delivery_overlap = sorted(
+        (
+            set(plan["acceptance"])
+            | {
+                command
+                for task in plan["tasks"]
+                for command in task["acceptance"]
+            }
+        )
+        & (delivery_commands or set())
+    )
+    if delivery_overlap:
+        raise FactoryError(
+            "plan acceptance must not repeat controller-owned delivery commands: "
+            + ", ".join(repr(command) for command in delivery_overlap)
+        )
     questions = plan["open_questions"]
     if not isinstance(questions, list):
         raise FactoryError("open_questions must be an array")
@@ -1436,6 +1453,7 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
                 for item in config["implementers"]
             ],
             "evidence": config["evidence"],
+            "delivery": config["delivery"],
             "repository_intelligence": intelligence,
             "project_memory": memory,
             "required_project_docs": memory["missing"],
@@ -1478,6 +1496,15 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
                             evidence_capture_commands=set(
                                 config["evidence"].get("capture_commands", [])
                             ),
+                            delivery_commands={
+                                command
+                                for field in (
+                                    "deploy_commands",
+                                    "health_commands",
+                                    "rollback_commands",
+                                )
+                                for command in config["delivery"][field]
+                            },
                             evidence_policy=config["evidence"]["policy"],
                             required_project_docs=set(memory["missing"]),
                         )
@@ -1509,6 +1536,7 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
                 "repository_intelligence": intelligence,
                 "project_memory": memory,
                 "evidence_contract": config["evidence"],
+                "delivery_contract": config["delivery"],
                 "minimum_score": config["plan_review"]["min_score"],
                 "rubric_version": PLAN_RUBRIC_VERSION,
             }
@@ -1592,6 +1620,11 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
             plan,
             {item["id"] for item in config["implementers"]},
             evidence_capture_commands=set(config["evidence"].get("capture_commands", [])),
+            delivery_commands={
+                command
+                for field in ("deploy_commands", "health_commands", "rollback_commands")
+                for command in config["delivery"][field]
+            },
             evidence_policy=config["evidence"]["policy"],
         )
     unanswered = [item for item in plan["open_questions"]
