@@ -191,6 +191,58 @@ class FactoryLifecycleTests(unittest.TestCase):
         self.assertEqual(len(failures), 2)
         self.assertTrue(all(json.loads(path.read_text())["retryable"] for path in failures))
 
+    def test_exhausted_transient_provider_uses_the_explicit_fallback(self) -> None:
+        config = yaml.safe_load(self.config.read_text())
+        product = config["implementers"][0]
+        product["harness"] = "claude-code"
+        product["model"] = "claude-sonnet-4-6"
+        product["fallbacks"] = [{
+            "harness": "pi",
+            "model": "openai-codex/gpt-5.6-luna",
+            "thinking": "xhigh",
+        }]
+        config["limits"]["max_agent_attempts"] = 2
+        config["limits"]["agent_retry_backoff_seconds"] = 0
+        fallback_config = self.root / "fallback-factory.yaml"
+        fallback_config.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+        marker = self.root / "fallback-primary-attempts"
+        self.env.update({
+            "PI_GRAPH_FACTORY_TRANSIENT_ROLE": "implement:product",
+            "PI_GRAPH_FACTORY_TRANSIENT_HARNESS": "claude-code",
+            "PI_GRAPH_FACTORY_TRANSIENT_MARKER": str(marker),
+            "PI_GRAPH_FACTORY_TRANSIENT_FAILURES": "5",
+        })
+        run = self.initialize(config=fallback_config, run_id="provider-fallback-run")
+        planned = self.command(
+            "plan", "--run", str(run), "--file",
+            str(self.write_plan(self.root / "provider-fallback-plan.json", [])),
+        )
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        completed = self.command("run", "--run", str(run))
+
+        self.assertEqual(completed["phase"], "merged")
+        self.assertEqual(marker.read_text(), "2")
+        lane = json.loads((run / "state.json").read_text())["lane_receipts"]["product"]
+        receipt = lane["receipt"]
+        self.assertEqual(receipt["harness"], "pi")
+        self.assertEqual(receipt["model"], "openai-codex/gpt-5.6-luna")
+        self.assertTrue(receipt["fallback_used"])
+        self.assertEqual(receipt["fallback_index"], 1)
+        self.assertEqual(receipt["provider_attempts"], 3)
+        self.assertEqual(receipt["selected_provider_attempt"], 1)
+        self.assertEqual(receipt["transient_failures"], 2)
+        failures = sorted(
+            (run / "receipts").glob(
+                "agent-implement-product-*-provider-attempt-*.json"
+            )
+        )
+        self.assertEqual(len(failures), 2)
+        first, second = [json.loads(path.read_text()) for path in failures]
+        self.assertTrue(first["will_retry"])
+        self.assertFalse(first["will_fallback"])
+        self.assertFalse(second["will_retry"])
+        self.assertTrue(second["will_fallback"])
+
     def test_permanent_provider_failure_is_not_retried(self) -> None:
         config = yaml.safe_load(self.config.read_text())
         config["limits"]["max_agent_attempts"] = 3

@@ -1901,19 +1901,6 @@ def invoke_agent(run: Path, state: dict[str, Any], agent: dict[str, Any], role: 
                  cwd: Path, context: dict[str, Any], limits: dict[str, Any]) -> dict[str, Any]:
     context_path = run / "contexts" / f"{role.replace(':', '-')}.json"
     atomic_json(context_path, context)
-    command = [*adapter_command(), "--role", role, "--harness", agent["harness"],
-               "--model", agent["model"], "--thinking", agent.get("thinking", "medium"),
-               "--instructions", agent["instructions"],
-               "--context", str(context_path)]
-    for skill in agent.get("skills", []):
-        command.extend(["--skill", skill])
-    if agent.get("tools"):
-        command.extend(["--tools", ",".join(agent["tools"])])
-    timeout = (
-        agent["timeout_seconds"]
-        if "timeout_seconds" in agent
-        else limits.get("agent_timeout_seconds")
-    )
     active_path = run / "active" / f"{role.replace(':', '-')}.json"
     max_attempts = limits.get("max_agent_attempts", 3)
     backoff_seconds = limits.get("agent_retry_backoff_seconds", 5)
@@ -1923,77 +1910,124 @@ def invoke_agent(run: Path, state: dict[str, Any], agent: dict[str, Any], role: 
     ).hexdigest()[:12]
     safe_role = role.replace(":", "-")
     transient_failures = 0
-    for attempt in range(1, max_attempts + 1):
-        process = subprocess.Popen(
-            command,
-            cwd=cwd,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            encoding="utf-8",
-            errors="replace",
-            env={**os.environ, "WORKFLOW_DIR": str(ROOT)},
-            start_new_session=True,
+    total_attempt = 0
+    selected_agent: dict[str, Any] | None = None
+    selected_provider_index = 0
+    selected_provider_attempt = 0
+    variants = [
+        agent,
+        *({**agent, **fallback, "fallbacks": []} for fallback in agent.get("fallbacks", [])),
+    ]
+    for provider_index, configured_agent in enumerate(variants):
+        command = [
+            *adapter_command(),
+            "--role", role,
+            "--harness", configured_agent["harness"],
+            "--model", configured_agent["model"],
+            "--thinking", configured_agent.get("thinking", "medium"),
+            "--instructions", configured_agent["instructions"],
+            "--context", str(context_path),
+        ]
+        for skill in configured_agent.get("skills", []):
+            command.extend(["--skill", skill])
+        if configured_agent.get("tools"):
+            command.extend(["--tools", ",".join(configured_agent["tools"])])
+        timeout = (
+            configured_agent["timeout_seconds"]
+            if "timeout_seconds" in configured_agent
+            else limits.get("agent_timeout_seconds")
         )
-        atomic_json(
-            active_path,
-            {
-                "role": role,
-                "pid": process.pid,
-                "process_group": process.pid,
-                "started_at": now(),
-                "cwd": str(cwd),
-                "timeout_seconds": timeout,
-                "provider_attempt": attempt,
-                "max_provider_attempts": max_attempts,
-            },
-        )
-        try:
-            stdout, stderr = process.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired as error:
+        for provider_attempt in range(1, max_attempts + 1):
+            total_attempt += 1
+            process = subprocess.Popen(
+                command,
+                cwd=cwd,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                encoding="utf-8",
+                errors="replace",
+                env={**os.environ, "WORKFLOW_DIR": str(ROOT)},
+                start_new_session=True,
+            )
+            atomic_json(
+                active_path,
+                {
+                    "role": role,
+                    "pid": process.pid,
+                    "process_group": process.pid,
+                    "started_at": now(),
+                    "cwd": str(cwd),
+                    "timeout_seconds": timeout,
+                    "provider_index": provider_index,
+                    "provider_attempt": provider_attempt,
+                    "total_attempt": total_attempt,
+                    "max_provider_attempts": max_attempts,
+                    "harness": configured_agent["harness"],
+                    "model": configured_agent["model"],
+                },
+            )
             try:
-                os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            try:
-                process.communicate(timeout=limits["termination_grace_seconds"])
-            except subprocess.TimeoutExpired:
+                stdout, stderr = process.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired as error:
                 try:
-                    os.killpg(process.pid, signal.SIGKILL)
+                    os.killpg(process.pid, signal.SIGTERM)
                 except ProcessLookupError:
                     pass
-                process.communicate()
-            raise FactoryError(
-                f"{role} adapter exceeded {timeout}s timeout"
-            ) from error
-        finally:
-            active_path.unlink(missing_ok=True)
-        if not process.returncode:
+                try:
+                    process.communicate(timeout=limits["termination_grace_seconds"])
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.communicate()
+                raise FactoryError(
+                    f"{role} adapter exceeded {timeout}s timeout"
+                ) from error
+            finally:
+                active_path.unlink(missing_ok=True)
+            if not process.returncode:
+                selected_agent = configured_agent
+                selected_provider_index = provider_index
+                selected_provider_attempt = provider_attempt
+                break
+            message = safe_agent_error(stderr or stdout)
+            retryable = is_transient_agent_failure(message)
+            provider_exhausted = provider_attempt == max_attempts
+            has_fallback = provider_index + 1 < len(variants)
+            transient_failures += int(retryable)
+            atomic_json(
+                run / "receipts" / (
+                    f"agent-{safe_role}-{invocation_id}-provider-attempt-{total_attempt}.json"
+                ),
+                {
+                    "schema": "pi-graph-factory.provider-attempt.v1",
+                    "status": "transient_failure" if retryable else "failed",
+                    "role": role,
+                    "harness": configured_agent["harness"],
+                    "model": configured_agent["model"],
+                    "attempt": total_attempt,
+                    "provider_index": provider_index,
+                    "provider_attempt": provider_attempt,
+                    "max_attempts": max_attempts,
+                    "retryable": retryable,
+                    "will_retry": retryable and not provider_exhausted,
+                    "will_fallback": retryable and provider_exhausted and has_fallback,
+                    "error": message,
+                    "observed_at": now(),
+                },
+            )
+            if not retryable:
+                raise FactoryError(f"{role} adapter failed: {message}")
+            if provider_exhausted:
+                if has_fallback:
+                    break
+                raise FactoryError(f"{role} adapter failed: {message}")
+            time.sleep(min(backoff_seconds * (2 ** (provider_attempt - 1)), 300))
+        if selected_agent is not None:
             break
-        message = safe_agent_error(stderr or stdout)
-        retryable = is_transient_agent_failure(message)
-        atomic_json(
-            run / "receipts" / (
-                f"agent-{safe_role}-{invocation_id}-provider-attempt-{attempt}.json"
-            ),
-            {
-                "schema": "pi-graph-factory.provider-attempt.v1",
-                "status": "transient_failure" if retryable else "failed",
-                "role": role,
-                "harness": agent["harness"],
-                "model": agent["model"],
-                "attempt": attempt,
-                "max_attempts": max_attempts,
-                "retryable": retryable,
-                "error": message,
-                "observed_at": now(),
-            },
-        )
-        if not retryable or attempt == max_attempts:
-            raise FactoryError(f"{role} adapter failed: {message}")
-        transient_failures += 1
-        time.sleep(min(backoff_seconds * (2 ** (attempt - 1)), 300))
-    else:  # pragma: no cover - the bounded loop always breaks or raises
+    if selected_agent is None:  # pragma: no cover - every exhausted path raises
         raise FactoryError(f"{role} adapter exhausted provider attempts")
     try:
         payload = json.loads(stdout)
@@ -2002,14 +2036,22 @@ def invoke_agent(run: Path, state: dict[str, Any], agent: dict[str, Any], role: 
     required = {"status", "harness", "model", "role", "output", "usage"}
     if not required <= set(payload):
         raise FactoryError(f"{role} adapter receipt missing {sorted(required - set(payload))}")
-    if payload["harness"] != agent["harness"] or payload["model"] != agent["model"]:
+    if (
+        payload["harness"] != selected_agent["harness"]
+        or payload["model"] != selected_agent["model"]
+    ):
         raise FactoryError(f"{role} adapter identity drift")
     usage = validated_usage(payload)
     if limits["require_usage"] and (usage["total"] is None or usage["cost"] is None):
         raise FactoryError(f"{role} adapter did not report required token and cost usage")
     payload["observed_at"] = now()
-    payload["provider_attempts"] = attempt
+    payload["provider_attempts"] = total_attempt
+    payload["selected_provider_attempt"] = selected_provider_attempt
     payload["transient_failures"] = transient_failures
+    payload["fallback_used"] = selected_provider_index > 0
+    payload["fallback_index"] = selected_provider_index
+    payload["requested_harness"] = agent["harness"]
+    payload["requested_model"] = agent["model"]
     payload["receipt_sha256"] = digest_json(payload)
     atomic_json(
         run / "receipts" / f"agent-{safe_role}-{payload['receipt_sha256'][:12]}.json",

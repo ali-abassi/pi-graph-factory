@@ -53,6 +53,10 @@ implementers:
     harness: claude-code
     model: claude-sonnet-4-6
     thinking: medium
+    fallbacks:
+      - harness: pi
+        model: openai-codex/gpt-5.6-luna
+        thinking: xhigh
     instructions: agents/designer.md
     skills: [skills/design, skills/tdd, skills/diagnosing-bugs, skills/evil-genius-copywriter, skills/browser-proof, skills/ponytail, skills/clear-prose]
     tools: [read, edit, write, bash]

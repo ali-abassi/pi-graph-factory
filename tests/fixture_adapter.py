@@ -25,7 +25,12 @@ receipt_status = "passed"
 
 transient_role = os.environ.get("PI_GRAPH_FACTORY_TRANSIENT_ROLE")
 transient_marker_value = os.environ.get("PI_GRAPH_FACTORY_TRANSIENT_MARKER")
-if transient_role == args.role and transient_marker_value:
+transient_harness = os.environ.get("PI_GRAPH_FACTORY_TRANSIENT_HARNESS")
+if (
+    transient_role == args.role
+    and transient_marker_value
+    and (not transient_harness or transient_harness == args.harness)
+):
     transient_marker = Path(transient_marker_value)
     failures = int(transient_marker.read_text()) if transient_marker.exists() else 0
     failure_limit = int(os.environ.get("PI_GRAPH_FACTORY_TRANSIENT_FAILURES", "1"))

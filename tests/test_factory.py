@@ -639,6 +639,12 @@ class FactoryCompilerTests(unittest.TestCase):
         too_long = yaml.safe_load((ROOT / "factory.yaml").read_text())
         too_long["review"]["max_cycles"] = 6
         self.assertTrue(list(Draft202012Validator(SCHEMA).iter_errors(too_long)))
+        too_many_fallbacks = yaml.safe_load((ROOT / "factory.yaml").read_text())
+        design = next(
+            item for item in too_many_fallbacks["implementers"] if item["id"] == "design"
+        )
+        design["fallbacks"] *= 3
+        self.assertTrue(list(Draft202012Validator(SCHEMA).iter_errors(too_many_fallbacks)))
 
     def test_role_timeout_can_be_disabled_and_subscription_limits_are_optional(self) -> None:
         value = yaml.safe_load((ROOT / "factory.yaml").read_text())

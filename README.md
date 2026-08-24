@@ -420,12 +420,18 @@ implementers:
     timeout_seconds: 14400
   - id: design
     timeout_seconds: 14400
+    fallbacks:
+      - harness: pi
+        model: openai-codex/gpt-5.6-luna
+        thinking: xhigh
   - id: copy
     timeout_seconds: 14400
 limits:
   agent_timeout_seconds: 14400
   command_timeout_seconds: 3600
   termination_grace_seconds: 30
+  max_agent_attempts: 3
+  agent_retry_backoff_seconds: 5
   max_total_tokens: null
   max_total_cost_usd: null
   require_usage: false
@@ -502,7 +508,13 @@ the first call; `limits.agent_retry_backoff_seconds` controls exponential
 backoff. Every failed provider attempt is preserved as a redacted receipt, and
 the successful agent receipt records its attempt count. Authentication, billing,
 permission, timeout, malformed-output, and semantic failures are not retried by
-this mechanism.
+this mechanism. If every transient attempt on the preferred provider fails, the
+controller may advance through at most two explicitly configured `fallbacks`.
+Fallbacks inherit the same instructions, skills, tools, timeout, context,
+worktree, scope checks, and acceptance contract; they may override only harness,
+model, thinking, and timeout. The final receipt names both the requested and
+selected providers. No fallback occurs for a permanent, protocol, or semantic
+failure.
 
 ## Merge policy
 
@@ -584,7 +596,7 @@ Keeping one lifecycle owner avoids two-engine drift.
 .venv/bin/python -m py_compile scripts/*.py tests/*.py
 ```
 
-The deterministic suite currently covers 99 cases, including:
+The deterministic suite currently covers 100 cases, including:
 
 - simple single-owner first-pass work;
 - a two-owner feature with directed design repair;
@@ -603,6 +615,7 @@ The deterministic suite currently covers 99 cases, including:
 - real concurrent lanes, second-writer exclusion, durable caught failures;
 - bounded transient-provider recovery, attempt exhaustion, and immediate refusal
   of permanent authentication failures with redacted diagnostics;
+- explicit preferred-provider exhaustion followed by a scope-identical fallback;
 - interrupted-agent termination, committed-lane and committed-repair recovery,
   and recovery of a reviewed fast-forward applied before state persistence;
 - agent process-group timeout, token-limit refusal, safe new-repository

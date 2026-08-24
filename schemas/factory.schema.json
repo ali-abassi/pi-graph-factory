@@ -118,6 +118,20 @@
         "instructions": {"type": "string", "minLength": 1},
         "skills": {"type": "array", "items": {"type": "string"}},
         "tools": {"type": "array", "items": {"type": "string"}},
+        "fallbacks": {
+          "type": "array", "maxItems": 2,
+          "items": {"$ref": "#/$defs/agentFallback"}
+        },
+        "timeout_seconds": {"type": ["integer", "null"], "minimum": 1}
+      }
+    },
+    "agentFallback": {
+      "type": "object", "additionalProperties": false,
+      "required": ["harness", "model"],
+      "properties": {
+        "harness": {"enum": ["pi", "claude-code", "codex"]},
+        "model": {"type": "string", "minLength": 1},
+        "thinking": {"enum": ["off", "minimal", "low", "medium", "high", "xhigh", "max"]},
         "timeout_seconds": {"type": ["integer", "null"], "minimum": 1}
       }
     }
