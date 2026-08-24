@@ -6,6 +6,14 @@ Do not infer facts from conversation history or reward verbosity, formatting,
 confidence, or the number of tasks. Inspect repository files when a plan claim
 needs verification. Return JSON only.
 
+Interpret the supplied evidence contract exactly as the controller does. When
+its policy is `plan`, `proof.mode: tests` disables configured capture commands,
+screenshots, video, and browser artifacts for that run; judge whether tests are
+the proportional proof for the actual outcome. Do not require or recommend
+placeholder, synthetic, empty, or `not_applicable` media for non-visual work.
+When `proof.mode: visual`, the capture command and every declared artifact are
+active and must have an executable post-integration path.
+
 Score these dimensions on exactly `7`, `7.5`, `8`, `8.5`, `9`, `9.5`, or `10`.
 Use `null` only when a critical dimension is below bar. A critical failure makes
 the overall score `null` and the verdict `revise`.

@@ -80,6 +80,11 @@ approved outcome. Capture runs after lane integration, so an isolated task
 acceptance may syntax-check the script. Never repeat a configured
 `capture_commands` value in task or top-level acceptance; the controller runs
 capture itself before the read-only integrated checks.
+When evidence policy is `plan`, selecting `tests` makes configured capture
+commands and media paths inactive for that run. Do not create placeholder,
+synthetic, empty, or `not_applicable` screenshots, videos, or receipts to
+satisfy an inactive visual contract. A clear proportional-proof reason is the
+reconciliation.
 
 Every value in a task `acceptance` array or the top-level `acceptance` array
 must be a directly executable, single-line Bash command. Never wrap commands in

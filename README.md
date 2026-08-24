@@ -359,6 +359,11 @@ Supported harness identifiers are:
 - `claude-code`
 - `codex`
 
+With evidence policy `plan`, a tests-only plan does not run configured capture
+commands or require configured screenshot, video, or browser-artifact paths.
+Never create placeholder media for non-visual work. Visual plans activate the
+configured capture command and declared artifacts after integration.
+
 Only owners present in the approved plan launch. All active initial lanes run
 concurrently; integration and state transitions remain serialized. Review
 repairs run only for owners named in typed findings.
