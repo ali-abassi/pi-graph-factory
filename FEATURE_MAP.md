@@ -32,7 +32,11 @@ for any individual run.
   every declared case passed.
 - Independently judge generated plans with the `plan-quality-v1` rubric, revise below
   8.5/10, and stop after three unsuccessful quality cycles.
-- Require explicit SHA-256 approval of the exact final plan.
+- Authorize the exact generated-plan SHA-256 automatically when the independent
+  judge clears the bar; preserve optional human-governed approval and require it
+  for externally supplied plans.
+- Start and advance the autonomous lifecycle with one controller command; pause
+  only for genuinely blocking context or a terminal escalation.
 
 ## Implementation and integration
 

@@ -1,7 +1,7 @@
 # Pi Graph Factory
 
-**Turn an approved software request into isolated implementation, fresh proof,
-independent review, and a merge-authorizing receipt.**
+**Turn a software request into an independently planned, implemented, proven,
+and reviewed change without making a person operate the workflow.**
 
 Pi Graph Factory is a local, deterministic control plane for agentic software
 work. Agents plan, design, code, and review. Controller code owns order,
@@ -23,7 +23,7 @@ planner <-> independent plan judge (8.5/10, three cycles maximum)
       +-> blocking question only when evidence cannot resolve a material choice
       |
       v
-exact typed-plan SHA-256 approval
+judge authorizes the exact typed-plan SHA-256
       |
       v
        1-10 specialist implementers in isolated Git worktrees
@@ -67,7 +67,12 @@ Read [VISION.md](VISION.md) for the intended product and
   Plans below 8.5/10 return to the planner for at most three quality cycles.
 - Blocking questions only when the request, repository, graph, vision, feature
   map, and a safe reversible assumption still cannot resolve a material choice.
-- Approval of the exact canonical plan SHA-256, never a conversational “yes.”
+- Judge authorization of the exact canonical generated-plan SHA-256 after every
+  critical rubric dimension clears the configured bar. Human approval remains
+  an opt-in mode and is always required for externally supplied plan files.
+- A single `start` command that initializes, plans, authorizes, implements,
+  proves, reviews, repairs, and reaches the configured merge outcome. It pauses
+  only for genuinely blocking context or a terminal escalation.
 - One to ten active implementers running concurrently in isolated branches and
   worktrees.
 - Configured specialist ownership: product, UI design, copywriting, prompt
@@ -146,21 +151,21 @@ it is separate from Codex or Claude Code subscriptions. If it is not configured,
 the public default records the failure and falls back to the deterministic AST
 map. Set `intelligence.enrichment.required: true` to fail closed instead.
 
-Write a request, initialize a durable run, and ask the configured planner for
-the smallest evidence-backed typed plan:
+Write a request and start the factory. With the default `approval.mode: judge`,
+the controller takes over after intake:
 
 ```bash
 printf '%s\n' 'Add CSV export and prove it with tests.' > request.md
 
-.venv/bin/python scripts/factory.py init \
+.venv/bin/python scripts/factory.py start \
   --repo /path/to/project \
   --config factory.yaml \
   --request-file request.md
-
-.venv/bin/python scripts/factory.py plan \
-  --run /path/to/project/.factory/runs/RUN_ID \
-  --generate
 ```
+
+Automatic merge remains separately configurable. The public default reaches a
+merge-authorizing `merge_ready` receipt; set `merge.apply: true` in the run
+contract when a passing review should fast-forward the target branch.
 
 For a broad new idea, choose intake before initialization:
 
@@ -175,30 +180,28 @@ For a broad new idea, choose intake before initialization:
 See [Intake modes](docs/INTAKE.md) for the exact commands and contracts. All
 three paths converge on the same planner and independent plan-quality gate.
 
-If the result contains blocking questions, answer them and generate a revised
-plan:
+If the result contains a genuinely blocking question, supply only that missing
+context. For a judge-authorized generated plan, the final answer automatically
+replans and continues the workflow:
 
 ```bash
 .venv/bin/python scripts/factory.py answer \
   --run /path/to/project/.factory/runs/RUN_ID \
   --question QUESTION_ID \
   --answer 'The requested behavior'
-
-.venv/bin/python scripts/factory.py plan \
-  --run /path/to/project/.factory/runs/RUN_ID \
-  --generate
 ```
 
-Inspect the emitted `plans/plan-N.json` and the final `judgment` object. Approval
-is deliberately separate and happens only after the generated plan cleared the
-configured quality threshold:
+For step-by-step inspection, initialize first and use `advance`. It performs
+whatever autonomous transition is currently valid: generated planning from
+`intake`, or execution from an authorized plan:
 
 ```bash
-.venv/bin/python scripts/factory.py approve \
-  --run /path/to/project/.factory/runs/RUN_ID \
-  --sha256 PLAN_SHA256
+.venv/bin/python scripts/factory.py init \
+  --repo /path/to/project \
+  --config factory.yaml \
+  --request-file request.md
 
-.venv/bin/python scripts/factory.py run \
+.venv/bin/python scripts/factory.py advance \
   --run /path/to/project/.factory/runs/RUN_ID
 
 .venv/bin/python scripts/factory.py inspect \
@@ -224,8 +227,10 @@ error, and paths to every plan, context, receipt, event, and evidence record.
 
 Use `plan --file plan.json` only when another trusted system already produced
 and reviewed the plan; this path intentionally bypasses generated-plan research
-and the LLM plan judge while preserving implementation, proof, review, and merge
-gates. Use `init --new-repo` when the target path does not exist.
+and the LLM plan judge, so it always requires exact human SHA-256 approval with
+`approve` before `run`. Set `approval.mode: human` when generated plans should
+also stop for that ceremony. Use `start --new-repo` when the target path does
+not exist.
 
 Every command emits one JSON object. The run directory contains frozen config,
 preserved intake, plan revisions, normalized agent receipts, contexts, isolated worktrees,
@@ -314,8 +319,9 @@ and alignment using anchored half-point ratings. Grounding and feasibility are
 critical: either may fail below the numeric scale. The controller recomputes
 the weighted total and accepts `pass` only at the configured threshold (8.5 by
 default). A failed judgment and its rubric-linked improvements return to the
-planner. Three unsuccessful quality cycles fail closed; exact human approval is
-still required after a pass.
+planner. Three unsuccessful quality cycles fail closed. By default, a passing
+judgment authorizes the exact generated-plan hash; `approval.mode: human`
+restores a separate operator approval step.
 
 Version 1 plans make approved outcomes explicit. The implementation reviewer must return one
 pass/fail entry with concrete inspected evidence for every success criterion in
@@ -325,8 +331,9 @@ routed owner's approved scope, preventing a valid-looking issue from dispatching
 the wrong lane. Unversioned plan files remain accepted only for legacy
 compatibility. Generated plans always use version 1.
 
-Plan commands are executable code. Approval therefore means reviewing file
-scope and commands as well as prose.
+Plan commands are executable code. Authorization therefore covers file scope
+and commands as well as prose; select human mode when those commands require an
+operator's direct review.
 
 ## Configure agents
 
@@ -385,6 +392,8 @@ plan_review:
   min_score: 8.5
   max_cycles: 3
   timeout_seconds: 7200
+approval:
+  mode: judge  # use human for a separate operator checkpoint
 intelligence:
   provider: graphify
   required: true
@@ -557,12 +566,14 @@ Keeping one lifecycle owner avoids two-engine drift.
 .venv/bin/python -m py_compile scripts/*.py tests/*.py
 ```
 
-The deterministic suite currently covers 90 cases, including:
+The deterministic suite currently covers 94 cases, including:
 
 - simple single-owner first-pass work;
 - a two-owner feature with directed design repair;
 - a three-owner application with two directed repairs;
-- clarification and generated planning;
+- one-command autonomous execution, judge-bound plan authorization, genuine
+  clarification with automatic continuation after the answer, optional human
+  approval, and generated planning;
 - Graphify deferral, first indexing, commit-aware reuse, and stale refresh;
 - DeepSeek semantic-enrichment dispatch, credential non-persistence, and explicit
   AST fallback when optional enrichment is unavailable;

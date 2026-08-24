@@ -87,7 +87,7 @@
       "status": "planned",
       "residual_risk": "Novel product defects outside the test and review rubric remain possible.",
       "acceptance_authority": "",
-      "acceptance_review_condition": "Human approval remains required for consequential releases."
+      "acceptance_review_condition": "Configure a human checkpoint before consequential releases when target-specific evidence cannot bound the impact."
     },
     {
       "id": "R-004",
@@ -125,15 +125,15 @@
       "precondition": "A generated plan contains domain nuance not represented well by the anchored rubric or model.",
       "trigger": "The independent plan judge scores a candidate plan.",
       "failure": "A weak plan clears 8.5 or a strong plan repeatedly fails the threshold.",
-      "effect": "Bad implementation scope can reach human approval, or useful work stops after three cycles.",
+      "effect": "Bad implementation scope can be authorized automatically, or useful work stops after three cycles.",
       "evidence": "Deterministic tests validate scoring arithmetic and revision control flow, but no large human-rated calibration corpus exists yet.",
-      "existing_controls": ["clean-context independent judge", "behavioral anchors", "controller-recomputed score", "critical dimensions", "three-cycle bound", "exact human plan approval"],
+      "existing_controls": ["clean-context independent judge", "behavioral anchors", "controller-recomputed score", "critical dimensions", "three-cycle bound", "exact hash binding", "optional human approval mode"],
       "likelihood": "possible",
       "impact": "major",
       "severity": "high",
       "confidence": "high",
       "detectability": "Every candidate, dimension score, evidence statement, improvement, and final judgment is durable for inspection.",
-      "recoverability": "The operator can refuse approval, revise the request, or provide a trusted external plan.",
+      "recoverability": "The operator can select human approval mode, revise the request, or provide a trusted external plan.",
       "response": "mitigate",
       "mitigation": "Build a frozen human-rated corpus from step-by-step factory runs and calibrate anchors, threshold, and disagreement handling before unattended production claims.",
       "test": "Score the same hidden plan corpus with humans and the judge; measure false passes, false failures, stability, and actionable revision gain.",
@@ -141,7 +141,7 @@
       "status": "planned",
       "residual_risk": "Novel repositories and product decisions can remain outside the calibration distribution.",
       "acceptance_authority": "",
-      "acceptance_review_condition": "Calibration required before removing exact operator plan approval."
+      "acceptance_review_condition": "Calibration required before universal unattended-production claims."
     },
     {
       "id": "R-006",

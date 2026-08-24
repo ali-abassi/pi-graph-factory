@@ -24,8 +24,11 @@ repair limits, and external effects.
    question.
 5. A separate model judges grounding, coverage, feasibility, minimality, and
    alignment. Anything below 8.5/10 returns with advice for at most three cycles.
-6. The user sees and explicitly approves the exact plan, success criteria,
-   ownership, proof mode, and commands.
+6. When every critical rubric dimension and the weighted score clear the bar,
+   the controller records the judge as authority for the exact generated-plan
+   hash and continues. Human approval is an optional governance mode, not a
+   default workflow step. Externally supplied plans still require it because
+   they bypass the planner/judge loop.
 7. One to ten implementation agents work in isolated Git worktrees. Different
    lanes may use different harnesses, models, instructions, and skills. Product,
    UI design, copywriting, prompt engineering, and measured optimization are
@@ -67,8 +70,9 @@ repair limits, and external effects.
 - Repository maps reduce context use but never replace source verification.
 - Project vision and the feature map are durable decision context, not hidden
   permission to expand an approved request.
-- An independent anchored judgment improves plans; exact user approval remains
-  the authority for what gets built.
+- A passing independent anchored judgment authorizes generated plans by default;
+  a human supplies context only for genuinely unresolved consequential choices
+  or explicitly selects human-governed approval.
 - Evidence is proportional to the change and bound to the reviewed commit.
 - Usage is always observed; subscription users are not blocked by arbitrary
   token or dollar ceilings unless they explicitly configure enforcement.

@@ -96,7 +96,7 @@ class FactoryLifecycleTests(unittest.TestCase):
         )))
         self.assertEqual(first["phase"], "clarification")
         premature = self.command("run", "--run", str(run), expected=2)
-        self.assertIn("explicitly approved", premature["error"])
+        self.assertIn("configured authority", premature["error"])
         answered = self.command("answer", "--run", str(run), "--question", "tone",
                                 "--answer", "Direct")
         self.assertEqual(answered["phase"], "intake")
@@ -218,8 +218,9 @@ class FactoryLifecycleTests(unittest.TestCase):
     def test_configured_planner_generates_a_durable_typed_plan(self) -> None:
         run = self.initialize(run_id="generated-plan-run")
         planned = self.command("plan", "--run", str(run), "--generate")
-        self.assertEqual(planned["phase"], "awaiting_plan_approval")
+        self.assertEqual(planned["phase"], "approved")
         self.assertEqual(planned["source"], "planner")
+        self.assertEqual(planned["approval"]["authority"], "plan-review")
         plan_path = Path(planned["plan"])
         self.assertTrue(plan_path.is_file())
         self.assertEqual(json.loads(plan_path.read_text())["tasks"][0]["owner"], "product")
@@ -230,18 +231,80 @@ class FactoryLifecycleTests(unittest.TestCase):
         self.assertEqual(state["planning_cycles"], 1)
         self.assertEqual(state["plan_judgment"]["overall_score"], 9.0)
         self.assertEqual(state["plan_judgment"]["verdict"], "pass")
+        self.assertEqual(state["approved_plan_sha256"], state["plan_sha256"])
+        self.assertEqual(state["plan_approval"]["authority"], "plan-review")
         self.assertTrue((run / "receipts" / "planner-1.json").is_file())
         self.assertTrue((run / "receipts" / "plan-review-1-cycle-1-attempt-1.json").is_file())
         self.assertEqual(subprocess.check_output(
             ["git", "-C", str(self.repo), "status", "--porcelain"], text=True,
         ), "")
 
+    def test_start_runs_from_request_through_guarded_merge_without_human_approval(self) -> None:
+        completed = self.command(
+            "start",
+            "--repo", str(self.repo),
+            "--config", str(self.config),
+            "--request", "Create and prove a reviewed text application.",
+            "--id", "autonomous-start-run",
+        )
+        self.assertEqual(completed["phase"], "merged")
+        self.assertEqual(completed["planning"]["approval"]["authority"], "plan-review")
+        run = Path(completed["run"])
+        state = json.loads((run / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["approved_plan_sha256"], state["plan_sha256"])
+        events = [json.loads(line) for line in (run / "events.jsonl").read_text().splitlines()]
+        self.assertIn("plan_auto_approved", [event["event"] for event in events])
+        self.assertEqual((self.repo / "app.txt").read_text(encoding="utf-8"),
+                         "implemented\nreviewed 1\n")
+
+    def test_advance_drives_an_initialized_run_without_manual_stage_commands(self) -> None:
+        run = self.initialize(run_id="autonomous-advance-run")
+        completed = self.command("advance", "--run", str(run))
+        self.assertEqual(completed["phase"], "merged")
+        self.assertEqual(completed["planning"]["approval"]["authority"], "plan-review")
+
+    def test_start_stops_only_for_blocking_context_then_answer_continues(self) -> None:
+        self.env["PI_GRAPH_FACTORY_BLOCKING_PLAN_QUESTION"] = "1"
+        waiting = self.command(
+            "start",
+            "--repo", str(self.repo),
+            "--config", str(self.config),
+            "--request", "Create and prove a reviewed text application.",
+            "--id", "autonomous-question-run",
+        )
+        self.assertEqual(waiting["phase"], "clarification")
+        self.assertTrue(waiting["needs_human"])
+        self.assertEqual(waiting["open_questions"][0]["id"], "human-context")
+        completed = self.command(
+            "answer",
+            "--run", waiting["run"],
+            "--question", "human-context",
+            "--answer", "Use the safest reversible default.",
+        )
+        self.assertEqual(completed["phase"], "merged")
+
+    def test_human_approval_mode_remains_available(self) -> None:
+        config = yaml.safe_load(self.config.read_text(encoding="utf-8"))
+        config["approval"] = {"mode": "human"}
+        config_path = self.root / "human-approval-factory.yaml"
+        config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+        waiting = self.command(
+            "start",
+            "--repo", str(self.repo),
+            "--config", str(config_path),
+            "--request", "Create and prove a reviewed text application.",
+            "--id", "human-approval-run",
+        )
+        self.assertEqual(waiting["phase"], "awaiting_plan_approval")
+        self.assertTrue(waiting["needs_human"])
+        self.assertIn("human plan approval", waiting["reason"])
+
     def test_malformed_planner_output_gets_one_bounded_retry(self) -> None:
         run = self.initialize(run_id="planner-protocol-retry-run")
         marker = self.root / "invalid-plan-observed"
         self.env["PI_GRAPH_FACTORY_INVALID_PLAN_MARKER"] = str(marker)
         planned = self.command("plan", "--run", str(run), "--generate")
-        self.assertEqual(planned["phase"], "awaiting_plan_approval")
+        self.assertEqual(planned["phase"], "approved")
         state = json.loads((run / "state.json").read_text(encoding="utf-8"))
         self.assertEqual(state["planner_attempts"], 2)
         self.assertTrue(
@@ -280,7 +343,6 @@ class FactoryLifecycleTests(unittest.TestCase):
         planned_value = json.loads(Path(planned["plan"]).read_text(encoding="utf-8"))
         assigned = set(planned_value["tasks"][0]["files"])
         self.assertTrue({"VISION.md", "FEATURE_MAP.md"} <= assigned)
-        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
         completed = self.command("run", "--run", str(run))
         self.assertEqual(completed["phase"], "merged")
         self.assertTrue((self.repo / "VISION.md").is_file())
@@ -535,8 +597,7 @@ class FactoryLifecycleTests(unittest.TestCase):
         config_path = self.root / "planner-budget-factory.yaml"
         config_path.write_text(yaml.safe_dump(config, sort_keys=False))
         run = self.initialize(config_path, "planner-budget-run")
-        planned = self.command("plan", "--run", str(run), "--generate")
-        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        self.command("plan", "--run", str(run), "--generate")
         failed = self.command("run", "--run", str(run), expected=2)
         self.assertIn("cannot dispatch implementation batch", failed["error"])
         state = json.loads((run / "state.json").read_text())

@@ -861,6 +861,8 @@ def load_config(path: Path) -> dict[str, Any]:
         "health_commands": [],
         "rollback_commands": [],
     })
+    # Frozen contracts created before autonomous approval remain human-governed.
+    value.setdefault("approval", {"mode": "human"})
     value.setdefault("intelligence", {
         "provider": "graphify",
         "required": True,
@@ -1416,6 +1418,7 @@ def cmd_init(args: argparse.Namespace) -> dict[str, Any]:
         "intake": intake,
         "config_sha256": digest_bytes((run / "factory.yaml").read_bytes()),
         "plan": None, "plan_sha256": None, "approved_plan_sha256": None,
+        "plan_approval": None,
         "answers": {}, "cycles": [], "lane_receipts": {}, "integration": None,
         "final_review": None, "merge": None,
         "usage": {"calls": 0, "input_tokens": 0, "output_tokens": 0,
@@ -1638,6 +1641,7 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
     state["plan"] = plan
     state["plan_sha256"] = digest_json(plan)
     state["approved_plan_sha256"] = None
+    state["plan_approval"] = None
     state["phase"] = "clarification" if unanswered else "awaiting_plan_approval"
     state["plan_revision"] = plan_number
     state["plan_source"] = source
@@ -1657,9 +1661,21 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
         "revision": plan_number,
         "quality_score": plan_judgment.get("overall_score") if plan_judgment else None,
     })
+    if (
+        not unanswered
+        and source == "planner"
+        and config["approval"]["mode"] == "judge"
+    ):
+        approve_current_plan(
+            run,
+            state,
+            state["plan_sha256"],
+            authority="plan-review",
+            event="plan_auto_approved",
+        )
     return {"ok": True, "phase": state["phase"], "plan_sha256": state["plan_sha256"],
             "plan": str(plan_path), "source": source, "open_questions": unanswered,
-            "judgment": plan_judgment}
+            "judgment": plan_judgment, "approval": state.get("plan_approval")}
 
 
 def cmd_answer(args: argparse.Namespace) -> dict[str, Any]:
@@ -1677,27 +1693,62 @@ def cmd_answer(args: argparse.Namespace) -> dict[str, Any]:
         state["phase"] = "intake"  # planner must incorporate answers into a revised plan
     save_state(run, state, "question_answered", {"question": args.question,
                                                   "remaining": [x["id"] for x in unanswered]})
+    config = load_frozen_config(run, state)
+    if (
+        not unanswered
+        and state.get("plan_source") == "planner"
+        and config["approval"]["mode"] == "judge"
+    ):
+        try:
+            return advance_factory(run)
+        except (FactoryError, OSError, ValueError, json.JSONDecodeError) as error:
+            record_transition_failure(run, error)
+            raise
     return {"ok": True, "phase": state["phase"], "remaining": unanswered,
             "next": "submit a revised plan incorporating all answers" if not unanswered else "answer remaining questions"}
 
 
-def cmd_approve(args: argparse.Namespace) -> dict[str, Any]:
-    run = Path(args.run).resolve()
-    state = load_state(run)
+def approve_current_plan(
+    run: Path,
+    state: dict[str, Any],
+    plan_sha256: str,
+    *,
+    authority: str,
+    event: str,
+) -> dict[str, Any]:
     if state["phase"] != "awaiting_plan_approval":
         raise FactoryError(f"plan cannot be approved during phase {state['phase']}")
-    if args.sha256 != state["plan_sha256"]:
+    if plan_sha256 != state["plan_sha256"]:
         raise FactoryError("approval digest does not match the current plan")
     if state.get("plan_source") == "planner" and (
         not state.get("plan_judgment")
         or state["plan_judgment"].get("verdict") != "pass"
     ):
         raise FactoryError("generated plan has no passing independent plan review")
-    state["approved_plan_sha256"] = args.sha256
-    state["approved_at"] = now()
+    approved_at = now()
+    state["approved_plan_sha256"] = plan_sha256
+    state["approved_at"] = approved_at
+    state["plan_approval"] = {
+        "authority": authority,
+        "plan_sha256": plan_sha256,
+        "approved_at": approved_at,
+    }
     state["phase"] = "approved"
-    save_state(run, state, "plan_approved", {"plan_sha256": args.sha256})
-    return {"ok": True, "phase": "approved", "approved_plan_sha256": args.sha256}
+    save_state(run, state, event, state["plan_approval"])
+    return {"ok": True, "phase": "approved", "approved_plan_sha256": plan_sha256,
+            "approval": state["plan_approval"]}
+
+
+def cmd_approve(args: argparse.Namespace) -> dict[str, Any]:
+    run = Path(args.run).resolve()
+    state = load_state(run)
+    return approve_current_plan(
+        run,
+        state,
+        args.sha256,
+        authority="human",
+        event="plan_approved",
+    )
 
 
 def adapter_command() -> list[str]:
@@ -3584,7 +3635,7 @@ def reconcile_active_agents(run: Path, terminate: bool, grace_seconds: int) -> N
 
 def continue_factory(run: Path, state: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
     if state["approved_plan_sha256"] != state["plan_sha256"]:
-        raise FactoryError("factory run requires the current plan to be explicitly approved")
+        raise FactoryError("factory run requires the current plan to be approved by its configured authority")
     recovered_merge = recover_applied_merge(run, state, config)
     if recovered_merge is not None:
         return recovered_merge
@@ -3603,8 +3654,76 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     run = Path(args.run).resolve()
     state = load_state(run)
     if state["phase"] != "approved":
-        raise FactoryError("factory run requires the current plan to be explicitly approved")
+        raise FactoryError("factory run requires the current plan to be approved by its configured authority")
     return continue_factory(run, state, load_frozen_config(run, state))
+
+
+def advance_factory(run: Path) -> dict[str, Any]:
+    state = load_state(run)
+    planning = None
+    if state["phase"] == "intake":
+        planning = cmd_plan(argparse.Namespace(run=str(run), generate=True, file=None))
+        state = load_state(run)
+    if state["phase"] == "clarification":
+        return {
+            "ok": True,
+            "phase": "clarification",
+            "run": str(run),
+            "needs_human": True,
+            "reason": "genuinely blocking context is unresolved",
+            "open_questions": planning["open_questions"] if planning else [
+                item
+                for item in state["plan"]["open_questions"]
+                if item.get("blocking") and item["id"] not in state["answers"]
+            ],
+        }
+    if state["phase"] == "awaiting_plan_approval":
+        return {
+            "ok": True,
+            "phase": "awaiting_plan_approval",
+            "run": str(run),
+            "needs_human": True,
+            "reason": "the frozen factory contract requires human plan approval",
+            "plan_sha256": state["plan_sha256"],
+        }
+    if state["phase"] == "approved":
+        result = continue_factory(run, state, load_frozen_config(run, state))
+        if planning is not None:
+            result["planning"] = planning
+        return result
+    if state["phase"] in {"implementing", "reviewing"}:
+        raise FactoryError(
+            "interrupted implementation or review must continue with resume so active "
+            "processes and checkpoints are reconciled"
+        )
+    if state["phase"] in {
+        "merge_ready", "merged", "delivery_ready", "delivered", "delivery_failed",
+        "human_required",
+    }:
+        return {
+            "ok": state["phase"] not in {"delivery_failed", "human_required"},
+            "phase": state["phase"],
+            "run": str(run),
+            "needs_human": state["phase"] in {"delivery_failed", "human_required"},
+        }
+    raise FactoryError(f"factory cannot advance during phase {state['phase']}")
+
+
+def cmd_advance(args: argparse.Namespace) -> dict[str, Any]:
+    return advance_factory(Path(args.run).resolve())
+
+
+def cmd_start(args: argparse.Namespace) -> dict[str, Any]:
+    initialized = cmd_init(args)
+    run = Path(initialized["run"])
+    with run_lock(run):
+        try:
+            result = advance_factory(run)
+        except (FactoryError, OSError, ValueError, json.JSONDecodeError) as error:
+            record_transition_failure(run, error)
+            raise
+    result["intake"] = initialized["intake"]
+    return result
 
 
 def cmd_resume(args: argparse.Namespace) -> dict[str, Any]:
@@ -3748,17 +3867,23 @@ def record_transition_failure(run: Path, error: BaseException) -> None:
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="factory")
     commands = root.add_subparsers(dest="command", required=True)
+
+    def add_intake_arguments(command: argparse.ArgumentParser) -> None:
+        command.add_argument("--repo", required=True)
+        command.add_argument("--config", default=str(ROOT / "factory.yaml"))
+        request = command.add_mutually_exclusive_group(required=True)
+        request.add_argument("--request")
+        request.add_argument("--request-file")
+        command.add_argument("--intake-mode", choices=INTAKE_MODES, default="direct")
+        command.add_argument("--intake-ledger")
+        command.add_argument("--new-repo", action="store_true")
+        command.add_argument("--id")
+        command.add_argument("--out")
+
     init = commands.add_parser("init")
-    init.add_argument("--repo", required=True)
-    init.add_argument("--config", default=str(ROOT / "factory.yaml"))
-    request = init.add_mutually_exclusive_group(required=True)
-    request.add_argument("--request")
-    request.add_argument("--request-file")
-    init.add_argument("--intake-mode", choices=INTAKE_MODES, default="direct")
-    init.add_argument("--intake-ledger")
-    init.add_argument("--new-repo", action="store_true")
-    init.add_argument("--id")
-    init.add_argument("--out")
+    add_intake_arguments(init)
+    start = commands.add_parser("start")
+    add_intake_arguments(start)
     plan = commands.add_parser("plan")
     plan.add_argument("--run", required=True)
     plan_source = plan.add_mutually_exclusive_group(required=True)
@@ -3773,6 +3898,8 @@ def parser() -> argparse.ArgumentParser:
     approve.add_argument("--sha256", required=True)
     execute = commands.add_parser("run")
     execute.add_argument("--run", required=True)
+    advance = commands.add_parser("advance")
+    advance.add_argument("--run", required=True)
     resume = commands.add_parser("resume")
     resume.add_argument("--run", required=True)
     resume.add_argument("--terminate-active", action="store_true")
@@ -3785,21 +3912,24 @@ def parser() -> argparse.ArgumentParser:
     return root
 
 
-COMMANDS = {"init": cmd_init, "plan": cmd_plan, "answer": cmd_answer,
-            "approve": cmd_approve, "run": cmd_run, "resume": cmd_resume,
+COMMANDS = {"init": cmd_init, "start": cmd_start, "plan": cmd_plan, "answer": cmd_answer,
+            "approve": cmd_approve, "run": cmd_run, "advance": cmd_advance,
+            "resume": cmd_resume,
             "inspect": cmd_inspect, "deliver": cmd_deliver, "status": cmd_status}
 
 
 def main() -> int:
     args = parser().parse_args()
     try:
-        if args.command in {"plan", "answer", "approve", "run", "resume", "deliver"}:
+        if args.command in {
+            "plan", "answer", "approve", "run", "advance", "resume", "deliver"
+        }:
             run = Path(args.run).resolve()
             with run_lock(run):
                 try:
                     payload = COMMANDS[args.command](args)
                 except (FactoryError, OSError, ValueError, json.JSONDecodeError) as error:
-                    if args.command in {"run", "resume", "deliver"}:
+                    if args.command in {"run", "advance", "resume", "deliver"}:
                         record_transition_failure(run, error)
                     raise
         else:

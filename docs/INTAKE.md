@@ -1,8 +1,8 @@
 # Intake modes
 
 Pi Graph Factory accepts three intake modes. They all converge on the same
-planner, independent plan judge, exact-plan approval, implementation, proof,
-review, and merge lifecycle.
+planner, independent plan judge, exact-hash authorization, implementation,
+proof, review, and merge lifecycle.
 
 ```text
 raw idea
@@ -42,7 +42,7 @@ required objective, evidence, scope, orchestration, validation, approval, and
 stop-condition sections.
 
 ```bash
-.venv/bin/python scripts/factory.py init \
+.venv/bin/python scripts/factory.py start \
   --repo /path/to/project \
   --intake-mode interactive \
   --request-file /path/to/goal-brief.md
@@ -67,7 +67,7 @@ red-team the result. The controller then checks that:
 - no human-only decision remains unresolved.
 
 ```bash
-.venv/bin/python scripts/factory.py init \
+.venv/bin/python scripts/factory.py start \
   --repo /path/to/project \
   --intake-mode auto \
   --request-file /path/to/self-grilled-brief.md \
@@ -85,12 +85,18 @@ Use direct mode for a sufficiently specific issue, bug, or small request. This
 is the backward-compatible default:
 
 ```bash
-.venv/bin/python scripts/factory.py init \
+.venv/bin/python scripts/factory.py start \
   --repo /path/to/project \
   --request 'Fix CSV export for quoted line breaks and add a regression test.'
 ```
 
 Direct mode deliberately avoids ceremony when the task is already resolved.
+
+With the default judge authority, `start` owns every downstream transition. If
+the planner returns a genuinely blocking question, `answer` records the missing
+context and automatically resumes planning and execution. Use `init` instead
+when inspecting stages manually, and `approval.mode: human` when governance
+requires a separate exact-hash approval.
 
 ## Durable handoff
 

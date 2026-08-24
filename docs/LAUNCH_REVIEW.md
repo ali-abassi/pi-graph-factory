@@ -6,7 +6,7 @@
 delivery. No-go for hostile-code execution or universal unattended production.**
 
 The factory now has strong local merge authorization: commit-aware repository
-intelligence, independently judged generated plans, exact plan approval,
+intelligence, independently judged and exact-hash-authorized generated plans,
 isolated owner worktrees, Git-derived scope, executed acceptance, commit-bound
 evidence, independent implementation review, bounded repair, one-writer
 locking, and durable caught failures. Those controls materially reduce false
@@ -21,8 +21,8 @@ commands exactly-once across machine death.
 
 ## System model
 
-- **Entry points:** `init`, `plan`, `answer`, `approve`, `run`, `inspect`,
-  `resume`, `deliver`, and `status`.
+- **Entry points:** `start`, `init`, `plan`, `answer`, `approve`, `advance`,
+  `run`, `inspect`, `resume`, `deliver`, and `status`.
 - **Assets:** source repositories, generated repository maps, credentials
   available to local processes, approved plan and merge authority, proof
   artifacts, provider quota and spend.
@@ -38,7 +38,7 @@ commands exactly-once across machine death.
 
 ## Critical invariants
 
-1. No merge without exact-plan approval and a clean current review.
+1. No merge without exact-plan authorization and a clean current review.
 2. No generated plan approval unless an independently scored judgment clears
    the configured threshold; the controller recomputes the weighted score.
 3. No agent change outside its approved owner scope.
@@ -55,7 +55,7 @@ commands exactly-once across machine death.
 
 ## Evidence
 
-- 85 deterministic repository tests across simple, medium, complex, refusal,
+- 94 deterministic repository tests across simple, medium, complex, refusal,
   lifecycle, concurrency, and graph cases.
 - Specialist configuration tests prove copywriting is a routable implementation
   owner, a conditional capability for product/UI files, and part of the same

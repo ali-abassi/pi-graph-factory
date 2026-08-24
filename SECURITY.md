@@ -53,10 +53,13 @@ provider calls remain supply-chain and data-egress boundaries. Disable
 `intelligence.auto_install`, preinstall an audited build, or set
 `PI_GRAPH_FACTORY_GRAPHIFY` to a trusted command in restricted environments.
 
-The independent plan judge is an AI quality control, not an authorization
-boundary. The controller validates its schema, recomputes its weighted score,
-limits revision cycles, and still requires exact human plan approval. Its
-rubric has not yet been calibrated against a large human-rated plan corpus.
+The independent plan judge is an AI quality control and the default configured
+plan authority, not a security boundary. The controller validates its schema,
+recomputes its weighted score, limits revision cycles, and binds a pass to the
+exact generated-plan hash. Its rubric has not yet been calibrated against a
+large human-rated corpus; use `approval.mode: human` for high-impact work that
+requires an operator checkpoint. Externally supplied plans always require
+exact human approval because they bypass the generated-plan judge.
 
 Configured timeouts terminate overdue adapter process groups; timeouts may be
 disabled. Optional token and cost ceilings stop later dispatches based on

@@ -42,7 +42,11 @@ if args.role == "plan":
                    "acceptance": ["test -s app.txt"]}],
         "acceptance": ["test -s app.txt"],
         "risks": [],
-        "open_questions": [],
+        "open_questions": ([{
+            "id": "human-context",
+            "question": "Which irreversible product constraint cannot be inferred?",
+            "blocking": True,
+        }] if os.environ.get("PI_GRAPH_FACTORY_BLOCKING_PLAN_QUESTION") == "1" else []),
     }
     marker_value = os.environ.get("PI_GRAPH_FACTORY_INVALID_PLAN_MARKER")
     if marker_value and not Path(marker_value).exists():

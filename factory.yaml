@@ -22,6 +22,9 @@ plan_review:
   max_cycles: 3
   timeout_seconds: 7200
 
+approval:
+  mode: judge
+
 intelligence:
   provider: graphify
   required: true

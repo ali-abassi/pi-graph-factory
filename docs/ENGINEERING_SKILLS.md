@@ -33,7 +33,7 @@ architecture search ── HTML report ── chosen item ──┤
                                                     ↓
                         Graphify + project memory → planner → plan judge
                                                     ↓
-                                          exact human approval
+                             exact-hash judge authorization by default
                                                     ↓
                            isolated implementation with conditional
                               TDD / bug diagnosis + Ponytail

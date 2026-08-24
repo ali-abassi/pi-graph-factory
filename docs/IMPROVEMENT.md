@@ -250,8 +250,9 @@
 - **Quality gate:** send each generated plan to a fresh independent judge using
   anchored grounding, coverage, feasibility, minimality, and alignment scores.
   Recompute the weighted score mechanically, require 8.5/10, and return precise
-  rubric-linked advice to the planner for at most three quality cycles. Exact
-  operator approval remains mandatory after the judge passes.
+  rubric-linked advice to the planner for at most three quality cycles. This
+  candidate still required operator approval; the later autonomous-authority
+  change lets the passing judge bind the exact generated-plan hash by default.
 - **Result:** 73/73 repository tests pass. Deterministic cases prove new-project
   deferral-to-ready, first indexing, cache reuse, corrupt/stale refresh, ignored
   graph output, missing project-memory restoration, low-score revision, forged
