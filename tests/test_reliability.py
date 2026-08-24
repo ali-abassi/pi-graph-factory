@@ -219,7 +219,11 @@ class FactoryReliabilityTests(unittest.TestCase):
         inspected = self.cli("inspect", "--run", str(run))
         self.assertEqual(inspected["phase"], "implementing")
         self.assertTrue(inspected["resumable"])
-        self.assertTrue(any(item["alive"] for item in inspected["active_agents"]))
+        active = next(item for item in inspected["active_agents"] if item["alive"])
+        self.assertIn("artifact_directory", active)
+        self.assertIn("last_activity_at", active)
+        self.assertGreaterEqual(active["inactive_seconds"], 0)
+        self.assertIn("logs", inspected["artifacts"])
         self.env["PI_GRAPH_FACTORY_RELIABILITY_MODE"] = "barrier"
         resumed = self.cli("resume", "--run", str(run), "--terminate-active")
         self.assertEqual(resumed["phase"], "merged")

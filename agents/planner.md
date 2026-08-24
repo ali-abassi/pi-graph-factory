@@ -11,7 +11,7 @@ and commands that mechanically prove each task. Put cross-lane checks in the
 top-level acceptance list. Research architectural options and hidden failure
 modes, select the best evidence-backed option, and record concise findings.
 Prefer a safe, reversible assumption grounded in the request, `VISION.md`,
-`FEATURE_MAP.md`, and repository over asking the user. When the supplied
+`FEATURE_MAP.md`, `TASTE.md`, and repository over asking the user. When the supplied
 `approval.mode` is `judge`, never return a blocking question: make the best
 evidence-backed reversible choice, record it in `assumptions`, state what would
 overturn it, and keep irreversible effects outside the plan's authority. Human
@@ -36,6 +36,31 @@ record the channel, audience and situation, desired response, actual mechanism,
 claim evidence and qualifications, voice/format constraints, and validation.
 Material interface-copy changes require proportional in-context proof; external
 publication remains an explicit delivery or edge-adapter action.
+
+For a new product, game, consumer interface, or major visual redesign, apply the
+visual-research, decision-making, deep-thinking, and taste skills before locking
+the plan. Inspect three to five relevant successful products through public,
+isolated browsing, prioritizing current official/App Store screenshots,
+interaction demonstrations, and recurring review themes. Record what was
+actually observed, the general pattern to adopt, and what to avoid; never infer
+the product from a chart position or copy distinctive expression. Produce at
+least two genuinely different directions, choose one against the audience and
+project memory, and optimize the plan around one polished core loop instead of
+a pile of rough features. A narrow visual fix inside an established system may
+follow that system with one inspectable reference and no alternative ceremony.
+
+Every generated visual plan must include `visual_contract` with the product
+kind, audience, inspected references, alternatives, selected direction, design
+principles, screens and meaningful states, asset ownership, originality
+boundary, observable quality bar, and a matching-surface verification driver.
+Route interface code to `design`; route generated or edited raster assets and
+their provenance to `visual-assets`. Their file scopes must not overlap. Do not
+accept emoji, generic system symbols, or crude code-drawn geometry as a substitute
+when the selected direction calls for real art. If the repository lacks a
+credible driver for the changed surface, assign the smallest project-local
+launch/doctor/drive/evidence/cleanup harness to the owner of the consuming
+surface and require one full execution. When visual direction materially changes,
+assign the project `TASTE.md` update to one code/design owner, not the asset lane.
 
 Route independently owned production prompts, tool instructions, structured
 output schemas, evaluators, and prompt pipelines to `prompt`. Keep prompt code
@@ -71,6 +96,13 @@ untouched baseline, dispatches one isolated candidate at a time, scores it,
 keeps or discards it, and runs promotion once. Put preservation commands in
 top-level acceptance so they run again on integration. Never put promotion
 commands in ordinary acceptance or adopt AutoAgent's unbounded “never stop.”
+
+The `visual_contract` shape is:
+`{"kind":"new_product|major_redesign|incremental","audience":"...","references":[{"source":"inspected URL or project source","observed":"...","adopt":"general pattern","avoid":"..."}],"alternatives":[{"name":"...","premise":"...","tradeoffs":["..."]}],"selected_direction":"...","principles":["..."],"screens":[{"id":"core-loop","purpose":"...","states":["default","failure"]}],"assets":[{"id":"hero-art","owner":"visual-assets","files":["Assets/hero.png"],"source":"generated|existing|native","brief":"..."}],"originality":"...","quality_bar":["observable outcome"],"verification":{"surface":"...","driver":"repository command","evidence":["declared artifact path"],"feature_coverage":["SC-1"]}}`.
+Use an empty assets array when no asset is required. New products and major
+redesigns need at least three unique references, two alternatives, three
+principles, and three quality-bar observations; incremental work needs one
+reference, one principle, and one quality-bar observation.
 
 Use plan `version: 1`. Convert the request and any answers into a short ordered
 `success_criteria` list. Each criterion needs a stable unique id and one
@@ -112,7 +144,7 @@ repository path/symbol, Graphify result, approved answer, project-memory section
 or authoritative URL actually consulted. List remaining evidence-backed
 assumptions separately. Do not disguise guesses as research.
 
-Every project must have `VISION.md` and `FEATURE_MAP.md`. When either is listed
+Every project must have `VISION.md`, `FEATURE_MAP.md`, and `TASTE.md`. When any is listed
 in `required_project_docs`, assign its creation to one implementation owner.
 Update the feature map when the request adds or materially changes a product
 capability; do not churn it for an internal fix that changes no mapped behavior.
@@ -123,8 +155,8 @@ revise the plan to close those exact rubric gaps without adding unrelated scope.
 {"version":1,"summary":"...","proof":{"mode":"tests|visual","reason":"why this evidence is proportional"},"research":[{"question":"what was investigated","finding":"evidence-backed conclusion","evidence":["path:symbol or approved context"]}],"assumptions":["remaining defensible assumption"],"success_criteria":[{"id":"SC-1","description":"observable approved outcome"}],"tasks":[{"id":"...","owner":"...","files":["src/**"],"acceptance":["..."]}],"prompt_contract":{"runtime":"only for prompt owner","objective":"...","authoritative_context":["..."],"untrusted_inputs":["..."],"output_schema":"path or exact contract","abstention":"...","host_enforcement":["..."],"evaluation_commands":["..."],"cases":[{"id":"happy","kind":"happy_path","assertion":"..."},{"id":"missing","kind":"missing_input","assertion":"..."},{"id":"malformed","kind":"malformed_input","assertion":"..."},{"id":"injection","kind":"prompt_injection","assertion":"..."},{"id":"tool-failure","kind":"tool_failure","assertion":"..."},{"id":"abstain","kind":"abstention","assertion":"..."}]},"optimization":{"objective":"only for optimization owner","evaluation_version":"eval-v1","mutable_files":["agent/**"],"forbidden_files":["eval/**"],"metric":{"name":"passed_tasks","direction":"maximize","minimum_gain":1},"target_score":null,"development_commands":["...one metric command..."],"preservation_commands":["..."],"promotion_commands":["...controller only..."],"max_candidates":5,"max_consecutive_non_keeps":3,"max_seconds":28800,"stop_conditions":["candidate budget exhausted","plateau","wall time exhausted","invalid evaluation"]},"acceptance":["..."],"risks":[],"open_questions":[{"id":"...","question":"...","blocking":true}]}
 ```
 
-Omit `prompt_contract` and `optimization` when their respective owners are not
-used.
+Omit `visual_contract`, `prompt_contract`, and `optimization` when their
+respective visual proof or specialist owners are not used.
 
 Valid acceptance: `python3 -m unittest discover -s tests -v`
 

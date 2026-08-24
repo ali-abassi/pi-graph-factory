@@ -33,8 +33,12 @@ class FactoryLifecycleTests(unittest.TestCase):
         (self.repo / "FEATURE_MAP.md").write_text(
             "# Feature map\n\n- Reviewed text artifact\n", encoding="utf-8"
         )
+        (self.repo / "TASTE.md").write_text(
+            "# Taste\n\nShow the reviewed artifact without decorative UI.\n",
+            encoding="utf-8",
+        )
         subprocess.run(
-            ["git", "add", ".gitignore", "VISION.md", "FEATURE_MAP.md"],
+            ["git", "add", ".gitignore", "VISION.md", "FEATURE_MAP.md", "TASTE.md"],
             cwd=self.repo,
             check=True,
         )
@@ -321,6 +325,130 @@ class FactoryLifecycleTests(unittest.TestCase):
         self.assertTrue((run / "receipts" / "repair-1-product-attempt-1.json").is_file())
         self.assertTrue((run / "receipts" / "repair-1-product-attempt-2.json").is_file())
 
+    def test_malformed_implementer_receipt_gets_one_read_only_correction(self) -> None:
+        run = self.initialize(run_id="implement-protocol-correction-run")
+        planned = self.command(
+            "plan",
+            "--run",
+            str(run),
+            "--file",
+            str(self.write_plan(self.root / "implement-protocol-plan.json", [])),
+        )
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        marker = self.root / "invalid-implement-observed"
+        self.env["PI_GRAPH_FACTORY_INVALID_IMPLEMENT_MARKER"] = str(marker)
+
+        completed = self.command("run", "--run", str(run))
+
+        self.assertEqual(completed["phase"], "merged")
+        self.assertTrue(marker.is_file())
+        state = json.loads((run / "state.json").read_text(encoding="utf-8"))
+        correction = state["lane_receipts"]["product"]["receipt"][
+            "protocol_correction"
+        ]
+        self.assertIn("output status must be 'pass'", correction["validation_error"])
+        contexts = list((run / "contexts").glob("implement-product-*.json"))
+        self.assertEqual(len(contexts), 2, "both protocol inputs must remain durable")
+        attempts = [path for path in (run / "logs" / "implement-product").iterdir()]
+        self.assertEqual(len(attempts), 2)
+        self.assertTrue(all((path / "adapter.stdout").is_file() for path in attempts))
+        events = [
+            json.loads(line)["event"]
+            for line in (run / "events.jsonl").read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertIn("implementation_receipt_corrected", events)
+
+    def test_implementer_receipt_correction_cannot_mutate_the_worktree(self) -> None:
+        run = self.initialize(run_id="implement-protocol-mutation-run")
+        planned = self.command(
+            "plan",
+            "--run",
+            str(run),
+            "--file",
+            str(self.write_plan(self.root / "implement-protocol-mutation.json", [])),
+        )
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        self.env["PI_GRAPH_FACTORY_INVALID_IMPLEMENT_MARKER"] = str(
+            self.root / "invalid-implement-mutation-observed"
+        )
+        self.env["PI_GRAPH_FACTORY_IMPLEMENT_CORRECTION_MUTATION"] = "1"
+
+        failed = self.command("run", "--run", str(run), expected=2)
+
+        self.assertIn("implementation receipt correction for product mutated", failed["error"])
+        state = json.loads((run / "state.json").read_text(encoding="utf-8"))
+        self.assertIsNone(state["integration"])
+        self.assertFalse((self.repo / "app.txt").exists())
+
+    def test_resume_normalizes_agent_commit_then_corrects_its_receipt(self) -> None:
+        run = self.initialize(run_id="committed-protocol-resume-run")
+        planned = self.command(
+            "plan",
+            "--run",
+            str(run),
+            "--file",
+            str(self.write_plan(self.root / "committed-protocol-plan.json", [])),
+        )
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+        lane = run / "worktrees" / "product"
+        lane.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            [
+                "git", "-C", str(self.repo), "worktree", "add", "-b",
+                "factory/committed-protocol-resume-run/product", str(lane),
+                subprocess.check_output(
+                    ["git", "-C", str(self.repo), "rev-parse", "HEAD"], text=True
+                ).strip(),
+            ],
+            check=True,
+            capture_output=True,
+        )
+        (lane / "app.txt").write_text("implemented\n", encoding="utf-8")
+        evidence = lane / "evidence"
+        evidence.mkdir()
+        (evidence / "desktop.png").write_bytes(b"png-fixture")
+        (evidence / "flow.webm").write_bytes(b"webm-fixture")
+        (evidence / "browser-receipt.json").write_text(
+            '{"console_errors":[]}\n', encoding="utf-8"
+        )
+        subprocess.run(["git", "add", "-A"], cwd=lane, check=True)
+        subprocess.run(
+            ["git", "commit", "-qm", "agent-created implementation"],
+            cwd=lane,
+            check=True,
+        )
+        invalid_receipt = {
+            "status": "passed",
+            "harness": "pi",
+            "model": "openai-codex/gpt-5.6-luna",
+            "role": "implement:product",
+            "output": {"commit": "agent-created", "test_result": "passed"},
+            "usage": {"input": 1, "output": 1, "total": 2, "cost": 0},
+            "receipt_sha256": "manual-invalid-receipt",
+        }
+        receipt_path = run / "receipts" / "agent-implement-product-manual.json"
+        receipt_path.parent.mkdir(exist_ok=True)
+        receipt_path.write_text(json.dumps(invalid_receipt), encoding="utf-8")
+        state_path = run / "state.json"
+        interrupted_state = json.loads(state_path.read_text(encoding="utf-8"))
+        interrupted_state["phase"] = "implementing"
+        state_path.write_text(json.dumps(interrupted_state), encoding="utf-8")
+
+        completed = self.command("resume", "--run", str(run))
+
+        self.assertEqual(completed["phase"], "merged")
+        state = json.loads((run / "state.json").read_text(encoding="utf-8"))
+        recovery = state["lane_receipts"]["product"]["receipt"][
+            "agent_commit_recovery"
+        ]
+        self.assertEqual(len(recovery["agent_commits"]), 1)
+        self.assertIn(
+            "output status must be 'pass'",
+            state["lane_receipts"]["product"]["receipt"]["protocol_correction"][
+                "validation_error"
+            ],
+        )
+
     def test_repair_receipt_correction_cannot_mutate_the_worktree(self) -> None:
         run = self.initialize(run_id="repair-protocol-mutation-run")
         planned = self.command(
@@ -512,7 +640,7 @@ class FactoryLifecycleTests(unittest.TestCase):
 
     def test_generated_plan_restores_missing_project_memory(self) -> None:
         subprocess.run(
-            ["git", "rm", "-q", "VISION.md", "FEATURE_MAP.md"],
+            ["git", "rm", "-q", "VISION.md", "FEATURE_MAP.md", "TASTE.md"],
             cwd=self.repo,
             check=True,
         )
@@ -525,11 +653,12 @@ class FactoryLifecycleTests(unittest.TestCase):
         planned = self.command("plan", "--run", str(run), "--generate")
         planned_value = json.loads(Path(planned["plan"]).read_text(encoding="utf-8"))
         assigned = set(planned_value["tasks"][0]["files"])
-        self.assertTrue({"VISION.md", "FEATURE_MAP.md"} <= assigned)
+        self.assertTrue({"VISION.md", "FEATURE_MAP.md", "TASTE.md"} <= assigned)
         completed = self.command("run", "--run", str(run))
         self.assertEqual(completed["phase"], "merged")
         self.assertTrue((self.repo / "VISION.md").is_file())
         self.assertTrue((self.repo / "FEATURE_MAP.md").is_file())
+        self.assertTrue((self.repo / "TASTE.md").is_file())
 
     def test_failed_review_protocol_resumes_from_integration(self) -> None:
         run = self.initialize(run_id="review-resume-run")
@@ -683,6 +812,7 @@ class FactoryLifecycleTests(unittest.TestCase):
             self.assertIn(entry, ignored)
         self.assertIn("Build a new application.", (target / "VISION.md").read_text())
         self.assertTrue((target / "FEATURE_MAP.md").is_file())
+        self.assertTrue((target / "TASTE.md").is_file())
         self.assertEqual(
             subprocess.check_output(
                 ["git", "-C", str(target), "status", "--porcelain"], text=True,

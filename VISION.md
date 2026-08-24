@@ -19,10 +19,14 @@ repair limits, and external effects.
    refreshed with Graphify; configured semantic extraction enriches repository
    docs and community labels while code retains deterministic AST structure. A
    code-free new project defers its first graph. `VISION.md`, `FEATURE_MAP.md`,
-   and any committed domain context supply durable product direction.
+   project `TASTE.md`, and any committed domain context supply durable product
+   direction.
 4. The planner queries that map, verifies relevant source, researches hidden
-   gaps, and resolves uncertainty with defensible reversible assumptions. Under
-   default judge authority it cannot pause the run to ask a person.
+   gaps, and resolves uncertainty with defensible reversible assumptions. New
+   visual products inspect relevant public listings, screenshots, interaction
+   demonstrations, and review themes; compare directions; and freeze an
+   observable visual contract before implementation. Under default judge
+   authority it cannot pause the run to ask a person.
 5. A separate model judges grounding, coverage, feasibility, minimality, and
    alignment. Anything below 8.5/10 returns with advice for at most three cycles.
 6. When every critical rubric dimension and the weighted score clear the bar,
@@ -32,9 +36,10 @@ repair limits, and external effects.
    they bypass the planner/judge loop.
 7. One to ten implementation agents work in isolated Git worktrees. Different
    lanes may use different harnesses, models, instructions, and skills. Product,
-   UI design, copywriting, prompt engineering, and measured optimization are
-   default specialists; additional specialties remain configuration rather
-   than new controller stages.
+   UI design, generated visual assets, copywriting, prompt engineering, and
+   measured optimization are default specialists; additional specialties remain
+   configuration rather than new controller stages. UI code and generated art
+   have separate non-overlapping owners.
    Prompt work has a required runtime/trust/evaluation contract. Optimization
    agents propose one mutation at a time while deterministic controller code
    owns baseline, scoring, keep/discard, finite limits, and one-time promotion.
@@ -42,7 +47,10 @@ repair limits, and external effects.
 9. UI work receives current-commit screenshots, video, and browser evidence.
    Tiny fixes, documentation, refactors, and non-UI work use test evidence
    without ceremonial media.
-10. An independent reviewer accounts for every approved outcome. Findings route
+10. An independent reviewer accounts for every approved outcome, tests the most
+   consequential happy-path inversions, and validates visual work against the
+   researched direction, project taste, real user seam, and semantic media.
+   Findings route
    to the exact owner, files, and failed success criterion. Review and repair
    continue until the declared criteria pass; deployments may configure a cap.
 11. A clean review authorizes a guarded merge. When delivery is configured, a
@@ -63,6 +71,17 @@ repair limits, and external effects.
   engine and not a claim of hostile-code sandboxing.
 - **Future runner adapters:** disposable or policy-restricted environments may
   wrap the same frozen run contract without changing factory semantics.
+
+## Near-term local operations surface
+
+The next product layer is a deliberately small local dashboard over the existing
+run ledger, not a second workflow engine or telemetry backend. It should list
+projects and runs; show phases, agent lanes, blockers, current commands, and last
+meaningful activity; chart tokens by hour/day/project/agent/model; render the
+event timeline; and open plans, inputs, raw transcripts, receipts, tests,
+screenshots, and video. The run directory remains the source of truth. Accounts,
+cloud storage, hosted analytics, and a separate database are out of scope for the
+first version.
 
 ## Product principles
 

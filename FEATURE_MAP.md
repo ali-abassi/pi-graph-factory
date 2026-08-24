@@ -19,7 +19,8 @@ for any individual run.
   extraction; the default uses DeepSeek V4 Flash through Pi's Baseten credential
   without persisting the key.
 - Defer Graphify for a code-free new project, then create it after implementation.
-- Read `VISION.md` and `FEATURE_MAP.md` as durable project decision context.
+- Read up to 75,000 characters each from `VISION.md`, `FEATURE_MAP.md`, and
+  project-specific `TASTE.md` as durable decision context, and report truncation.
 - Generate versioned plans with research, assumptions, success criteria, ownership,
   executable acceptance, proportional proof, and risks.
 - Require optimization-shaped plans to freeze the objective, evaluation version,
@@ -30,6 +31,12 @@ for any individual run.
   schema, abstention, host enforcement, executable evaluation, and six required
   normal/failure/adversarial case kinds; parse typed command receipts that prove
   every declared case passed.
+- Require generated visual plans to freeze audience, product kind, inspected
+  references, competing directions where material, selected art direction,
+  principles, screens/states, asset ownership and source, originality boundary,
+  observable quality bar, real verification driver, artifacts, and criterion
+  coverage. New products and major redesigns require three references and two
+  alternatives; incremental UI work uses the established system proportionally.
 - Independently judge generated plans with the `plan-quality-v1` rubric, revise below
   8.5/10, and stop after three unsuccessful quality cycles.
 - Return blocking planner questions to autonomous revision until they become
@@ -41,12 +48,19 @@ for any individual run.
 ## Implementation and integration
 
 - Dispatch one to ten configured Pi, Claude Code, or Codex implementers concurrently.
-- Provide product, UI-design, copywriting, prompt-engineering, and optimization
-  specialists by default; launch only owners present in the approved plan and
-  permit additional configured specialists.
+- Provide product, UI-design, generated-visual-asset, copywriting,
+  prompt-engineering, and optimization specialists by default; launch only
+  owners present in the approved plan and permit additional configured specialists.
+- Keep generated raster art and provenance in a dedicated Codex lane with
+  built-in OpenAI image generation. Require real alpha when the contract calls
+  for transparency, and forbid silent emoji/system-symbol/placeholder fallback.
 - Isolate initial owner work in Git branches and worktrees.
 - Reject overlapping planned scopes and actual out-of-scope or unsafe staged files.
 - Execute approved task checks and integrate passing lane commits deterministically.
+- Give a malformed initial implementer receipt one read-only, diff-fingerprinted
+  correction; refuse a second invalid receipt or any correction-time mutation.
+- Normalize a provably linear agent-created lane commit during execution or resume
+  while refusing rewritten baselines, merge history, blocked work, and scope drift.
 - Apply a smallest-complete-change policy through implementer instructions and skills.
 - Apply the Ponytail solution ladder in product and design lanes across Pi,
   Claude Code, and Codex harnesses.
@@ -77,6 +91,12 @@ for any individual run.
 - Capture declared screenshots, video, and browser artifacts on the integrated commit.
 - Bind proof hashes to the current commit and approved plan.
 - Require an independent read-only review to account for every success criterion.
+- Apply proportional adversarial review to concrete failure chains and require
+  current semantic proof from the real product seam; speculation outside an
+  approved criterion cannot create an automatic repair loop.
+- Require visual review against project taste and the frozen visual contract,
+  including default/minimum viewports, adverse states, asset coherence, and
+  decodable meaningful screenshots/video.
 - Generate optimization receipts from controller observations: evaluation
   version, finite scores, protected/artifact SHA-256 fingerprints, bounded
   candidate history, kept-candidate gain, and one passing promotion run. Rerun
@@ -93,12 +113,17 @@ for any individual run.
 - Keep automatic merge and delivery disabled by default.
 - Run an explicit configured deploy, health check, and rollback attempt after merge.
 - Inspect active operations, receipts, contexts, events, worktrees, and proof artifacts.
+- Preserve immutable per-attempt contexts, private adapter/harness streams, native
+  Claude transcripts, deduplicated Claude token usage, blockers, and last meaningful
+  activity as the local operations UI's backend contract.
 - Resume only validated checkpoints; fail closed on ambiguous state.
 - Compile an inspectable Pi Graph Core policy topology for Studio/graph visualization.
 
 ## Deliberate gaps
 
 - Issue/webhook ingestion and a hosted clarification interface are external adapters.
+- The local operations dashboard is the next product layer; the machine-readable
+  `inspect` and run-log contract exists, but the browser UI is not bundled yet.
 - Railway is documented as a persistent trusted runner, not provisioned by this repo.
 - The plan judge has deterministic contract tests but still needs calibration against a
   user-reviewed corpus of real plans.

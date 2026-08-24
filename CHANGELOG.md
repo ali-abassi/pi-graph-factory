@@ -6,6 +6,18 @@ All notable changes to Pi Graph Factory are documented here.
 
 ### Added
 
+- New-product visual quality contract: isolated public reference research,
+  evidence-backed decision/deep-thinking disciplines, project `TASTE.md`,
+  competing directions, explicit screens/states/assets/originality/quality bar,
+  and a project-local matching-surface verification driver.
+- A dedicated Codex Luna xhigh `visual-assets` owner with built-in OpenAI image
+  generation, project-bound provenance, and real transparency checks. Generated
+  art cannot silently fall back to emoji, system symbols, remote URLs, or crude
+  placeholders.
+- Proportional adversarial review of consequential failure chains inside the
+  existing independent review stage, plus documented source-level adopt/bank/
+  reject decisions from Cursor's pstack plugin.
+
 - Judge-authorized autonomous execution: generated plans that clear every
   independent quality gate bind their exact hash and proceed without operator
   approval. `start` drives request-to-review in one command, `advance` resumes a
@@ -40,8 +52,10 @@ All notable changes to Pi Graph Factory are documented here.
   loading for Claude Code and Codex harnesses.
 - Commit-aware Graphify repository intelligence before generated planning, with
   automatic setup, ignored local output, no-code deferral, and post-implementation refresh.
-- `VISION.md` and `FEATURE_MAP.md` project memory, including safe new-repository
-  initialization and generated-plan ownership for missing files.
+- `VISION.md`, `FEATURE_MAP.md`, and project-specific `TASTE.md` memory,
+  including safe new-repository initialization, generated-plan ownership for
+  missing files, a 75,000-character per-document context cap, and explicit
+  truncation reporting.
 - Evidence-backed plan research and assumptions plus an independent anchored
   plan judge. Scores below 8.5/10 return to the planner for at most three cycles.
 - A project-level `FEATURE_MAP.md` and graph-first planner/implementer guidance.
@@ -66,8 +80,16 @@ All notable changes to Pi Graph Factory are documented here.
   changes.
 - Explicit post-merge delivery with deploy, health, rollback, and final receipt
   recording.
+- Immutable per-attempt inputs and private raw adapter/harness logs, copied native
+  Claude transcripts, deduplicated Claude usage, and last-meaningful-activity
+  metadata for local operations tooling.
+- One read-only initial-implementer receipt correction plus safe normalization of
+  a provably linear agent-created lane commit during execution or resume.
 
 ### Changed
+
+- Public policy validation now pins the renamed Agent Workflows v0.2.0 release
+  instead of the redirected Pi Graph Core v0.1.0 repository.
 
 - Generated plans cannot hide a weak critical dimension behind a strong
   weighted average, and deploy/health/rollback commands are rejected from
@@ -103,6 +125,9 @@ All notable changes to Pi Graph Factory are documented here.
 - Interrupted lanes, declared capture writes, owner-scoped repairs, committed
   repair checkpoints, and a reviewed fast-forward can resume without restarting
   the factory.
+- `inspect` now exposes blockers, aggregate usage, log directories, native
+  transcripts, and file/transcript-derived activity instead of treating a live
+  PID as sufficient progress evidence.
 
 ### Security
 
@@ -113,8 +138,9 @@ All notable changes to Pi Graph Factory are documented here.
 - Ignored/untracked evidence, post-capture acceptance writes, and reviewer
   mutations are rejected before merge authorization.
 - Automatic merge remains disabled by default.
-- Resume refuses unknown processes, unrecognized commits, undeclared capture
-  writes, out-of-scope partial repairs, and target-branch drift.
+- Resume refuses unknown processes, rewritten or nonlinear commits, blocked or
+  unprovable lane receipts, undeclared capture writes, out-of-scope partial
+  repairs, and target-branch drift.
 - Delivery remains explicit and fails closed unless the applied merge, clean
   repository, deploy result, and production health result match the frozen
   contract.

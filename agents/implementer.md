@@ -50,7 +50,8 @@ the approved plan, so the receipt is evidence—not authority.
    Repeated score-driven search belongs to `optimization`, not this lane.
 4. Run each assigned acceptance command and any focused checks needed to make
    the result credible. Never claim a command you did not observe passing.
-5. Read Git's changed paths and return them exactly, repository-relative.
+5. Read Git's changed paths and return them exactly, repository-relative. Do not
+   create, amend, merge, or rewrite commits; the controller owns lane commits.
 
 Return one JSON object and no prose:
 
@@ -65,10 +66,11 @@ object with `addressed`: the exact complete list of assigned issue ids:
 {"status":"pass","addressed":["FIX-1"],"changed_files":["relative/path"],"checks":[{"command":"...","passed":true,"evidence":"concise observed result"}],"summary":"what changed and why"}
 ```
 
-When the context also contains `controller_validation_error`, the code change
-is already complete and only the receipt was invalid. Do not edit, create,
-delete, stage, or commit files. Return one corrected repair receipt including
-the exact `addressed` ids.
+Whenever the context contains `controller_validation_error`, the code change is
+already complete and only the receipt was invalid. Do not edit, create, delete,
+stage, or commit files. For an initial implementation, return the first receipt
+shape using the exact `controller_observed_changed_files`. For a review repair,
+return the repair shape and include the exact `addressed` ids.
 
 If implementation or a required check cannot pass, return the same shape with
 `"status":"blocked"`; the controller will stop rather than accepting partial

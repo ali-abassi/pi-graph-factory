@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
-from scripts.agent_adapter import claude_command, decode_output, skill_prompt
+from scripts.agent_adapter import claude_command, claude_usage, decode_output, skill_prompt
 
 
 class AgentAdapterTests(unittest.TestCase):
@@ -62,6 +65,55 @@ class AgentAdapterTests(unittest.TestCase):
                 "Implement the approved UI scope.",
             ],
         )
+
+    def test_claude_command_can_bind_a_durable_session_id(self) -> None:
+        command = claude_command(
+            "claude-sonnet-4-6",
+            "Return the receipt.",
+            "read",
+            session_id="00000000-0000-4000-8000-000000000000",
+        )
+
+        self.assertIn("--session-id", command)
+        self.assertIn("00000000-0000-4000-8000-000000000000", command)
+
+    def test_claude_usage_deduplicates_repeated_jsonl_message_records(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "transcript.jsonl"
+            first = {
+                "type": "assistant",
+                "message": {
+                    "id": "msg-1",
+                    "usage": {
+                        "input_tokens": 1,
+                        "output_tokens": 2,
+                        "cache_creation_input_tokens": 3,
+                        "cache_read_input_tokens": 4,
+                    },
+                },
+            }
+            second = {
+                "type": "assistant",
+                "message": {
+                    "id": "msg-2",
+                    "usage": {
+                        "input_tokens": 5,
+                        "output_tokens": 6,
+                        "cache_creation_input_tokens": 7,
+                        "cache_read_input_tokens": 8,
+                    },
+                },
+            }
+            path.write_text(
+                "\n".join(json.dumps(item) for item in (first, first, second)) + "\n",
+                encoding="utf-8",
+            )
+
+            usage, details = claude_usage(path)
+
+        self.assertEqual(details["unique_messages"], 2)
+        self.assertEqual(details["output_tokens"], 8)
+        self.assertEqual(usage, {"input": 28, "output": 8, "total": 36, "cost": None})
 
 
 if __name__ == "__main__":

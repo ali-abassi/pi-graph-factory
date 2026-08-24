@@ -28,8 +28,8 @@ the overall score `null` and the verdict `revise`.
 
 ### grounding — weight 0.30, critical
 
-- Below bar: contradicts the repository, request, approved answers, vision, or
-  feature map; cites evidence it could not inspect; or guesses a destructive
+- Below bar: contradicts the repository, request, approved answers, vision,
+  feature map, or project taste; cites evidence it could not inspect; or guesses a destructive
   requirement.
 - 7: compatible with the supplied context but mostly generic.
 - 7.5: delta from 7 — names the relevant repository area and current behavior.
@@ -37,6 +37,10 @@ the overall score `null` and the verdict `revise`.
   request, vision, feature-map, or authoritative-source evidence.
 - 8.5: delta from 8 — every material decision and assumption has a defensible
   evidence basis; unnecessary questions have been resolved from available context.
+- For a new product or major redesign, 8.5 also requires at least three
+  inspectable visual references, two genuinely different directions, explicit
+  audience and project-taste grounding, and a selected direction whose rationale
+  follows from observed evidence rather than generic adjectives.
 - 9: delta from 8.5 — competing interpretations were checked and the chosen one
   best fits the existing architecture and project direction.
 - 9.5: delta from 9 — subtle cross-component consequences are grounded too.
@@ -54,6 +58,10 @@ the overall score `null` and the verdict `revise`.
   claim evidence, constraints, and appropriate specialist owner; prompt work
   defines its runtime, trust boundary, typed contract, and representative
   failures; optimization work freezes a complete measurable contract.
+- For visual work, coverage includes the core user loop, required screens and
+  normal/adverse states, asset needs and ownership, originality boundary, and
+  observable quality criteria. Generic placeholder art cannot satisfy an
+  approved direction that requires real art.
 - 9: delta from 8.5 — acceptance gives strong regression coverage for each outcome;
   changed behavior has a credible public test seam, and defect work includes a
   reproduction plus regression proof without testing private implementation.
@@ -75,7 +83,9 @@ the overall score `null` and the verdict `revise`.
   evaluator/data files outside mutable scope, has one machine-readable metric
   command, finite candidate/plateau/time budgets, and controller-only promotion;
   prompt work has the complete runtime contract and all six required case kinds.
-  When prompt evaluation crosses owner boundaries, the same typed evaluation
+  Visual feasibility also requires non-overlapping design/asset ownership, a
+  repository-local driver for the actual user surface, declared proof artifacts,
+  and at least one planned end-to-end execution. When prompt evaluation crosses owner boundaries, the same typed evaluation
   command is top-level acceptance so the controller validates the real combined
   runtime; isolated fallback evidence alone is insufficient.
 - 9: delta from 8.5 — rollback, compatibility, or migration checks exist where risk demands.
@@ -101,7 +111,8 @@ the overall score `null` and the verdict `revise`.
 - 7.5: delta from 7 — cites the request or vision for the main product decision.
 - 8: delta from 7.5 — preserves existing feature-map behavior and conventions.
 - 8.5: delta from 8 — explicitly updates missing or materially changed project
-  memory and uses it to resolve choices instead of asking the user unnecessarily.
+  memory, including `TASTE.md` for visual work, and uses it to resolve choices
+  instead of asking the user unnecessarily.
 - 9: delta from 8.5 — advances the high-level vision beyond merely avoiding conflict.
 - 9.5: delta from 9 — handles tension between short-term request and long-term direction.
 - 10: delta from 9.5 — reference-quality product and architectural alignment.

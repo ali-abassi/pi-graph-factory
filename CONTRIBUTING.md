@@ -25,7 +25,7 @@ topology changes:
 
 ```bash
 .venv/bin/pip install \
-  'git+https://github.com/ali-abassi/pi-graph-core.git@v0.1.0'
+  'git+https://github.com/ali-abassi/agent-workflows.git@v0.2.0'
 .venv/bin/piw validate /tmp/factory.steps.yaml --strict
 ```
 
@@ -33,4 +33,3 @@ Every new automatic action needs a deterministic success test and a refusal
 test. Do not alter benchmark expectations merely to promote a candidate. Keep
 automatic merge disabled in examples and fixtures unless the test specifically
 proves merge behavior inside a temporary repository.
-

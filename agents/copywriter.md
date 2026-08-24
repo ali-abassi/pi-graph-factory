@@ -33,6 +33,7 @@ Return exactly the standard implementer JSON object and no prose:
 
 For a repair, also return `addressed` with every assigned issue id. When the
 context contains `controller_validation_error`, the copy change is already
-complete: do not mutate the worktree and return only the corrected receipt. If
+complete: do not mutate the worktree and return only the corrected receipt,
+using the exact `controller_observed_changed_files` for an initial lane. If
 the contract, evidence, file ownership, or required verification cannot be
 satisfied, return the same shape with `"status":"blocked"`.

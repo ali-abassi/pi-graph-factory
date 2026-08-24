@@ -32,7 +32,7 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check -r requirements-dev.txt
           python -m pip install --disable-pip-version-check \
-            "git+https://github.com/ali-abassi/pi-graph-core.git@v0.1.0"
+            "git+https://github.com/ali-abassi/agent-workflows.git@v0.2.0"
       - name: Lint
         run: python -m ruff check scripts tests
       - name: Test factory contract

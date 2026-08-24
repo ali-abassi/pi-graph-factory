@@ -32,6 +32,13 @@ Never place secrets in:
 - command-line arguments or model-visible environment dumps;
 - committed screenshots, video, browser receipts, logs, or run artifacts.
 
+Planner visual research uses an isolated public browser and writes private raw
+screenshots/output beneath the run's agent-artifact directory. It must not attach
+to a signed-in personal browser, read cookies, purchase, post, or browse private
+accounts. Treat preserved research pages, raw streams, native transcripts, and
+generated-image provenance as sensitive run data even when their source was
+public; do not publish a `.factory/runs/` directory without reviewing it.
+
 The controller rejects likely secret-bearing `.env` files (except conventional
 template names), caches, compiled bytecode, and dependency directories before
 integration. This is defense in depth, not secret scanning or sandboxing.

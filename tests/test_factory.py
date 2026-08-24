@@ -20,6 +20,7 @@ if str(ROOT / "scripts") not in sys.path:
 
 from compile_factory import SCHEMA, compile_factory  # noqa: E402
 from factory import (  # noqa: E402
+    PROJECT_DOC_CONTEXT_LIMIT,
     FactoryError,
     enforce_dispatch_limits,
     is_unsafe_repository_artifact,
@@ -27,6 +28,7 @@ from factory import (  # noqa: E402
     run_optimization_search,
     run_repair,
     run_commands_before_deadline,
+    read_project_memory,
     validate_plan,
     validate_plan_judgment,
     validate_controller_optimization_receipt,
@@ -45,11 +47,18 @@ class FactoryCompilerTests(unittest.TestCase):
         self.assertLessEqual(len(self.factory["implementers"]), 10)
         self.assertIsNone(self.factory["review"]["max_cycles"])
         self.assertEqual(self.factory["review"]["projection_cycles"], 5)
+        roles = [self.factory["planner"], self.factory["plan_review"],
+                 *self.factory["implementers"], self.factory["review"]]
+        for role in roles:
+            self.assertTrue((ROOT / role["instructions"]).is_file())
+            for skill in role.get("skills", []):
+                self.assertTrue((ROOT / skill / "SKILL.md").is_file(), skill)
 
     def test_copywriting_is_a_routable_specialist_without_a_second_lifecycle(self) -> None:
         implementers = {item["id"]: item for item in self.factory["implementers"]}
         self.assertEqual(
-            set(implementers), {"product", "design", "copy", "prompt", "optimization"}
+            set(implementers),
+            {"product", "design", "visual-assets", "copy", "prompt", "optimization"},
         )
         for owner in ("product", "design", "copy"):
             self.assertIn("skills/evil-genius-copywriter", implementers[owner]["skills"])
@@ -61,6 +70,12 @@ class FactoryCompilerTests(unittest.TestCase):
         self.assertIn("skills/evil-genius-copywriter", self.factory["review"]["skills"])
         self.assertIn("skills/prompt-engineering", self.factory["review"]["skills"])
         self.assertIn("skills/improvement", self.factory["review"]["skills"])
+        self.assertIn("skills/taste", self.factory["planner"]["skills"])
+        self.assertIn("skills/visual-research", self.factory["planner"]["skills"])
+        self.assertIn("skills/decision-making", self.factory["planner"]["skills"])
+        self.assertIn("skills/deep-thinking", self.factory["plan_review"]["skills"])
+        self.assertIn("skills/image-generation", implementers["visual-assets"]["skills"])
+        self.assertEqual(implementers["visual-assets"]["harness"], "codex")
 
         workflow = compile_factory(self.factory)
         steps = {step["id"]: step for step in workflow["steps"]}
@@ -72,6 +87,7 @@ class FactoryCompilerTests(unittest.TestCase):
             [
                 "implement-product",
                 "implement-design",
+                "implement-visual-assets",
                 "implement-copy",
                 "implement-prompt",
                 "implement-optimization",
@@ -108,6 +124,109 @@ class FactoryCompilerTests(unittest.TestCase):
             require_versioned=True,
             evidence_policy="plan",
         )
+
+    def test_visual_plans_require_research_direction_assets_and_real_proof(self) -> None:
+        implementers = {item["id"] for item in self.factory["implementers"]}
+        plan = {
+            "version": 1,
+            "summary": "Build one polished game loop with original generated art.",
+            "proof": {"mode": "visual", "reason": "The result is interactive and visual."},
+            "research": [{
+                "question": "What makes the target loop legible?",
+                "finding": "Three inspected listings prioritize the vehicle and immediate action.",
+                "evidence": ["https://apps.apple.com/example"],
+            }],
+            "assumptions": [],
+            "success_criteria": [{
+                "id": "SC-LOOP",
+                "description": "The player can complete one polished driving loop.",
+            }],
+            "tasks": [
+                {
+                    "id": "build-ui",
+                    "owner": "design",
+                    "files": ["GameUI/**"],
+                    "acceptance": ["test -f GameUI/GameView.swift"],
+                },
+                {
+                    "id": "make-art",
+                    "owner": "visual-assets",
+                    "files": ["Assets/**"],
+                    "acceptance": ["test -f Assets/truck.png"],
+                },
+            ],
+            "visual_contract": {
+                "kind": "new_product",
+                "audience": "Players who want a quick tactile monster-truck session.",
+                "references": [
+                    {"source": f"https://apps.apple.com/example-{index}",
+                     "observed": "The core action is visible in the first gameplay frame.",
+                     "adopt": "Lead with readable vehicle scale and terrain contrast.",
+                     "avoid": "Do not copy branded vehicles or level composition."}
+                    for index in range(3)
+                ],
+                "alternatives": [
+                    {"name": "toy-diorama", "premise": "Tactile tabletop spectacle.",
+                     "tradeoffs": ["Readable but less realistic."]},
+                    {"name": "stadium-impact", "premise": "High-energy arena action.",
+                     "tradeoffs": ["Exciting but visually denser."]},
+                ],
+                "selected_direction": "Toy-diorama for immediate mobile readability.",
+                "principles": ["Readable silhouette", "Tactile terrain", "Immediate feedback"],
+                "screens": [{"id": "drive", "purpose": "Play the core loop.",
+                             "states": ["ready", "driving", "crashed"]}],
+                "assets": [{"id": "truck", "owner": "visual-assets",
+                            "files": ["Assets/truck.png"], "source": "generated",
+                            "brief": "Original side-view truck with transparent background."}],
+                "originality": "Use only general genre patterns and original vehicle art.",
+                "quality_bar": ["No clipped controls", "Truck is visually dominant",
+                                "Crash feedback is visible"],
+                "verification": {"surface": "iOS Simulator", "driver": "scripts/verify-ios.sh",
+                                 "evidence": ["evidence/drive.png", "evidence/drive.mp4"],
+                                 "feature_coverage": ["SC-LOOP"]},
+            },
+            "acceptance": ["test -f GameUI/GameView.swift", "test -f Assets/truck.png"],
+            "risks": [],
+            "open_questions": [],
+        }
+        validate_plan(plan, implementers, require_versioned=True, evidence_policy="plan")
+
+        missing = copy.deepcopy(plan)
+        missing.pop("visual_contract")
+        with self.assertRaisesRegex(FactoryError, "require a visual_contract"):
+            validate_plan(missing, implementers, require_versioned=True, evidence_policy="plan")
+
+        under_researched = copy.deepcopy(plan)
+        under_researched["visual_contract"]["references"] = [
+            under_researched["visual_contract"]["references"][0]
+        ]
+        with self.assertRaisesRegex(FactoryError, "at least 3 references"):
+            validate_plan(
+                under_researched, implementers, require_versioned=True, evidence_policy="plan"
+            )
+
+        wrong_asset_owner = copy.deepcopy(plan)
+        wrong_asset_owner["visual_contract"]["assets"][0]["owner"] = "design"
+        wrong_asset_owner["visual_contract"]["assets"][0]["files"] = ["GameUI/truck.png"]
+        with self.assertRaisesRegex(FactoryError, "must be owned by visual-assets"):
+            validate_plan(
+                wrong_asset_owner, implementers, require_versioned=True,
+                evidence_policy="plan",
+            )
+
+    def test_project_memory_retains_75000_characters_and_marks_overflow(self) -> None:
+        self.assertEqual(PROJECT_DOC_CONTEXT_LIMIT, 75_000)
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            for name in ("VISION.md", "FEATURE_MAP.md", "TASTE.md"):
+                (repo / name).write_text("x" * (PROJECT_DOC_CONTEXT_LIMIT + 1))
+            memory = read_project_memory(repo)
+        self.assertEqual(memory["missing"], [])
+        self.assertEqual(set(memory["truncated"]), {"VISION.md", "FEATURE_MAP.md", "TASTE.md"})
+        self.assertTrue(all(
+            len(content) == PROJECT_DOC_CONTEXT_LIMIT
+            for content in memory["documents"].values()
+        ))
 
     def test_plan_cannot_use_controller_owned_delivery_as_acceptance(self) -> None:
         plan = {

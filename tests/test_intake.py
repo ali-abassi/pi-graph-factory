@@ -214,6 +214,7 @@ class FactoryIntakeTests(unittest.TestCase):
         vision = (target / "VISION.md").read_text()
         self.assertIn("Run one proven example.", vision)
         self.assertNotIn("Self-Grill Ledger", vision)
+        self.assertTrue((target / "TASTE.md").is_file())
 
 
 if __name__ == "__main__":

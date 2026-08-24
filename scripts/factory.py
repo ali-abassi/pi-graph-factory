@@ -76,8 +76,8 @@ node_modules/
 graphify-out/
 """
 
-PROJECT_DOCS = ("VISION.md", "FEATURE_MAP.md")
-PROJECT_DOC_CONTEXT_LIMIT = 25_000
+PROJECT_DOCS = ("VISION.md", "FEATURE_MAP.md", "TASTE.md")
+PROJECT_DOC_CONTEXT_LIMIT = 75_000
 PLAN_RUBRIC_VERSION = "plan-quality-v1"
 PLAN_JUDGE_DIMENSIONS = {
     "grounding": {"weight": 0.30, "critical": True},
@@ -88,6 +88,7 @@ PLAN_JUDGE_DIMENSIONS = {
 }
 PROMPT_OWNER = "prompt"
 OPTIMIZATION_OWNER = "optimization"
+VISUAL_ASSET_OWNER = "visual-assets"
 PROMPT_CASE_KINDS = {
     "happy_path",
     "missing_input",
@@ -819,6 +820,189 @@ def matches_scope(path: str, patterns: list[str]) -> bool:
     return any(fnmatch.fnmatchcase(normalized, pattern) for pattern in patterns)
 
 
+def validate_visual_contract(plan: dict[str, Any], *, required: bool) -> None:
+    contract = plan.get("visual_contract")
+    if contract is None:
+        if required:
+            raise FactoryError("generated visual plans require a visual_contract")
+        return
+    if not isinstance(contract, dict):
+        raise FactoryError("visual_contract must be an object")
+    if plan.get("proof", {}).get("mode") != "visual":
+        raise FactoryError("visual_contract requires proof.mode visual")
+    fields = {
+        "kind",
+        "audience",
+        "references",
+        "alternatives",
+        "selected_direction",
+        "principles",
+        "screens",
+        "assets",
+        "originality",
+        "quality_bar",
+        "verification",
+    }
+    missing = fields - set(contract)
+    if missing:
+        raise FactoryError("visual_contract is missing fields: " + repr(sorted(missing)))
+    kind = contract["kind"]
+    if kind not in {"new_product", "major_redesign", "incremental"}:
+        raise FactoryError(
+            "visual_contract kind must be new_product|major_redesign|incremental"
+        )
+    for field in ("audience", "selected_direction", "originality"):
+        value = contract[field]
+        if not isinstance(value, str) or not value.strip():
+            raise FactoryError(f"visual_contract {field} must be a non-empty string")
+        contract[field] = value.strip()
+
+    references = contract["references"]
+    minimum_references = 3 if kind in {"new_product", "major_redesign"} else 1
+    if not isinstance(references, list) or len(references) < minimum_references:
+        raise FactoryError(
+            f"visual_contract {kind} requires at least {minimum_references} references"
+        )
+    seen_sources: set[str] = set()
+    for reference in references:
+        if not isinstance(reference, dict) or not {
+            "source", "observed", "adopt", "avoid"
+        } <= set(reference):
+            raise FactoryError(
+                "visual_contract references need source, observed, adopt, and avoid"
+            )
+        values = [reference[field] for field in ("source", "observed", "adopt", "avoid")]
+        if not all(isinstance(value, str) and value.strip() for value in values):
+            raise FactoryError("visual_contract reference fields must be non-empty strings")
+        source = reference["source"].strip()
+        if source in seen_sources:
+            raise FactoryError("visual_contract reference sources must be unique")
+        seen_sources.add(source)
+
+    alternatives = contract["alternatives"]
+    minimum_alternatives = 2 if kind in {"new_product", "major_redesign"} else 0
+    if not isinstance(alternatives, list) or len(alternatives) < minimum_alternatives:
+        raise FactoryError(
+            f"visual_contract {kind} requires at least {minimum_alternatives} alternatives"
+        )
+    names: set[str] = set()
+    for alternative in alternatives:
+        if not isinstance(alternative, dict) or not {
+            "name", "premise", "tradeoffs"
+        } <= set(alternative):
+            raise FactoryError(
+                "visual_contract alternatives need name, premise, and tradeoffs"
+            )
+        name = alternative["name"]
+        if (
+            not isinstance(name, str)
+            or not name.strip()
+            or name.strip() in names
+            or not isinstance(alternative["premise"], str)
+            or not alternative["premise"].strip()
+            or not isinstance(alternative["tradeoffs"], list)
+            or not alternative["tradeoffs"]
+            or not all(
+                isinstance(item, str) and item.strip()
+                for item in alternative["tradeoffs"]
+            )
+        ):
+            raise FactoryError("visual_contract alternative is invalid or duplicated")
+        names.add(name.strip())
+
+    for field in ("principles", "quality_bar"):
+        values = contract[field]
+        minimum = 3 if kind in {"new_product", "major_redesign"} else 1
+        if (
+            not isinstance(values, list)
+            or len(values) < minimum
+            or not all(isinstance(item, str) and item.strip() for item in values)
+        ):
+            raise FactoryError(
+                f"visual_contract {field} requires at least {minimum} non-empty items"
+            )
+
+    screens = contract["screens"]
+    if not isinstance(screens, list) or not screens:
+        raise FactoryError("visual_contract screens must be a non-empty array")
+    screen_ids: set[str] = set()
+    for screen in screens:
+        if not isinstance(screen, dict) or not {"id", "purpose", "states"} <= set(screen):
+            raise FactoryError("visual_contract screens need id, purpose, and states")
+        identifier = screen["id"]
+        if (
+            not isinstance(identifier, str)
+            or not TASK_ID.fullmatch(identifier)
+            or identifier in screen_ids
+            or not isinstance(screen["purpose"], str)
+            or not screen["purpose"].strip()
+            or not isinstance(screen["states"], list)
+            or not screen["states"]
+            or not all(isinstance(item, str) and item.strip() for item in screen["states"])
+        ):
+            raise FactoryError("visual_contract screen is invalid or duplicated")
+        screen_ids.add(identifier)
+
+    tasks_by_owner = {
+        owner: [task for task in plan["tasks"] if task["owner"] == owner]
+        for owner in {task["owner"] for task in plan["tasks"]}
+    }
+    assets = contract["assets"]
+    if not isinstance(assets, list):
+        raise FactoryError("visual_contract assets must be an array")
+    asset_ids: set[str] = set()
+    for asset in assets:
+        if not isinstance(asset, dict) or not {
+            "id", "owner", "files", "source", "brief"
+        } <= set(asset):
+            raise FactoryError(
+                "visual_contract assets need id, owner, files, source, and brief"
+            )
+        identifier = asset["id"]
+        owner = asset["owner"]
+        if (
+            not isinstance(identifier, str)
+            or not TASK_ID.fullmatch(identifier)
+            or identifier in asset_ids
+            or owner not in tasks_by_owner
+            or asset["source"] not in {"generated", "existing", "native"}
+            or not isinstance(asset["brief"], str)
+            or not asset["brief"].strip()
+            or not isinstance(asset["files"], list)
+            or not asset["files"]
+        ):
+            raise FactoryError("visual_contract asset is invalid or duplicated")
+        files = [validate_repo_pattern(path) for path in asset["files"]]
+        owner_patterns = [
+            pattern for task in tasks_by_owner[owner] for pattern in task["files"]
+        ]
+        if not all(matches_scope(path, owner_patterns) for path in files):
+            raise FactoryError("visual_contract asset files must belong to their owner")
+        if asset["source"] == "generated" and owner != VISUAL_ASSET_OWNER:
+            raise FactoryError("generated visual assets must be owned by visual-assets")
+        asset["files"] = files
+        asset_ids.add(identifier)
+
+    verification = contract["verification"]
+    if not isinstance(verification, dict) or not {
+        "surface", "driver", "evidence", "feature_coverage"
+    } <= set(verification):
+        raise FactoryError(
+            "visual_contract verification needs surface, driver, evidence, and feature_coverage"
+        )
+    for field in ("surface", "driver"):
+        if not isinstance(verification[field], str) or not verification[field].strip():
+            raise FactoryError(f"visual_contract verification {field} must be non-empty")
+    for field in ("evidence", "feature_coverage"):
+        values = verification[field]
+        if not isinstance(values, list) or not values or not all(
+            isinstance(item, str) and item.strip() for item in values
+        ):
+            raise FactoryError(
+                f"visual_contract verification {field} must contain non-empty strings"
+            )
+
+
 def acceptance_for_tasks(tasks: list[dict[str, Any]]) -> list[str]:
     return list(dict.fromkeys(command for task in tasks for command in task["acceptance"]))
 
@@ -1086,6 +1270,18 @@ def ensure_repo(path: Path, new_repo: bool, request: str = "") -> Path:
         (path / "FEATURE_MAP.md").write_text(
             "# Feature map\n\nNo implemented features yet. Update this map when the "
             "factory adds or materially changes a product capability.\n",
+            encoding="utf-8",
+        )
+        (path / "TASTE.md").write_text(
+            "# Taste\n\n## Audience and moment\n\n"
+            + request.strip()
+            + "\n\n## Direction\n\n"
+            "- Research the relevant product category before locking a visual direction.\n"
+            "- Prefer one polished core experience over a broad collection of rough features.\n"
+            "- Follow native platform behavior without defaulting to generic cards, emoji, "
+            "or placeholder art.\n\n"
+            "## References and anti-references\n\n"
+            "Record approved references, what to use, and what to avoid before visual work.\n",
             encoding="utf-8",
         )
         git(path, "add", ".gitignore", *PROJECT_DOCS)
@@ -1424,6 +1620,12 @@ def validate_plan(
                     f"{task['owner']} and {other_owner}"
                 )
             ownership.append((pattern, task["owner"]))
+    validate_visual_contract(
+        plan,
+        required=require_versioned
+        and isinstance(plan.get("proof"), dict)
+        and plan["proof"].get("mode") == "visual",
+    )
     validate_prompt_contract(plan)
     validate_optimization_contract(plan)
     missing_docs = {
@@ -1931,13 +2133,28 @@ def record_usage(state: dict[str, Any], receipt: dict[str, Any]) -> None:
         {"calls": 0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0,
          "cost_usd": 0.0, "unknown_calls": 0},
     )
-    usage["calls"] += 1
+    call_count = receipt.get("usage_calls", 1)
+    if isinstance(call_count, bool) or not isinstance(call_count, int) or call_count < 1:
+        raise FactoryError(f"{receipt.get('role', 'agent')} receipt has invalid usage_calls")
+    usage["calls"] += call_count
     usage["input_tokens"] += int(values["input"] or 0)
     usage["output_tokens"] += int(values["output"] or 0)
     usage["total_tokens"] += int(values["total"] or 0)
     usage["cost_usd"] += float(values["cost"] or 0)
-    if values["total"] is None or values["cost"] is None:
-        usage["unknown_calls"] += 1
+    unknown_calls = receipt.get(
+        "usage_unknown_calls",
+        int(values["total"] is None or values["cost"] is None),
+    )
+    if (
+        isinstance(unknown_calls, bool)
+        or not isinstance(unknown_calls, int)
+        or unknown_calls < 0
+        or unknown_calls > call_count
+    ):
+        raise FactoryError(
+            f"{receipt.get('role', 'agent')} receipt has invalid usage_unknown_calls"
+        )
+    usage["unknown_calls"] += unknown_calls
 
 
 def enforce_dispatch_limits(state: dict[str, Any], limits: dict[str, Any], role: str) -> None:
@@ -1970,6 +2187,26 @@ def safe_agent_error(raw: str) -> str:
         excerpt,
     )
     return re.sub(r"\b(?:sk|sk-ant)-[A-Za-z0-9_-]{16,}\b", "[REDACTED]", excerpt)
+
+
+def persist_adapter_streams(directory: Path, stdout: str, stderr: str) -> dict[str, Any]:
+    """Preserve every local adapter attempt, including failures and fixture runs."""
+
+    directory.mkdir(parents=True, exist_ok=True)
+    directory.chmod(0o700)
+    files = []
+    for name, value in (("adapter.stdout", stdout), ("adapter.stderr", stderr)):
+        path = directory / name
+        path.write_text(value, encoding="utf-8")
+        path.chmod(0o600)
+        files.append(
+            {
+                "path": str(path),
+                "bytes": path.stat().st_size,
+                "sha256": digest_bytes(path.read_bytes()),
+            }
+        )
+    return {"directory": str(directory), "files": files}
 
 
 def is_transient_agent_failure(message: str) -> bool:
@@ -2006,9 +2243,6 @@ def is_transient_agent_failure(message: str) -> bool:
 
 def invoke_agent(run: Path, state: dict[str, Any], agent: dict[str, Any], role: str,
                  cwd: Path, context: dict[str, Any], limits: dict[str, Any]) -> dict[str, Any]:
-    context_path = run / "contexts" / f"{role.replace(':', '-')}.json"
-    atomic_json(context_path, context)
-    active_path = run / "active" / f"{role.replace(':', '-')}.json"
     max_attempts = limits.get("max_agent_attempts", 3)
     backoff_seconds = limits.get("agent_retry_backoff_seconds", 5)
     invocation_started_at = now()
@@ -2016,6 +2250,14 @@ def invoke_agent(run: Path, state: dict[str, Any], agent: dict[str, Any], role: 
         f"{role}\0{invocation_started_at}\0{digest_json(context)}".encode()
     ).hexdigest()[:12]
     safe_role = role.replace(":", "-")
+    context_path = run / "contexts" / f"{safe_role}-{invocation_id}.json"
+    atomic_json(context_path, context)
+    context_artifact = {
+        "path": str(context_path),
+        "bytes": context_path.stat().st_size,
+        "sha256": digest_bytes(context_path.read_bytes()),
+    }
+    active_path = run / "active" / f"{safe_role}.json"
     transient_failures = 0
     total_attempt = 0
     selected_agent: dict[str, Any] | None = None
@@ -2046,6 +2288,11 @@ def invoke_agent(run: Path, state: dict[str, Any], agent: dict[str, Any], role: 
         )
         for provider_attempt in range(1, max_attempts + 1):
             total_attempt += 1
+            attempt_directory = (
+                run / "logs" / safe_role / f"{invocation_id}-attempt-{total_attempt}"
+            )
+            attempt_directory.mkdir(parents=True, exist_ok=True)
+            attempt_directory.chmod(0o700)
             process = subprocess.Popen(
                 command,
                 cwd=cwd,
@@ -2054,7 +2301,11 @@ def invoke_agent(run: Path, state: dict[str, Any], agent: dict[str, Any], role: 
                 stderr=subprocess.PIPE,
                 encoding="utf-8",
                 errors="replace",
-                env={**os.environ, "WORKFLOW_DIR": str(ROOT)},
+                env={
+                    **os.environ,
+                    "WORKFLOW_DIR": str(ROOT),
+                    "PI_GRAPH_FACTORY_AGENT_ARTIFACT_DIR": str(attempt_directory),
+                },
                 start_new_session=True,
             )
             atomic_json(
@@ -2072,6 +2323,8 @@ def invoke_agent(run: Path, state: dict[str, Any], agent: dict[str, Any], role: 
                     "max_provider_attempts": max_attempts,
                     "harness": configured_agent["harness"],
                     "model": configured_agent["model"],
+                    "artifact_directory": str(attempt_directory),
+                    "context": context_artifact,
                 },
             )
             try:
@@ -2082,18 +2335,24 @@ def invoke_agent(run: Path, state: dict[str, Any], agent: dict[str, Any], role: 
                 except ProcessLookupError:
                     pass
                 try:
-                    process.communicate(timeout=limits["termination_grace_seconds"])
+                    stdout, stderr = process.communicate(
+                        timeout=limits["termination_grace_seconds"]
+                    )
                 except subprocess.TimeoutExpired:
                     try:
                         os.killpg(process.pid, signal.SIGKILL)
                     except ProcessLookupError:
                         pass
-                    process.communicate()
+                    stdout, stderr = process.communicate()
+                persist_adapter_streams(attempt_directory, stdout, stderr)
                 raise FactoryError(
                     f"{role} adapter exceeded {timeout}s timeout"
                 ) from error
             finally:
                 active_path.unlink(missing_ok=True)
+            adapter_artifacts = persist_adapter_streams(
+                attempt_directory, stdout, stderr
+            )
             if not process.returncode:
                 selected_agent = configured_agent
                 selected_provider_index = provider_index
@@ -2122,6 +2381,8 @@ def invoke_agent(run: Path, state: dict[str, Any], agent: dict[str, Any], role: 
                     "will_retry": retryable and not provider_exhausted,
                     "will_fallback": retryable and provider_exhausted and has_fallback,
                     "error": message,
+                    "context": context_artifact,
+                    "artifacts": adapter_artifacts,
                     "observed_at": now(),
                 },
             )
@@ -2159,6 +2420,8 @@ def invoke_agent(run: Path, state: dict[str, Any], agent: dict[str, Any], role: 
     payload["fallback_index"] = selected_provider_index
     payload["requested_harness"] = agent["harness"]
     payload["requested_model"] = agent["model"]
+    payload["context"] = context_artifact
+    payload["attempt_artifacts"] = adapter_artifacts
     payload["receipt_sha256"] = digest_json(payload)
     atomic_json(
         run / "receipts" / f"agent-{safe_role}-{payload['receipt_sha256'][:12]}.json",
@@ -2560,6 +2823,39 @@ def run_optimization_search(
     }
 
 
+def implementation_receipt_error(receipt: dict[str, Any]) -> str | None:
+    """Explain the first protocol defect without treating a blocked lane as retryable."""
+
+    if receipt.get("status") not in {"passed", "invalid"}:
+        return f"adapter status is {receipt.get('status')!r}"
+    output = receipt.get("output")
+    if not isinstance(output, dict):
+        return "output must be an object"
+    if output.get("status") != "pass":
+        return f"output status must be 'pass', got {output.get('status')!r}"
+    missing = [
+        field
+        for field in ("changed_files", "checks", "summary")
+        if field not in output
+    ]
+    if missing:
+        return f"output is missing required fields: {', '.join(missing)}"
+    if not isinstance(output["changed_files"], list):
+        return "changed_files must be a list"
+    if not isinstance(output["checks"], list) or not output["checks"]:
+        return "checks must be a non-empty list"
+    if not isinstance(output["summary"], str) or not output["summary"].strip():
+        return "summary must be a non-empty string"
+    return None
+
+
+def correctable_implementation_receipt(receipt: dict[str, Any]) -> bool:
+    """Allow one syntax/protocol correction, never turn an explicit block into a pass."""
+
+    output = receipt.get("output")
+    return not (isinstance(output, dict) and output.get("status") == "blocked")
+
+
 def execute_lane(
     run: Path,
     state: dict[str, Any],
@@ -2596,27 +2892,31 @@ def execute_lane(
     baseline_tracked = {
         path for path in git(workspace, "ls-files", "-z").split("\0") if path
     }
-    receipt = invoke_agent(
-        run,
-        state,
-        agent,
-        f"implement:{owner}",
-        workspace,
-        {"request": state["request"], "plan": state["plan"], "tasks": tasks,
-         "evidence": evidence_spec,
-         "repository_intelligence": state.get("repository_intelligence"),
-         "project_memory": durable_project_memory(run)},
-        limits,
-    )
-    output = receipt["output"]
-    if (
-        receipt["status"] != "passed"
-        or not isinstance(output, dict)
-        or output.get("status") != "pass"
-        or not output.get("checks")
-        or not isinstance(output.get("changed_files"), list)
-    ):
-        raise FactoryError(f"implementer {owner} did not return a passing receipt")
+    implementation_context = {
+        "request": state["request"],
+        "plan": state["plan"],
+        "tasks": tasks,
+        "evidence": evidence_spec,
+        "repository_intelligence": state.get("repository_intelligence"),
+        "project_memory": durable_project_memory(run),
+    }
+    resumed_changes = worktree_changed_files(workspace)
+    if resumed_changes:
+        receipt = latest_agent_receipt(run, f"implement:{owner}")
+        if receipt is None:
+            raise FactoryError(
+                f"resume found uncommitted {owner} work without its durable agent receipt"
+            )
+    else:
+        receipt = invoke_agent(
+            run,
+            state,
+            agent,
+            f"implement:{owner}",
+            workspace,
+            implementation_context,
+            limits,
+        )
     agent_commit_recovery = normalize_agent_created_commits(
         run,
         owner,
@@ -2625,8 +2925,80 @@ def execute_lane(
         baseline_head,
         receipt["receipt_sha256"],
     )
+    if agent_commit_recovery is None and resumed_changes:
+        agent_commit_recovery = latest_agent_commit_recovery(run, owner)
     git(workspace, "add", "-A")
     actual = staged_files(workspace)
+    protocol_error = implementation_receipt_error(receipt)
+    if protocol_error is not None:
+        if not correctable_implementation_receipt(receipt):
+            raise FactoryError(
+                f"implementer {owner} did not return a passing receipt: {protocol_error}"
+            )
+        correction_digest = staged_change_digest(workspace)
+        correction_head = git(workspace, "rev-parse", "HEAD")
+        correction_branch = git(workspace, "branch", "--show-current")
+        initial_receipt = receipt
+        correction_agent = {**agent, "skills": [], "tools": ["read"]}
+        receipt = invoke_agent(
+            run,
+            state,
+            correction_agent,
+            f"implement:{owner}",
+            workspace,
+            {
+                **implementation_context,
+                "previous_invalid_receipt": initial_receipt.get("output"),
+                "controller_validation_error": protocol_error,
+                "controller_observed_changed_files": actual,
+                "repair_instruction": (
+                    "Return a complete corrected receipt for work already performed. "
+                    "Do not edit, create, delete, stage, or commit any file."
+                ),
+            },
+            limits,
+        )
+        git(workspace, "add", "-A")
+        if (
+            git(workspace, "rev-parse", "HEAD") != correction_head
+            or git(workspace, "branch", "--show-current") != correction_branch
+            or staged_files(workspace) != actual
+            or staged_change_digest(workspace) != correction_digest
+        ):
+            raise FactoryError(
+                f"implementation receipt correction for {owner} mutated repository files"
+            )
+        corrected_error = implementation_receipt_error(receipt)
+        if corrected_error is not None:
+            raise FactoryError(
+                f"implementer {owner} did not return a passing receipt after one "
+                f"read-only correction: {corrected_error}"
+            )
+        protocol_receipts = [initial_receipt, receipt]
+        receipt["usage"] = aggregate_agent_usage(protocol_receipts)
+        receipt["usage_calls"] = len(protocol_receipts)
+        receipt["usage_unknown_calls"] = sum(
+            int(
+                validated_usage(item)["total"] is None
+                or validated_usage(item)["cost"] is None
+            )
+            for item in protocol_receipts
+        )
+        receipt["protocol_correction"] = {
+            "attempts": 2,
+            "initial_receipt_sha256": initial_receipt["receipt_sha256"],
+            "validation_error": protocol_error,
+            "repository_digest": correction_digest,
+        }
+        receipt.pop("receipt_sha256", None)
+        receipt["receipt_sha256"] = digest_json(receipt)
+        atomic_json(
+            run / "receipts" / (
+                f"implementation-protocol-{owner}-{receipt['receipt_sha256'][:12]}.json"
+            ),
+            receipt,
+        )
+    output = receipt["output"]
     claimed = sorted(output["changed_files"])
     actual, scope_correction = discard_untracked_scope_escapes(
         run,
@@ -3485,6 +3857,17 @@ def latest_agent_receipt(run: Path, role: str) -> dict[str, Any] | None:
     return max(matches, default=(0, None), key=lambda item: item[0])[1]
 
 
+def latest_agent_commit_recovery(run: Path, owner: str) -> dict[str, Any] | None:
+    matches = []
+    for path in (run / "receipts").glob(f"agent-commit-recovery-{owner}-*.json"):
+        try:
+            receipt = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        matches.append((path.stat().st_mtime_ns, receipt))
+    return max(matches, default=(0, None), key=lambda item: item[0])[1]
+
+
 def recover_committed_lane(
     run: Path,
     state: dict[str, Any],
@@ -3499,8 +3882,6 @@ def recover_committed_lane(
     head = git(workspace, "rev-parse", "HEAD")
     if head == state["base_commit"]:
         return None
-    if git(workspace, "log", "-1", "--format=%s") != f"factory({owner}): implement approved task":
-        raise FactoryError(f"resume found an unrecognized commit in {owner} lane")
     actual = sorted(
         git(workspace, "diff", "--name-only", f"{state['base_commit']}..{head}").splitlines()
     )
@@ -3508,11 +3889,25 @@ def recover_committed_lane(
     receipt = latest_agent_receipt(run, f"implement:{owner}")
     if receipt is None:
         raise FactoryError(f"resume found committed {owner} work without its durable agent receipt")
+    if git(workspace, "log", "-1", "--format=%s") != f"factory({owner}): implement approved task":
+        protocol_error = implementation_receipt_error(receipt)
+        if protocol_error is not None and not correctable_implementation_receipt(receipt):
+            raise FactoryError(
+                f"resume found a blocked or failed durable receipt for committed lane "
+                f"{owner}: {protocol_error}"
+            )
+        normalize_agent_created_commits(
+            run,
+            owner,
+            workspace,
+            branch,
+            state["base_commit"],
+            receipt["receipt_sha256"],
+        )
+        return None
     output = receipt.get("output")
     if (
-        receipt.get("status") != "passed"
-        or not isinstance(output, dict)
-        or output.get("status") != "pass"
+        implementation_receipt_error(receipt) is not None
         or sorted(output.get("changed_files", [])) != actual
     ):
         raise FactoryError(f"resume found an invalid durable receipt for committed lane {owner}")
@@ -3619,6 +4014,20 @@ def continue_implementation(
                     "receipt": completed["receipt"],
                 }
                 record_usage(state, completed["receipt"])
+                protocol_correction = completed["receipt"].get("protocol_correction")
+                if protocol_correction:
+                    save_state(
+                        run,
+                        state,
+                        "implementation_receipt_corrected",
+                        {
+                            "owner": owner,
+                            "validation_error": protocol_correction["validation_error"],
+                            "initial_receipt_sha256": protocol_correction[
+                                "initial_receipt_sha256"
+                            ],
+                        },
+                    )
                 save_state(
                     run,
                     state,
@@ -3906,6 +4315,45 @@ def active_agent_records(run: Path) -> list[dict[str, Any]]:
             pid = int(record["pid"])
             os.kill(pid, 0)
             record["alive"] = True
+            activity = []
+            artifact_value = record.get("artifact_directory")
+            artifact_directory = Path(artifact_value) if artifact_value else None
+            if artifact_directory is not None and artifact_directory.is_dir():
+                activity.append(
+                    (artifact_directory.stat().st_mtime, str(artifact_directory))
+                )
+                for item in artifact_directory.rglob("*"):
+                    try:
+                        if item.is_file():
+                            activity.append((item.stat().st_mtime, str(item)))
+                    except OSError:
+                        continue
+                session_path = artifact_directory / "session.json"
+                if session_path.is_file():
+                    session = json.loads(session_path.read_text(encoding="utf-8"))
+                    session_id = session.get("session_id")
+                    if isinstance(session_id, str):
+                        native = list(
+                            (Path.home() / ".claude" / "projects").glob(
+                                f"*/{session_id}.jsonl"
+                            )
+                        )
+                        if len(native) == 1:
+                            record["native_transcript"] = str(native[0])
+                            activity.append((native[0].stat().st_mtime, str(native[0])))
+            cwd = Path(record.get("cwd", ""))
+            if cwd.is_dir():
+                for changed in worktree_changed_files(cwd):
+                    candidate = cwd / changed
+                    if candidate.is_file():
+                        activity.append((candidate.stat().st_mtime, str(candidate)))
+            if activity:
+                modified, source = max(activity)
+                record["last_activity_at"] = dt.datetime.fromtimestamp(
+                    modified, dt.timezone.utc
+                ).isoformat()
+                record["last_activity_source"] = source
+                record["inactive_seconds"] = max(0.0, time.time() - modified)
         except ProcessLookupError:
             record["alive"] = False
         except (OSError, ValueError, KeyError):
@@ -4096,6 +4544,14 @@ def cmd_inspect(args: argparse.Namespace) -> dict[str, Any]:
             "changed_files": worktree_changed_files(workspace) if workspace.exists() else [],
         }
     resumable = state["phase"] in {"implementing", "reviewing"}
+    blockers = []
+    if state.get("last_error"):
+        blockers.append(state["last_error"])
+    latest_review = state.get("final_review")
+    if not latest_review and state.get("cycles"):
+        latest_review = state["cycles"][-1].get("review")
+    if isinstance(latest_review, dict) and latest_review.get("verdict") == "repair":
+        blockers.extend(latest_review.get("issues", []))
     return {
         "ok": True,
         "run": str(run),
@@ -4104,6 +4560,8 @@ def cmd_inspect(args: argparse.Namespace) -> dict[str, Any]:
         "resumable": resumable,
         "next_command": f"factory resume --run {run}" if resumable else None,
         "last_error": state.get("last_error"),
+        "blockers": blockers,
+        "usage": state.get("usage"),
         "active_agents": active_agent_records(run),
         "lanes": lanes,
         "integration": state.get("integration"),
@@ -4115,6 +4573,11 @@ def cmd_inspect(args: argparse.Namespace) -> dict[str, Any]:
             "plans": [str(path) for path in sorted((run / "plans").glob("*.json"))],
             "contexts": [str(path) for path in sorted((run / "contexts").glob("*.json"))],
             "receipts": [str(path) for path in sorted((run / "receipts").glob("*.json"))],
+            "logs": [
+                str(path)
+                for path in sorted((run / "logs").glob("*/*"))
+                if path.is_dir()
+            ],
             "evidence": [str(path) for path in sorted((run / "evidence").glob("*.json"))],
             "intelligence": [
                 str(path) for path in sorted((run / "intelligence").glob("*.json"))

@@ -15,7 +15,7 @@ request or issue
 interactive grill (+ optional domain docs) | autonomous self-grill | direct
       |
       v
-Graphify + VISION.md + FEATURE_MAP.md
+Graphify + VISION.md + FEATURE_MAP.md + TASTE.md
       |
       v
 planner <-> independent plan judge (8.5/10, three cycles maximum)
@@ -27,8 +27,8 @@ judge authorizes the exact typed-plan SHA-256
       |
       v
        1-10 specialist implementers in isolated Git worktrees
-       product | UI design | copy | prompt | optimization | configured
-             |          |        |        |              |
+       product | UI design | visual assets | copy | prompt | optimization | configured
+             |          |               |        |        |              |
                  +--- deterministic integration
                               |
                   tests + proportional proof
@@ -59,8 +59,9 @@ Read [VISION.md](VISION.md) for the intended product and
 - Automatic Graphify setup and commit-aware refresh for code repositories,
   with DeepSeek V4 Flash enrichment of repository docs and community labels;
   code-free new projects defer indexing until implementation creates code.
-- Durable `VISION.md` and `FEATURE_MAP.md` project memory. Generated plans must
-  create either file when an existing repository lacks it.
+- Durable `VISION.md`, `FEATURE_MAP.md`, and project-specific `TASTE.md` memory,
+  with up to 75,000 characters of each supplied to planning. Generated plans
+  must create any missing file and the memory receipt names truncation.
 - A graph-first, read-only planner that records repository research and
   defensible assumptions before producing a durable typed plan.
 - An independent rubric judge whose score is recomputed by the controller.
@@ -75,9 +76,11 @@ Read [VISION.md](VISION.md) for the intended product and
   human planning checkpoint. Terminal failures remain explicit and inspectable.
 - One to ten active implementers running concurrently in isolated branches and
   worktrees.
-- Configured specialist ownership: product, UI design, copywriting, prompt
-  engineering, and measured optimization by default, with only specialists
-  named in the approved plan dispatched.
+- Configured specialist ownership: product, UI design, generated visual assets,
+  copywriting, prompt engineering, and measured optimization by default, with
+  only specialists named in the approved plan dispatched. The default visual-
+  asset lane uses Codex with built-in OpenAI image generation and never shares
+  UI-code ownership.
 - Pi, Claude Code, and Codex harnesses behind one normalized receipt contract.
 - [Ponytail](https://github.com/DietrichGebert/ponytail)-derived minimal-code
   discipline during implementation and an explicit over-engineering lens during review.
@@ -94,6 +97,11 @@ Read [VISION.md](VISION.md) for the intended product and
 - AutoAgent-shaped hill climbing for genuine optimization tasks: controller-run
   baseline/scoring/gates, one isolated candidate per dispatch, protected-file
   fingerprints, candidate/plateau/time budgets, and one promotion run.
+- New-product and major-redesign plans require inspected public visual research,
+  competing directions, project taste, explicit screens/states/assets, an
+  originality boundary, an observable quality bar, and a real matching-surface
+  verification driver. Incremental UI work follows the existing system without
+  unnecessary prototype ceremony.
 - Conservative plan-time rejection of overlapping owner globs.
 - Git-derived changed-file verification against each owner's approved scope.
 - Mechanical execution of every approved task and integrated acceptance command.
@@ -101,7 +109,8 @@ Read [VISION.md](VISION.md) for the intended product and
 - Plan-selected proof: tests for non-UI work, or screenshot/video/browser
   artifacts for UI and interaction work, all bound to the current commit and
   approved plan.
-- Independent review that must cite the current evidence receipt hash.
+- Independent review that must cite the current evidence receipt hash and apply
+  proportional adversarial, taste, project-verification, and minimality lenses.
 - Review findings routed only to their named owners, with fresh checks and proof
   after every repair.
 - Unlimited review/repair cycles by default. Every blocking issue must cite a
@@ -239,8 +248,9 @@ its implementation, reopen only that exhausted review terminal:
 ```
 
 `status` returns the full machine-readable state. `inspect` is the concise
-operator view: current operation, active agents, lane/worktree status, last
-error, and paths to every plan, context, receipt, event, and evidence record.
+operator view: current operation, active agents, last meaningful activity,
+lane/worktree status, aggregate usage, blockers, and paths to every plan,
+attempt-specific context, raw log directory, receipt, event, and evidence record.
 
 Use `plan --file plan.json` only when another trusted system already produced
 and reviewed the plan; this path intentionally bypasses generated-plan research
@@ -250,9 +260,10 @@ also stop for that ceremony. Use `start --new-repo` when the target path does
 not exist.
 
 Every command emits one JSON object. The run directory contains frozen config,
-preserved intake, plan revisions, normalized agent receipts, contexts, isolated worktrees,
-append-only events, evidence manifests, state, and—only after every gate
-passes—`receipt.json`.
+preserved intake, plan revisions, normalized agent receipts, immutable per-attempt
+contexts, private raw adapter/harness logs, copied native Claude transcripts,
+isolated worktrees, append-only events, evidence manifests, state, and—only after
+every gate passes—`receipt.json`.
 
 ## Repository intelligence and project memory
 
@@ -268,8 +279,12 @@ Before generated planning, the controller inspects the target commit:
 - If the repository has no code yet, Graphify reports `deferred`; the planner
   starts from the request and project memory. After successful implementation,
   the controller builds the first graph before merge authorization.
-- If `VISION.md` or `FEATURE_MAP.md` is absent from an existing repository, the
-  generated plan must assign creation of that file to an implementation owner.
+- If `VISION.md`, `FEATURE_MAP.md`, or `TASTE.md` is absent from an existing
+  repository, the generated plan must assign creation of that file to an
+  implementation owner. `TASTE.md` is project-scoped; the factory does not copy
+  an unrelated global or terminal-specific palette into a new app.
+- Each document contributes at most 75,000 characters to planning context. The
+  memory receipt explicitly lists any document that exceeded that boundary.
 - Graphify output is added to the repository's local Git exclude and is never a
   product artifact. The durable run keeps compact intelligence and project-
   memory receipts under `.factory/runs/RUN_ID/intelligence/`.
@@ -354,6 +369,17 @@ question under judge authority, the controller treats it as revision feedback:
 the planner must choose and record the safest evidence-backed reversible
 assumption before the plan can pass.
 
+Generated visual plans carry a controller-validated `visual_contract`. For a
+new product or major redesign it requires at least three unique inspected
+references, two distinct directions, three design principles, and three
+observable quality-bar outcomes. It also declares the audience, selected
+direction, screens and adverse states, every asset's source/owner/path,
+originality boundary, real verification surface and driver, proof artifacts,
+and success-criterion coverage. Generated raster files must belong to the
+`visual-assets` owner; UI code remains with `design`. The reviewer then checks
+the built experience against this frozen contract instead of deciding whether
+it merely compiles.
+
 Version 1 plans make approved outcomes explicit. The implementation reviewer must return one
 pass/fail entry with concrete inspected evidence for every success criterion in
 the original order; missing, duplicate, unknown, or failed-but-unrouted criteria
@@ -370,8 +396,8 @@ operator's direct review.
 
 Edit [`factory.yaml`](factory.yaml) to choose each role's harness, model,
 thinking level, instructions, skills, and tools. The example uses Pi for product,
-copywriting, prompt engineering, optimization, and independent review, and
-Claude Code for UI design.
+copywriting, prompt engineering, optimization, planning, and independent review;
+Claude Code for UI design; and Codex Luna xhigh for generated visual assets.
 
 Configured skills are native `--skill` inputs for Pi. For Claude Code and Codex,
 the adapter reads the same trusted local `SKILL.md` files into the role prompt,
@@ -382,7 +408,10 @@ reviewer receive `skills/evil-genius-copywriter` as a conditional lens for mater
 reader-facing messaging. Product/prompt owners receive
 `skills/prompt-engineering`; the optimization owner receives the bounded
 `skills/improvement` contract plus `skills/autoagent` patterns. Review receives
-the corresponding lenses and `skills/ponytail-review`. Every role receives
+the corresponding lenses plus `skills/adversarial-review`, `skills/taste`,
+`skills/project-verification`, and `skills/ponytail-review`. Planning receives
+conditional decision, deep-thinking, visual-research, taste, and verification
+skills. The visual-assets lane receives the image-generation contract. Every role receives
 `skills/clear-prose` for its human-readable fields. These are conditional
 disciplines inside existing roles, not extra controller lifecycles.
 The placement decisions for the broader
@@ -390,6 +419,8 @@ engineering skill set are documented in
 [Engineering skill decisions](docs/ENGINEERING_SKILLS.md); the ten-source prose
 review is in [Prose skill decisions](docs/PROSE_SKILLS.md), and the bounded
 search contract is in [Prompt and optimization](docs/PROMPT_OPTIMIZATION.md).
+The source-level pstack review and adopt/bank/reject decisions are in
+[pstack source review](docs/PSTACK_SKILLS.md).
 
 Supported harness identifiers are:
 
@@ -406,9 +437,11 @@ Only owners present in the approved plan launch. All active initial lanes run
 concurrently; integration and state transitions remain serialized. Review
 repairs run only for owners named in typed findings.
 
-Pi usage is read from its settled assistant event. Claude Code and Codex usage
-remains `null` unless their local harness output exposes it. The factory does
-not invent token or cost numbers.
+Pi usage is read from its settled assistant event. Claude Code usage is derived
+from unique message ids in its preserved native transcript, including cache
+creation/read tokens without double-counting repeated JSONL records. Codex usage
+remains `null` unless its local harness output exposes it. The factory does not
+invent token or cost numbers.
 
 ## Limits and usage
 
@@ -521,16 +554,20 @@ same commit, evidence, and review cycle. Both attempts are durable; a second
 invalid response fails closed rather than consuming repair cycles or looping.
 Malformed planner JSON is normalized into a usage-bearing invalid receipt and
 gets the same two-attempt bound; a single JSON code fence is accepted, while
-arbitrary surrounding prose is not. A repair that completed its code change but
-returned the wrong `addressed` ids gets one receipt-only correction with read
-tools and an exact staged-diff fingerprint. Any correction-time mutation or
-second invalid receipt fails closed.
+arbitrary surrounding prose is not. An initial implementer that completed its
+work but returned a malformed receipt gets one receipt-only correction with read
+tools and an exact staged-diff fingerprint. A repair that returned the wrong
+`addressed` ids receives the same treatment. Any correction-time mutation or
+second invalid receipt fails closed. A provably linear agent-created lane commit
+can be normalized and corrected on resume; rewritten baselines, merge history,
+blocked receipts, and out-of-scope changes remain terminal.
 
 Provider transport failures are a separate boundary. HTTP 408, 429, 5xx/529
 overload responses and recognized temporary connection failures receive a
 bounded retry of the same agent invocation. `limits.max_agent_attempts` includes
 the first call; `limits.agent_retry_backoff_seconds` controls exponential
-backoff. Every failed provider attempt is preserved as a redacted receipt, and
+backoff. Every failed provider attempt is preserved as a redacted receipt, while
+its private local adapter/harness streams remain in the attempt log directory;
 the successful agent receipt records its attempt count. Authentication, billing,
 permission, timeout, malformed-output, and semantic failures are not retried by
 this mechanism. If every transient attempt on the preferred provider fails, the
@@ -603,8 +640,8 @@ Generated YAML is intentionally not committed:
   --out /tmp/factory.steps.yaml
 
 python3 -m pip install \
-  'git+https://github.com/ali-abassi/pi-graph-core.git@v0.1.0'
-piw validate /tmp/factory.steps.yaml
+  'git+https://github.com/ali-abassi/agent-workflows.git@v0.2.0'
+piw validate /tmp/factory.steps.yaml --strict
 piw graph /tmp/factory.steps.yaml
 ```
 
@@ -667,6 +704,10 @@ The deterministic suite currently covers 107 cases, including:
   plus integrated-runtime prompt revalidation;
 - refusal of pre-merge delivery commands and placeholder visual proof;
 - exact review-issue target files bound to the routed owner's approved scope;
+- one read-only initial-implementer receipt correction, refusal of
+  correction-time writes, and resume normalization of a linear agent commit;
+- immutable per-attempt contexts and private adapter/harness logs, native Claude
+  transcript preservation, deduplicated Claude usage, and live activity metadata;
 - one read-only repair-receipt correction and refusal of correction-time writes;
 - fresh proof after repair, successful merge, target/config drift, finite-cap
   escalation, and explicit unlimited-review continuation.

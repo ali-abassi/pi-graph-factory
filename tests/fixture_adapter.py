@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -66,6 +67,33 @@ if args.role == "plan":
             "evidence": ["VISION.md", "FEATURE_MAP.md"],
         }],
         "assumptions": [],
+        "visual_contract": {
+            "kind": "incremental",
+            "audience": "Factory fixture reviewer",
+            "references": [{
+                "source": "FEATURE_MAP.md",
+                "observed": "The repository maps one reviewed text artifact.",
+                "adopt": "Keep the proof focused on that one visible artifact.",
+                "avoid": "Do not add unrelated fixture screens or interactions.",
+            }],
+            "alternatives": [],
+            "selected_direction": "A minimal visible text-artifact proof.",
+            "principles": ["Show the exact approved artifact state."],
+            "screens": [{
+                "id": "artifact",
+                "purpose": "Prove the reviewed artifact exists.",
+                "states": ["implemented", "reviewed"],
+            }],
+            "assets": [],
+            "originality": "The fixture uses only repository-owned text evidence.",
+            "quality_bar": ["The captured artifact visibly contains reviewed output."],
+            "verification": {
+                "surface": "The generated app.txt artifact.",
+                "driver": "test -s app.txt",
+                "evidence": ["evidence/desktop.png", "evidence/flow.webm"],
+                "feature_coverage": ["SC-1"],
+            },
+        },
         "tasks": [{"id": "build", "owner": "product",
                    "files": ["app.txt", "evidence/**", *required_docs],
                    "acceptance": ["test -s app.txt"]}],
@@ -120,33 +148,59 @@ elif args.role.startswith("plan-review:"):
         "verdict": "revise" if low else "pass",
     }
 elif args.role.startswith("implement:"):
-    Path("app.txt").write_text("implemented\n", encoding="utf-8")
-    evidence = Path("evidence")
-    evidence.mkdir(exist_ok=True)
-    (evidence / "desktop.png").write_bytes(b"png-fixture")
-    (evidence / "flow.webm").write_bytes(b"webm-fixture")
-    (evidence / "browser-receipt.json").write_text('{"console_errors":[]}\n')
-    changed_files = ["app.txt", "evidence/desktop.png", "evidence/flow.webm",
-                     "evidence/browser-receipt.json"]
-    assigned_files = {
-        path
-        for task in context.get("tasks", [])
-        for path in task.get("files", [])
-    }
-    if "VISION.md" in assigned_files:
-        Path("VISION.md").write_text("# Vision\n\nBuild reliable reviewed software.\n")
-        changed_files.append("VISION.md")
-    if "FEATURE_MAP.md" in assigned_files:
-        Path("FEATURE_MAP.md").write_text("# Feature map\n\n- Reviewed text artifact\n")
-        changed_files.append("FEATURE_MAP.md")
-    if os.environ.get("PI_GRAPH_FACTORY_WRITE_PYC") == "1":
-        generated = evidence / "__pycache__" / "capture.cpython-314.pyc"
-        generated.parent.mkdir()
-        generated.write_bytes(b"compiled-fixture")
-        changed_files.append("evidence/__pycache__/capture.cpython-314.pyc")
-    output = {"status": os.environ.get("PI_GRAPH_FACTORY_IMPLEMENT_STATUS", "pass"),
-              "changed_files": changed_files,
-              "checks": ["test -s app.txt"], "summary": "implemented fixture"}
+    if "controller_validation_error" in context:
+        if os.environ.get("PI_GRAPH_FACTORY_IMPLEMENT_CORRECTION_MUTATION") == "1":
+            Path("app.txt").write_text("mutated during receipt correction\n")
+        changed_files = context["controller_observed_changed_files"]
+        output = {
+            "status": "pass",
+            "changed_files": changed_files,
+            "checks": ["test -s app.txt"],
+            "summary": "corrected fixture receipt",
+        }
+    else:
+        Path("app.txt").write_text("implemented\n", encoding="utf-8")
+        evidence = Path("evidence")
+        evidence.mkdir(exist_ok=True)
+        (evidence / "desktop.png").write_bytes(b"png-fixture")
+        (evidence / "flow.webm").write_bytes(b"webm-fixture")
+        (evidence / "browser-receipt.json").write_text('{"console_errors":[]}\n')
+        changed_files = ["app.txt", "evidence/desktop.png", "evidence/flow.webm",
+                         "evidence/browser-receipt.json"]
+        assigned_files = {
+            path
+            for task in context.get("tasks", [])
+            for path in task.get("files", [])
+        }
+        if "VISION.md" in assigned_files:
+            Path("VISION.md").write_text("# Vision\n\nBuild reliable reviewed software.\n")
+            changed_files.append("VISION.md")
+        if "FEATURE_MAP.md" in assigned_files:
+            Path("FEATURE_MAP.md").write_text("# Feature map\n\n- Reviewed text artifact\n")
+            changed_files.append("FEATURE_MAP.md")
+        if "TASTE.md" in assigned_files:
+            Path("TASTE.md").write_text(
+                "# Taste\n\nShow the reviewed text artifact without decorative UI.\n"
+            )
+            changed_files.append("TASTE.md")
+        if os.environ.get("PI_GRAPH_FACTORY_WRITE_PYC") == "1":
+            generated = evidence / "__pycache__" / "capture.cpython-314.pyc"
+            generated.parent.mkdir()
+            generated.write_bytes(b"compiled-fixture")
+            changed_files.append("evidence/__pycache__/capture.cpython-314.pyc")
+        if os.environ.get("PI_GRAPH_FACTORY_IMPLEMENT_COMMIT") == "1":
+            subprocess.run(["git", "add", "-A"], check=True)
+            subprocess.run(
+                ["git", "commit", "-qm", "agent-created implementation"],
+                check=True,
+            )
+        output = {"status": os.environ.get("PI_GRAPH_FACTORY_IMPLEMENT_STATUS", "pass"),
+                  "changed_files": changed_files,
+                  "checks": ["test -s app.txt"], "summary": "implemented fixture"}
+        marker_value = os.environ.get("PI_GRAPH_FACTORY_INVALID_IMPLEMENT_MARKER")
+        if marker_value and not Path(marker_value).exists():
+            Path(marker_value).write_text("observed", encoding="utf-8")
+            output = {"commit": "agent-created", "test_result": "passed"}
 elif args.role.startswith("repair:"):
     if "controller_validation_error" not in context:
         with Path("app.txt").open("a", encoding="utf-8") as target:

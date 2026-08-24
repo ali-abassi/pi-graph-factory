@@ -31,5 +31,6 @@ Return exactly the standard implementer JSON object and no prose:
 
 For a repair, also return `addressed` with every assigned issue id. On
 `controller_validation_error`, do not mutate the worktree; return only the
-corrected receipt. Return blocked when scope, evidence, or the runtime contract
+corrected receipt, using the exact `controller_observed_changed_files` for an
+initial lane. Return blocked when scope, evidence, or the runtime contract
 cannot be satisfied.
