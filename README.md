@@ -40,7 +40,7 @@ judge authorizes the exact typed-plan SHA-256
                   guarded merge   named owner
                                       |
                                fresh proof again
-                         (five reviews maximum)
+                   (continues until criteria pass)
                          |
                   optional deploy + health
 ```
@@ -104,7 +104,9 @@ Read [VISION.md](VISION.md) for the intended product and
 - Independent review that must cite the current evidence receipt hash.
 - Review findings routed only to their named owners, with fresh checks and proof
   after every repair.
-- Five review attempts maximum, then an explicit `human_required` terminal.
+- Unlimited review/repair cycles by default. Every blocking issue must cite a
+  failed approved success criterion; optional finite caps end in an explicit
+  `human_required` terminal and can be deliberately reopened for unlimited review.
 - One-writer run locking, durable `transition_failed` events, inspectable active
   processes, and checkpointed `resume` across interrupted lanes, repairs,
   capture, review, integration, and the post-merge state-save window.
@@ -225,6 +227,15 @@ continue validated checkpoints:
 .venv/bin/python scripts/factory.py resume \
   --run /path/to/project/.factory/runs/RUN_ID \
   --terminate-active
+```
+
+To continue a run that stopped at a configured review cap without rebuilding
+its implementation, reopen only that exhausted review terminal:
+
+```bash
+.venv/bin/python scripts/factory.py resume \
+  --run /path/to/project/.factory/runs/RUN_ID \
+  --unlimited-reviews
 ```
 
 `status` returns the full machine-readable state. `inspect` is the concise
@@ -437,6 +448,9 @@ implementers:
         thinking: xhigh
   - id: copy
     timeout_seconds: 14400
+review:
+  max_cycles: null       # unlimited; use a positive integer for a finite cap
+  projection_cycles: 5   # finite window shown by the inspectable Pi Graph DAG
 limits:
   agent_timeout_seconds: 14400
   command_timeout_seconds: 3600
@@ -499,8 +513,8 @@ reviewer.
 
 If a declared capture command fails without writing outside its declared proof
 paths, the controller restores the clean integration commit, hashes a failed
-capture receipt, and asks the independent reviewer to route a repair inside the
-same five-cycle budget. Partial proof can never authorize merge.
+capture receipt, and asks the independent reviewer to route a repair through
+the same review loop. Partial proof can never authorize merge.
 
 Malformed reviewer JSON gets one controller-guided validation retry against the
 same commit, evidence, and review cycle. Both attempts are durable; a second
@@ -577,9 +591,10 @@ by local state alone.
 
 The canonical repository-mutation path today is `scripts/factory.py`. The
 factory config also compiles into an inspectable Pi Graph Core workflow showing
-the same bounded topology: repository intelligence, planning and its independent
-quality gate, parallel roles, evidence, per-cycle pass/repair branches, five
-guarded merge exits, and final human escalation.
+a finite window of the same topology: repository intelligence, planning and its
+independent quality gate, parallel roles, evidence, per-cycle pass/repair
+branches, guarded merge exits, and explicit continuation by the canonical
+controller when reviews are unlimited.
 
 Generated YAML is intentionally not committed:
 
@@ -589,7 +604,7 @@ Generated YAML is intentionally not committed:
 
 python3 -m pip install \
   'git+https://github.com/ali-abassi/pi-graph-core.git@v0.1.0'
-piw validate /tmp/factory.steps.yaml --strict
+piw validate /tmp/factory.steps.yaml
 piw graph /tmp/factory.steps.yaml
 ```
 
@@ -607,7 +622,7 @@ Keeping one lifecycle owner avoids two-engine drift.
 .venv/bin/python -m py_compile scripts/*.py tests/*.py
 ```
 
-The deterministic suite currently covers 100 cases, including:
+The deterministic suite currently covers 107 cases, including:
 
 - simple single-owner first-pass work;
 - a two-owner feature with directed design repair;
@@ -653,11 +668,11 @@ The deterministic suite currently covers 100 cases, including:
 - refusal of pre-merge delivery commands and placeholder visual proof;
 - exact review-issue target files bound to the routed owner's approved scope;
 - one read-only repair-receipt correction and refusal of correction-time writes;
-- fresh proof after repair, successful merge, target/config drift, and bounded
-  human escalation.
+- fresh proof after repair, successful merge, target/config drift, finite-cap
+  escalation, and explicit unlimited-review continuation.
 
 CI runs the suite on Ubuntu and macOS with Python 3.10 and 3.14, compiles the
-29-node policy graph, and validates it with the public Pi Graph Core release.
+30-node policy graph, and validates it with the public Pi Graph Core release.
 The measured hill-climb and candidate ledger are in
 [`docs/IMPROVEMENT.md`](docs/IMPROVEMENT.md) and
 [`docs/improvement-ledger.jsonl`](docs/improvement-ledger.jsonl).

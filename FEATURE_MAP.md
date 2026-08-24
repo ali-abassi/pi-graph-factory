@@ -84,7 +84,8 @@ for any individual run.
 - Review the integrated diff for concrete deletable abstractions, wrappers,
   dependencies, and speculative flexibility without weakening correctness or safety.
 - Route concrete failures to the named owner and exact approved target files.
-- Recheck, recapture, and rereview repairs for at most five total review cycles.
+- Recheck, recapture, and rereview repairs until every approved criterion passes;
+  optional finite caps remain available for deployments that need them.
 
 ## Merge, delivery, and operations
 

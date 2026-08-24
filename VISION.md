@@ -43,7 +43,8 @@ repair limits, and external effects.
    Tiny fixes, documentation, refactors, and non-UI work use test evidence
    without ceremonial media.
 10. An independent reviewer accounts for every approved outcome. Findings route
-   to the exact owner and files. At most five repair cycles may run.
+   to the exact owner, files, and failed success criterion. Review and repair
+   continue until the declared criteria pass; deployments may configure a cap.
 11. A clean review authorizes a guarded merge. When delivery is configured, a
    separate explicit command deploys, checks health, and attempts the configured
    rollback on failure.

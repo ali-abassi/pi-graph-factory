@@ -988,6 +988,9 @@ def load_config(path: Path) -> dict[str, Any]:
             "timeout_seconds": reviewer.get("timeout_seconds"),
         }
     value.setdefault("evidence", {}).setdefault("policy", "always")
+    value["review"].setdefault(
+        "projection_cycles", value["review"].get("max_cycles") or 5
+    )
     value.setdefault("limits", {}).setdefault("termination_grace_seconds", 5)
     value["limits"].setdefault("command_timeout_seconds", None)
     value["limits"].setdefault("max_agent_attempts", 3)
@@ -2886,6 +2889,8 @@ def review_output(
                 failed_criteria.add(item["id"])
         if output["verdict"] == "pass" and failed_criteria:
             raise FactoryError("reviewer cannot pass with failed success criteria")
+        if output["verdict"] == "repair" and not failed_criteria:
+            raise FactoryError("repair verdict requires a failed success criterion")
         for task in plan["tasks"]:
             owner_patterns.setdefault(task["owner"], []).extend(task["files"])
     issue_ids: set[str] = set()
@@ -2901,8 +2906,14 @@ def review_output(
         if criterion_id is not None:
             if criterion_id not in approved_criterion_ids:
                 raise FactoryError(f"review issue cites unknown success criterion: {criterion_id!r}")
+            if criterion_id not in failed_criteria:
+                raise FactoryError("review issue must cite a failed success criterion")
             cited_failed_criteria.add(criterion_id)
         if plan.get("version") == 1:
+            if criterion_id is None:
+                raise FactoryError(
+                    "every version 1 review issue must cite a failed success criterion"
+                )
             target_files = issue.get("target_files")
             if not isinstance(target_files, list) or not target_files:
                 raise FactoryError("every version 1 review issue needs target_files")
@@ -3713,7 +3724,10 @@ def continue_review(
         if last_cycle["review"]["verdict"] == "pass":
             final_evidence = last_cycle["evidence"]
             final_review = last_cycle["review"]
-        elif cycle == config["review"]["max_cycles"]:
+        elif (
+            config["review"]["max_cycles"] is not None
+            and cycle >= config["review"]["max_cycles"]
+        ):
             state["phase"] = "human_required"
             state["final_review"] = last_cycle["review"]
             save_state(run, state, "repair_budget_exhausted", {"cycles": cycle})
@@ -3741,9 +3755,8 @@ def continue_review(
                 {"cycle": cycle, "commit": state["integration"]["commit"]},
             )
             start_cycle = cycle + 1
-    for cycle in range(start_cycle, config["review"]["max_cycles"] + 1):
-        if final_evidence is not None:
-            break
+    cycle = start_cycle
+    while final_evidence is None:
         state["operation"] = {"kind": "capture", "cycle": cycle}
         save_state(run, state, "evidence_capture_started", {"cycle": cycle})
         try:
@@ -3829,7 +3842,10 @@ def continue_review(
         if review["verdict"] == "pass":
             final_evidence, final_review = evidence, review
             break
-        if cycle == config["review"]["max_cycles"]:
+        if (
+            config["review"]["max_cycles"] is not None
+            and cycle >= config["review"]["max_cycles"]
+        ):
             state["phase"] = "human_required"
             state["final_review"] = review
             save_state(run, state, "repair_budget_exhausted", {"cycles": cycle})
@@ -3844,6 +3860,7 @@ def continue_review(
         state["integration"]["commit"] = git(integration_path, "rev-parse", "HEAD")
         save_state(run, state, "repair_completed", {"cycle": cycle,
                                                      "commit": state["integration"]["commit"]})
+        cycle += 1
     if final_evidence is None or final_review is None:
         raise FactoryError("review loop ended without a final evidence-backed verdict")
     refresh_completed_repository_intelligence(
@@ -4025,9 +4042,29 @@ def cmd_start(args: argparse.Namespace) -> dict[str, Any]:
 def cmd_resume(args: argparse.Namespace) -> dict[str, Any]:
     run = Path(args.run).resolve()
     state = load_state(run)
-    if state["phase"] not in {"implementing", "reviewing"}:
+    reopening_exhausted_review = False
+    if state["phase"] == "human_required" and args.unlimited_reviews:
+        try:
+            last_event = json.loads(
+                (run / "events.jsonl").read_text(encoding="utf-8").splitlines()[-1]
+            )["event"]
+        except (OSError, ValueError, IndexError, KeyError) as error:
+            raise FactoryError("cannot verify why the run requires a human") from error
+        if last_event != "repair_budget_exhausted":
+            raise FactoryError(
+                "unlimited review can reopen only a run stopped by the review budget"
+            )
+        state["phase"] = "reviewing"
+        state["review_limit_override"] = "unlimited"
+        state["final_review"] = None
+        reopening_exhausted_review = True
+    elif state["phase"] not in {"implementing", "reviewing"}:
         raise FactoryError(f"factory run is not resumable during phase {state['phase']}")
+    elif args.unlimited_reviews:
+        state["review_limit_override"] = "unlimited"
     config = load_frozen_config(run, state)
+    if state.get("review_limit_override") == "unlimited":
+        config["review"]["max_cycles"] = None
     reconcile_active_agents(
         run,
         terminate=args.terminate_active,
@@ -4035,6 +4072,13 @@ def cmd_resume(args: argparse.Namespace) -> dict[str, Any]:
     )
     state["usage"] = observed_usage(run)
     state.pop("last_error", None)
+    if reopening_exhausted_review:
+        save_state(
+            run,
+            state,
+            "review_limit_removed",
+            {"after_cycles": len(state["cycles"])},
+        )
     save_state(run, state, "resume_started", {"phase": state["phase"]})
     return continue_factory(run, state, config)
 
@@ -4199,6 +4243,7 @@ def parser() -> argparse.ArgumentParser:
     resume = commands.add_parser("resume")
     resume.add_argument("--run", required=True)
     resume.add_argument("--terminate-active", action="store_true")
+    resume.add_argument("--unlimited-reviews", action="store_true")
     inspect = commands.add_parser("inspect")
     inspect.add_argument("--run", required=True)
     deliver = commands.add_parser("deliver")

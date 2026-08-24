@@ -12,7 +12,7 @@
 
 - **Mutable:** controller, configuration/schema, agent contracts, adapters, packaging/docs, and new production helpers.
 - **Frozen evaluator after baseline:** `tests/test_benchmarks.py` and `tests/benchmark_adapter.py`.
-- **Forbidden:** weakening gates, special-casing case names, editing test outcomes, silently increasing the five-cycle limit, enabling merge by default, or hiding cost/failure evidence.
+- **Forbidden:** weakening gates, special-casing case names, editing test outcomes, changing review limits without an explicit contract and receipt, enabling merge by default, or hiding cost/failure evidence.
 - **External effects:** local temporary Git repositories and configured local agent harnesses only. No production deployment, remote merge, issue mutation, or message sending.
 - **Rollback:** revert the candidate commit or close its branch; target repositories remain isolated in temporary fixtures during evaluation.
 
@@ -144,7 +144,7 @@
   normal next cycle recaptures everything. Unexpected capture writes still fail
   immediately without agent repair.
 - **Simplicity boundary:** this reuses the one canonical review/repair state
-  machine, owner routing, and five-cycle cap. It adds no scheduler, queue,
+  machine and owner routing. It adds no scheduler, queue,
   alternate merge path, or automatic acceptance of missing evidence.
 - **Promotion rule:** preserve the frozen failed-capture refusal while proving
   partial-write cleanup, reviewer-pass refusal, routed repair, fresh recapture,

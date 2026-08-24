@@ -40,7 +40,7 @@ architecture search ── HTML report ── chosen item ──┤
                                                     ↓
                            integration → proportional proof → review
                                                     ↓
-                                    repair (max five) or merge
+                              criterion repair loop or merge
 ```
 
 The separation is intentional: tracker state, portfolio decisions, architecture

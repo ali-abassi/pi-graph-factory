@@ -704,7 +704,7 @@ class FactoryLifecycleTests(unittest.TestCase):
             )
             self.assertEqual(ignored.returncode, 1, f"public proof path is ignored: {path}")
 
-    def test_five_failed_reviews_escalate_without_merge(self) -> None:
+    def test_exhausted_review_run_can_resume_without_a_limit(self) -> None:
         run = self.initialize(run_id="exhausted-run")
         planned = self.command("plan", "--run", str(run), "--file", str(self.write_plan(
             self.root / "exhausted-plan.json", [])))
@@ -714,6 +714,17 @@ class FactoryLifecycleTests(unittest.TestCase):
         self.assertEqual(completed["phase"], "human_required")
         self.assertEqual(completed["cycles"], 5)
         self.assertEqual(git_head(self.repo), git_head(self.repo, "main"))
+        self.env.pop("PI_GRAPH_FACTORY_ALWAYS_REPAIR")
+        resumed = self.command(
+            "resume", "--run", str(run), "--unlimited-reviews"
+        )
+        self.assertEqual(resumed["phase"], "merged")
+        self.assertEqual(resumed["cycles"], 6)
+        state = json.loads((run / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["review_limit_override"], "unlimited")
+        events = [json.loads(line)["event"] for line in
+                  (run / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertIn("review_limit_removed", events)
 
     def test_blocked_implementer_receipt_cannot_reach_integration(self) -> None:
         run = self.initialize(run_id="blocked-implementer-run")

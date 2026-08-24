@@ -62,7 +62,15 @@
       "allOf": [
         {"$ref": "#/$defs/agent"},
         {"type": "object", "required": ["max_cycles"],
-         "properties": {"max_cycles": {"type": "integer", "minimum": 1, "maximum": 5}}}
+         "properties": {
+           "max_cycles": {
+             "anyOf": [
+               {"type": "integer", "minimum": 1},
+               {"type": "null"}
+             ]
+           },
+           "projection_cycles": {"type": "integer", "minimum": 1, "maximum": 20}
+         }}
       ]
     },
     "evidence": {

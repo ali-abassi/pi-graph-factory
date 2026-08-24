@@ -152,7 +152,9 @@ def compile_factory(spec: dict[str, Any]) -> dict[str, Any]:
     })
     previous = "integrate"
     reviewer = spec["review"]
-    for cycle in range(1, reviewer["max_cycles"] + 1):
+    unlimited_reviews = reviewer["max_cycles"] is None
+    projected_cycles = reviewer["max_cycles"] or reviewer.get("projection_cycles", 5)
+    for cycle in range(1, projected_cycles + 1):
         capture = f"capture-{cycle}"
         review = f"review-{cycle}"
         repair = f"repair-{cycle}"
@@ -213,7 +215,7 @@ def compile_factory(spec: dict[str, Any]) -> dict[str, Any]:
                 },
                 "gate": gate_json("assert x['status']=='deployed' and x['deploy'] and x['health']"),
             })
-        if cycle == reviewer["max_cycles"]:
+        if cycle == projected_cycles and not unlimited_reviews:
             steps.append({
                 "id": "human-required", "needs": [review], "from": review,
                 "when": {"op": "equals", "path": "/verdict", "value": "repair"},
@@ -239,6 +241,24 @@ def compile_factory(spec: dict[str, Any]) -> dict[str, Any]:
             "gate": gate_json("assert x['status']=='pass' and x['addressed'] and x['checks']"),
             **timeout_field(spec["implementers"][0], spec["limits"]),
         })
+        if cycle == projected_cycles:
+            steps.append({
+                "id": "controller-review-continues", "needs": [repair],
+                "cmd": (
+                    "python3 -c \"import json,os; "
+                    "open(os.environ['OUT'],'w').write(json.dumps("
+                    f"{{'status':'reviewing','after_cycle':{cycle}}}))\""
+                ),
+                "schema": {
+                    "status": {"type": "string", "enum": ["reviewing"]},
+                    "after_cycle": "integer",
+                },
+                "gate": gate_json(
+                    f"assert x['status']=='reviewing' and x['after_cycle']=={cycle}"
+                ),
+                **command_timeout_field(spec["limits"]),
+            })
+            continue
         previous = repair
     return {
         "version": 1, "workflow": spec["factory"], "workers": min(10, len(implementer_ids)),

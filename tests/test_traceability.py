@@ -139,6 +139,48 @@ class FactoryTraceabilityTests(unittest.TestCase):
             ["SC-1", "SC-2"],
         )
 
+    def test_all_passing_criteria_cannot_request_advisory_repair(self) -> None:
+        receipt = {
+            "output": {
+                "verdict": "repair",
+                "issues": [{
+                    "id": "FIX-1",
+                    "owner": "product",
+                    "criterion_id": "SC-1",
+                    "target_files": ["app.txt"],
+                    "message": "optional cleanup",
+                }],
+                "evidence": ["current-evidence"],
+                "criteria": [
+                    {"id": "SC-1", "status": "pass", "evidence": "artifact exists"},
+                    {"id": "SC-2", "status": "pass", "evidence": "proof exists"},
+                ],
+            }
+        }
+        with self.assertRaisesRegex(FactoryError, "failed success criterion"):
+            review_output(receipt, {"sha256": "current-evidence"}, self.plan_value())
+
+    def test_repair_issue_must_cite_a_failed_criterion(self) -> None:
+        receipt = {
+            "output": {
+                "verdict": "repair",
+                "issues": [{
+                    "id": "FIX-1",
+                    "owner": "product",
+                    "criterion_id": "SC-2",
+                    "target_files": ["app.txt"],
+                    "message": "wrongly routed repair",
+                }],
+                "evidence": ["current-evidence"],
+                "criteria": [
+                    {"id": "SC-1", "status": "fail", "evidence": "artifact missing"},
+                    {"id": "SC-2", "status": "pass", "evidence": "proof exists"},
+                ],
+            }
+        }
+        with self.assertRaisesRegex(FactoryError, "must cite a failed"):
+            review_output(receipt, {"sha256": "current-evidence"}, self.plan_value())
+
     def test_versioned_review_issue_requires_exact_target_files(self) -> None:
         plan = self.plan_value()
         receipt = {

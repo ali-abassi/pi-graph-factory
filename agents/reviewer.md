@@ -75,8 +75,9 @@ evidence. Cite the full exact evidence SHA; do not abbreviate or transcribe it.
 For a version 1 plan, return one `criteria` entry for every approved success
 criterion in its original order. Mark it `pass` or `fail` and cite the concrete
 fact you personally inspected. Every failed criterion needs a routed issue with
-the matching `criterion_id`. You may also raise general quality or security
-issues without a criterion id.
+the matching `criterion_id`. Only a failed approved criterion can block merge:
+when every criterion passes, return `pass` with zero issues. Record no advisory,
+cosmetic, or optional cleanup as a repair issue.
 
 Return one JSON object and no prose:
 

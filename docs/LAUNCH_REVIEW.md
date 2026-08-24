@@ -44,8 +44,8 @@ commands exactly-once across machine death.
 3. No agent change outside its approved owner scope.
 4. No acceptance or proof claim without controller-observed evidence.
 5. No stale evidence after a repair.
-6. No more than one state-writing controller, three plan-quality cycles, and
-   five implementation review attempts.
+6. No more than one state-writing controller and three plan-quality cycles;
+   implementation review continues only for failed approved criteria.
 7. No later dispatch after an explicitly configured local usage ceiling is
    observed; token and cost ceilings may be disabled for subscription sessions.
 8. Recovery accepts only known process identities, owner scopes, commits,

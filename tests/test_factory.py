@@ -40,10 +40,11 @@ class FactoryCompilerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.factory = yaml.safe_load((ROOT / "factory.yaml").read_text())
 
-    def test_contract_is_valid_and_bounded(self) -> None:
+    def test_contract_is_valid_and_reviews_are_unlimited(self) -> None:
         self.assertEqual(list(Draft202012Validator(SCHEMA).iter_errors(self.factory)), [])
         self.assertLessEqual(len(self.factory["implementers"]), 10)
-        self.assertEqual(self.factory["review"]["max_cycles"], 5)
+        self.assertIsNone(self.factory["review"]["max_cycles"])
+        self.assertEqual(self.factory["review"]["projection_cycles"], 5)
 
     def test_copywriting_is_a_routable_specialist_without_a_second_lifecycle(self) -> None:
         implementers = {item["id"]: item for item in self.factory["implementers"]}
@@ -578,12 +579,12 @@ class FactoryCompilerTests(unittest.TestCase):
                     [{"id": "OPT-REPAIR", "owner": "optimization"}],
                 )
 
-    def test_compiler_gives_every_review_a_guarded_terminal_exit(self) -> None:
+    def test_compiler_projects_guarded_review_window_and_controller_continuation(self) -> None:
         workflow = compile_factory(self.factory)
         steps = {step["id"]: step for step in workflow["steps"]}
         ids = list(steps)
         self.assertEqual(len([item for item in ids if item.startswith("review-")]), 5)
-        self.assertEqual(len([item for item in ids if item.startswith("repair-")]), 4)
+        self.assertEqual(len([item for item in ids if item.startswith("repair-")]), 5)
         self.assertEqual(len([item for item in ids if item.startswith("capture-")]), 5)
         self.assertEqual(len([item for item in ids if item.startswith("merge-")]), 5)
         agent_steps = [steps["plan"], steps["plan-review"], *[steps[item] for item in ids
@@ -602,7 +603,7 @@ class FactoryCompilerTests(unittest.TestCase):
             },
             **{
                 f"repair-{cycle}": self.factory["implementers"][0]["timeout_seconds"]
-                for cycle in range(1, 5)
+                for cycle in range(1, 6)
             },
         }
         self.assertTrue(agent_steps)
@@ -612,7 +613,7 @@ class FactoryCompilerTests(unittest.TestCase):
                 self.assertNotIn("timeout", step)
             else:
                 self.assertEqual(step["timeout"], expected)
-        for step_id in ["integrate", "human-required", *[
+        for step_id in ["integrate", "controller-review-continues", *[
             f"capture-{cycle}" for cycle in range(1, 6)
         ], *[f"merge-{cycle}" for cycle in range(1, 6)], "repository-intelligence"]:
             self.assertEqual(
@@ -623,21 +624,21 @@ class FactoryCompilerTests(unittest.TestCase):
             merge = steps[f"merge-{cycle}"]
             self.assertEqual(merge["needs"], [f"review-{cycle}"])
             self.assertEqual(merge["when"], {"op": "equals", "path": "/verdict", "value": "pass"})
-        self.assertEqual(
-            steps["human-required"]["when"],
-            {"op": "equals", "path": "/verdict", "value": "repair"},
-        )
+        self.assertNotIn("human-required", steps)
+        self.assertEqual(steps["controller-review-continues"]["needs"], ["repair-5"])
         self.assertEqual(steps["capture-2"]["needs"], ["repair-1"])
         self.assertEqual(steps["plan"]["needs"], ["repository-intelligence"])
         self.assertEqual(steps["implement-product"]["needs"], ["plan-review"])
         self.assertNotIn("retries", steps["plan-review"])
 
-    def test_contract_rejects_more_than_ten_implementers_or_five_cycles(self) -> None:
+    def test_contract_rejects_excess_implementers_fallbacks_or_projection(self) -> None:
         too_many = dict(self.factory)
         too_many["implementers"] = self.factory["implementers"] * 6
         self.assertTrue(list(Draft202012Validator(SCHEMA).iter_errors(too_many)))
         too_long = yaml.safe_load((ROOT / "factory.yaml").read_text())
         too_long["review"]["max_cycles"] = 6
+        self.assertEqual(list(Draft202012Validator(SCHEMA).iter_errors(too_long)), [])
+        too_long["review"]["projection_cycles"] = 21
         self.assertTrue(list(Draft202012Validator(SCHEMA).iter_errors(too_long)))
         too_many_fallbacks = yaml.safe_load((ROOT / "factory.yaml").read_text())
         design = next(

@@ -96,7 +96,8 @@ review:
   instructions: agents/reviewer.md
   skills: [skills/review, skills/prompt-engineering, skills/improvement, skills/evil-genius-copywriter, skills/ponytail-review, skills/clear-prose]
   tools: [read, grep, find, ls, bash]
-  max_cycles: 5
+  max_cycles: null
+  projection_cycles: 5
   timeout_seconds: 7200
 
 evidence:
