@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from scripts.agent_adapter import decode_output, skill_prompt
+from scripts.agent_adapter import claude_command, decode_output, skill_prompt
 
 
 class AgentAdapterTests(unittest.TestCase):
@@ -30,6 +30,25 @@ class AgentAdapterTests(unittest.TestCase):
         prompt = skill_prompt(["skills/ponytail"])
         self.assertIn("factory-ponytail", prompt)
         self.assertIn("standard library", prompt)
+
+    def test_claude_command_preapproves_only_the_configured_tools(self) -> None:
+        command = claude_command(
+            "claude-sonnet-4-6",
+            "Implement the approved UI scope.",
+            "read,edit,write,bash",
+        )
+
+        self.assertEqual(
+            command,
+            [
+                "claude",
+                "-p",
+                "--model",
+                "claude-sonnet-4-6",
+                "--allowedTools=Read,Edit,Write,Bash",
+                "Implement the approved UI scope.",
+            ],
+        )
 
 
 if __name__ == "__main__":

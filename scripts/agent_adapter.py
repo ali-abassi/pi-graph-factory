@@ -13,6 +13,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+CLAUDE_TOOL_NAMES = {
+    "read": "Read",
+    "edit": "Edit",
+    "write": "Write",
+    "bash": "Bash",
+    "grep": "Grep",
+    "find": "Glob",
+    "ls": "Glob",
+}
+
 
 def resolve(path: str) -> Path:
     candidate = Path(path)
@@ -28,6 +38,21 @@ def skill_prompt(paths: list[str]) -> str:
         path = path / "SKILL.md" if path.is_dir() else path
         blocks.append(f"<skill path={raw!r}>\n{path.read_text(encoding='utf-8')}\n</skill>")
     return "\n".join(blocks)
+
+
+def claude_command(model: str, prompt: str, tools: str = "") -> list[str]:
+    """Build an unattended Claude command constrained to configured tools."""
+
+    command = ["claude", "-p", "--model", model]
+    allowed = []
+    for raw in tools.split(","):
+        name = CLAUDE_TOOL_NAMES.get(raw.strip().lower())
+        if name and name not in allowed:
+            allowed.append(name)
+    if allowed:
+        command.append("--allowedTools=" + ",".join(allowed))
+    command.append(prompt)
+    return command
 
 
 def pi_output(stream: str) -> tuple[str, dict]:
@@ -97,7 +122,7 @@ def main() -> int:
             command.extend(["--tools", args.tools])
         command.append(prompt)
     elif args.harness == "claude-code":
-        command = ["claude", "-p", "--model", args.model, prompt]
+        command = claude_command(args.model, prompt, args.tools)
     else:
         command = ["codex", "exec", "--model", args.model, prompt]
     result = subprocess.run(command, text=True, capture_output=True, check=False)

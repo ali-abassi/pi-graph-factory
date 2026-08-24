@@ -10,9 +10,9 @@ import subprocess
 from pathlib import Path
 
 try:
-    from agent_adapter import skill_prompt
+    from agent_adapter import claude_command, skill_prompt
 except ModuleNotFoundError:
-    from scripts.agent_adapter import skill_prompt
+    from scripts.agent_adapter import claude_command, skill_prompt
 
 
 def main() -> int:
@@ -58,7 +58,7 @@ def main() -> int:
             command.extend(["--tools", args.tools])
         command.append(prompt)
     elif args.harness == "claude-code":
-        command = ["claude", "-p", "--model", args.model, prompt]
+        command = claude_command(args.model, prompt, args.tools)
     else:
         command = ["codex", "exec", "--model", args.model, prompt]
     result = subprocess.run(command, text=True, capture_output=True, check=False)
