@@ -22,8 +22,21 @@ class AgentAdapterTests(unittest.TestCase):
         self.assertEqual(status, "passed")
         self.assertEqual(output, {"verdict": "pass"})
 
-    def test_prose_around_json_remains_invalid(self) -> None:
+    def test_prose_around_inline_json_remains_invalid(self) -> None:
         status, _ = decode_output('Here is the result: {"verdict":"pass"}')
+        self.assertEqual(status, "invalid")
+
+    def test_prose_around_one_json_fence_is_normalized(self) -> None:
+        status, output = decode_output(
+            'All checks pass.\n\n```json\n{"verdict":"pass"}\n```'
+        )
+        self.assertEqual(status, "passed")
+        self.assertEqual(output, {"verdict": "pass"})
+
+    def test_multiple_fenced_objects_remain_ambiguous_and_invalid(self) -> None:
+        status, _ = decode_output(
+            '```json\n{"verdict":"pass"}\n```\n```json\n{"verdict":"fail"}\n```'
+        )
         self.assertEqual(status, "invalid")
 
     def test_configured_skill_can_be_inlined_for_non_pi_harnesses(self) -> None:

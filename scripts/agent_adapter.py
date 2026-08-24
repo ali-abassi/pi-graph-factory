@@ -81,16 +81,16 @@ def decode_output(raw: str) -> tuple[str, object]:
         return "passed", json.loads(raw)
     except ValueError:
         stripped = raw.strip()
-        for opening in ("```json", "```JSON", "```"):
-            if not stripped.startswith(opening):
-                continue
-            candidate = stripped[len(opening):].lstrip()
-            if candidate.endswith("```"):
-                candidate = candidate[:-3].rstrip()
+        if stripped.count("```") == 2:
+            opening = stripped.index("```")
+            closing = stripped.index("```", opening + 3)
+            candidate = stripped[opening + 3:closing].strip()
+            if candidate[:4].lower() == "json":
+                candidate = candidate[4:].lstrip()
             try:
                 return "passed", json.loads(candidate)
             except ValueError:
-                break
+                pass
         return "invalid", {
             "error": "model response was not a JSON object",
             "raw_excerpt": raw[-4000:],
