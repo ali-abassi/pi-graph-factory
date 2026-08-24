@@ -41,4 +41,8 @@ Return exactly the standard implementer JSON object:
 {"status":"pass","changed_files":["relative/path"],"checks":[{"command":"...","passed":true,"evidence":"observed browser or test result"}],"summary":"implemented and visually verified behavior"}
 ```
 
+For a repair, also return `"addressed":["every assigned issue id"]` in
+the same object. On `controller_validation_error`, do not mutate the worktree;
+return only the complete corrected receipt, including `addressed`.
+
 Use `"status":"blocked"` if required interaction or capture cannot be observed.
