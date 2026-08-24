@@ -42,6 +42,10 @@ objective, non-empty authoritative context and untrusted input lists, output
 schema, abstention form, host enforcement, evaluation commands assigned to the
 prompt task's acceptance, and explicit cases for happy path, missing
 input, malformed input, prompt injection, tool failure, and abstention.
+`prompt_contract.runtime` is a stable lowercase machine identifier such as
+`incident-handoff-v1`, not a prose runtime description. The prompt evaluator's
+final receipt must copy that identifier byte for byte; describe the runtime's
+mechanics and trust boundary in the task summary and host-enforcement fields.
 Evaluation commands must exercise the real runtime and end with typed
 `pi-graph-factory.prompt-evaluation.v1` case receipts; never use a no-op check.
 

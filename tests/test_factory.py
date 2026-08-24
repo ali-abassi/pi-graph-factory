@@ -158,6 +158,18 @@ class FactoryCompilerTests(unittest.TestCase):
         }
         validate_plan(plan, implementers, require_versioned=True, evidence_policy="plan")
 
+        prose_runtime = copy.deepcopy(plan)
+        prose_runtime["prompt_contract"]["runtime"] = (
+            "Offline Python template renderer in tests/test_prompt_contract.py"
+        )
+        with self.assertRaisesRegex(FactoryError, "stable machine identifier"):
+            validate_plan(
+                prose_runtime,
+                implementers,
+                require_versioned=True,
+                evidence_policy="plan",
+            )
+
         missing = copy.deepcopy(plan)
         missing.pop("prompt_contract")
         with self.assertRaisesRegex(FactoryError, "requires a prompt_contract"):

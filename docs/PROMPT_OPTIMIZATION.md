@@ -37,6 +37,11 @@ A prompt-owned task cannot pass plan validation without `prompt_contract`:
 }
 ```
 
+`runtime` is the stable lowercase machine identifier binding the plan to every
+evaluation receipt, not a prose description. Evaluators must echo it exactly.
+Put runtime mechanics and trust boundaries in the task summary and
+`host_enforcement` fields.
+
 The controller requires every field, all six case kinds, and evaluation
 commands assigned to the prompt task's acceptance. That makes the
 runtime, trust boundary, schema, host responsibility, and failure surface

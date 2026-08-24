@@ -97,6 +97,7 @@ PROMPT_CASE_KINDS = {
     "abstention",
 }
 SHA256_FINGERPRINT = re.compile(r"^sha256:[0-9a-f]{64}$")
+PROMPT_RUNTIME_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
 
 
 class FactoryError(RuntimeError):
@@ -399,6 +400,11 @@ def validate_prompt_contract(plan: dict[str, Any]) -> None:
         if not isinstance(value, str) or not value.strip():
             raise FactoryError(f"prompt_contract {field} must be a non-empty string")
         contract[field] = value.strip()
+    if not PROMPT_RUNTIME_ID.fullmatch(contract["runtime"]):
+        raise FactoryError(
+            "prompt_contract runtime must be a stable machine identifier "
+            "using lowercase letters, digits, dots, underscores, or hyphens"
+        )
     for field in ("authoritative_context", "untrusted_inputs", "host_enforcement"):
         values = contract[field]
         if not isinstance(values, list) or not values or not all(

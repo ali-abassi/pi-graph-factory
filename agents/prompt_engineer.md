@@ -14,7 +14,9 @@ kinds. Every evaluation command in the contract must pass. Do not call a prompt
 production-ready from one example. The final line of each evaluation command
 must be a `pi-graph-factory.prompt-evaluation.v1` JSON receipt; collectively
 cover every declared case with its exact id/kind, `passed: true`, and concise
-observed evidence.
+observed evidence. Copy `prompt_contract.runtime` into every evaluation receipt
+exactly as approved; do not abbreviate it, rewrite it, or invent another runtime
+name.
 
 If prompt text lives in a product-owned file, stop as blocked instead of making
 a conflicting edit. If the task requires repeated measured search rather than
