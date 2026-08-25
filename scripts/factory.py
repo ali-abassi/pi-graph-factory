@@ -1600,6 +1600,7 @@ def refresh_completed_repository_intelligence(
 def validate_plan_judgment(
     receipt: dict[str, Any],
     minimum_score: float,
+    controller_commands: set[str] | None = None,
 ) -> dict[str, Any]:
     output = receipt.get("output")
     if receipt.get("status") != "passed" or not isinstance(output, dict):
@@ -1693,6 +1694,18 @@ def validate_plan_judgment(
         dimension_score = scores[improvement["dimension"]]
         if dimension_score is not None and improvement["current_anchor"] != dimension_score:
             raise FactoryError("plan review improvement current_anchor must match its score")
+        suggestion = improvement["suggestion"]
+        if "acceptance" in suggestion.casefold():
+            overlap = sorted(
+                command
+                for command in controller_commands or set()
+                if command in suggestion
+            )
+            if overlap:
+                raise FactoryError(
+                    "plan review must not route controller-owned commands into "
+                    "acceptance: " + ", ".join(repr(command) for command in overlap)
+                )
     return output
 
 
@@ -2099,7 +2112,20 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
                 )
                 try:
                     plan_judgment = validate_plan_judgment(
-                        judge_receipt, config["plan_review"]["min_score"]
+                        judge_receipt,
+                        config["plan_review"]["min_score"],
+                        {
+                            *config["evidence"].get("capture_commands", []),
+                            *(
+                                command
+                                for field in (
+                                    "deploy_commands",
+                                    "health_commands",
+                                    "rollback_commands",
+                                )
+                                for command in config["delivery"][field]
+                            ),
+                        },
                     )
                     validation_error = None
                 except FactoryError as error:

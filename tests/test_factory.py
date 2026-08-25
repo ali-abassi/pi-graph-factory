@@ -944,6 +944,54 @@ class FactoryCompilerTests(unittest.TestCase):
         judgment = validate_plan_judgment(receipt, 8.5)
         self.assertEqual(judgment["verdict"], "revise")
 
+    def test_plan_judge_cannot_route_controller_capture_into_acceptance(self) -> None:
+        scores = {
+            "grounding": 8.5,
+            "coverage": 8.5,
+            "feasibility": 8,
+            "minimality": 9,
+            "alignment": 9,
+        }
+        receipt = {
+            "status": "passed",
+            "output": {
+                "rubric_version": "plan-quality-v1",
+                "dimensions": [
+                    {
+                        "name": name,
+                        "score": score,
+                        "evidence": "inspectable context",
+                        "reasoning": "the named anchor is met",
+                        "gap_to_next": "close the named gap",
+                    }
+                    for name, score in scores.items()
+                ],
+                "critical_failure": False,
+                "overall_score": 8.5,
+                "overall_reasoning": "The critical feasibility score needs revision.",
+                "improvements": [
+                    {
+                        "suggestion": (
+                            "Add bash scripts/capture_ios_evidence.sh to top-level "
+                            "acceptance before artifact verification."
+                        ),
+                        "dimension": "feasibility",
+                        "current_anchor": 8,
+                        "target_anchor": 8.5,
+                        "why_raises_score": "It would duplicate the proof command.",
+                    }
+                ],
+                "verdict": "revise",
+            },
+        }
+
+        with self.assertRaisesRegex(FactoryError, "controller-owned commands"):
+            validate_plan_judgment(
+                receipt,
+                8.5,
+                {"bash scripts/capture_ios_evidence.sh"},
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

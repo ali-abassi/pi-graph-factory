@@ -34,3 +34,9 @@ materially different. A blank screenshot, corrupt video, stale build, healthy
 process with a wedged UI, or self-reported receipt is not proof. If the matching
 surface cannot be driven, say exactly what is unavailable and keep the result
 blocked or inconclusive.
+
+For an interaction-video claim, preserve the real screen-recording command and
+the user-drive command in the receipt. Sample multiple points on the timeline
+and confirm the approved controls, transitions, and resulting states are visibly
+present. Never build an MP4 from screenshots or substitute unrelated motion to
+satisfy a video path.

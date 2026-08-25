@@ -51,6 +51,10 @@ Verify:
 - the project-local verification driver was actually run against the production
   user seam, owns and cleans up its processes, and semantically validates current
   screenshots/video rather than merely checking that files exist;
+- for interaction video, inspect the receipt's exact recording/drive commands
+  and sample the timeline. Reject a slideshow, video assembled from screenshots,
+  static screen recording, or unrelated motion even when the container decodes;
+  it must visibly show the approved interaction and resulting state changes;
 - browser receipts, console/network errors, accessibility, and failure states
   when visual proof applies; never demand ceremonial screenshots or video from
   a plan whose approved proof mode is `tests`;

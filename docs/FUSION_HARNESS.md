@@ -12,6 +12,7 @@ tests—not only the README. No Fusion code or prompt is vendored here.
 | Typed dependency DAG | Plans declare `depends_on` task ids. The controller validates unknown edges and owner cycles, runs ready owners in parallel waves, and builds each downstream worktree on the committed transitive dependency outputs. This preserves isolated Git ownership while preventing a UI lane from guessing or recreating another lane's API or assets. |
 | Live child event stream | Pi and Codex JSON output plus every harness stderr line are written to private per-attempt files while the process is still running. `inspect` uses those files for last-activity evidence. Raw streams stay private because prompts and tool output can contain sensitive repository data. |
 | Immediate failed-task projection | A completed lane failure is written to state and events as soon as its future returns, even while sibling lanes finish. `inspect` exposes the pending lane blocker instead of showing an apparently healthy batch. |
+| Bounded gate self-correction | If a plan judge recommends routing a controller-owned capture or delivery command into acceptance, the controller preserves that invalid judgment, returns the exact contract error once, and asks for one corrected judgment of the unchanged plan. This repairs the evaluator rather than charging the planner for impossible advice. |
 | Gate-first red baseline | Adopt selectively for bug fixes and new executable behavior where a stable public seam exists. Record the initial failing reproduction before implementation. Do not manufacture a red phase for docs, generated art, metadata, or work whose truthful seam exists only after integration. |
 
 ## Already covered by stronger factory controls
@@ -35,7 +36,7 @@ tests—not only the README. No Fusion code or prompt is vendored here.
 - Test validator-authored executable gates for domains where the repository
   lacks useful checks. Keep approved/frozen evaluators authoritative when they
   already exist.
-- Add bounded gate self-diagnosis only when the controller can prove the
+- Extend bounded gate self-diagnosis only when the controller can prove the
   evaluator—not the candidate—failed. Preserve the old gate and its failure,
   allow one audited repair, rerun it without charging the implementer, and never
   weaken a legitimate acceptance criterion.

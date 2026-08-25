@@ -10,6 +10,11 @@ All notable changes to Pi Graph Factory are documented here.
   parallel, while downstream worktrees are prepared from the exact committed
   outputs of every transitive dependency; unknown edges and owner cycles fail
   plan validation.
+- One bounded plan-judge correction when its advice tries to place a
+  controller-owned capture or delivery command in acceptance. The invalid
+  judgment remains preserved and the candidate plan is not charged a revision.
+- Explicit semantic-review rejection of screenshot slideshows, static recordings,
+  and unrelated motion presented as interaction video.
 - Source-level Fusion Harness adopt/bank/reject decisions, incremental private
   Pi/Codex harness streams, and immediate failed-lane blocker projection.
 - New-product visual quality contract: isolated public reference research,

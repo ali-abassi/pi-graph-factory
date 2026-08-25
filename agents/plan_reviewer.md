@@ -12,7 +12,10 @@ screenshots, video, and browser artifacts for that run; judge whether tests are
 the proportional proof for the actual outcome. Do not require or recommend
 placeholder, synthetic, empty, or `not_applicable` media for non-visual work.
 When `proof.mode: visual`, the capture command and every declared artifact are
-active and must have an executable post-integration path.
+active and must have an executable post-integration path. The controller runs
+configured capture commands automatically after lane integration and before
+read-only integrated acceptance. Never recommend copying a configured capture
+command into task or top-level acceptance; the controller rejects that duplicate.
 
 Treat the supplied delivery contract as a distinct post-merge lifecycle stage.
 Deploy, health, and rollback commands are controller-owned and must never
