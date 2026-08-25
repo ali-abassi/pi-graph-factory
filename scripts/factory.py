@@ -1499,6 +1499,16 @@ def load_config(path: Path) -> dict[str, Any]:
     # Missing legacy policy follows the public autonomous default. A human
     # checkpoint must be requested explicitly in the frozen contract.
     value.setdefault("approval", {"mode": "judge"})
+    value.setdefault("routing", {
+        "mode": "full",
+        "fast_path": {
+            "enabled": False,
+            "owner": "product",
+            "max_file_patterns": 12,
+            "max_success_criteria": 10,
+            "max_acceptance_commands": 12,
+        },
+    })
     value.setdefault("intelligence", {
         "provider": "graphify",
         "required": True,
@@ -1531,6 +1541,9 @@ def load_config(path: Path) -> dict[str, Any]:
     if errors:
         raise FactoryError("invalid factory contract: " + "; ".join(
             f"{'.'.join(map(str, error.absolute_path))}: {error.message}" for error in errors))
+    implementer_ids = {item["id"] for item in value["implementers"]}
+    if value["routing"]["fast_path"]["owner"] not in implementer_ids:
+        raise FactoryError("routing fast_path owner must name a configured implementer")
     for field in ("capture_commands", "test_commands"):
         value["evidence"][field] = [
             validate_acceptance_command(command, f"evidence {field}")
@@ -1872,6 +1885,8 @@ def validate_plan(
         raise FactoryError("generated plans must use version 1 with success_criteria")
     if version is not None and version != 1:
         raise FactoryError(f"unsupported plan version: {version!r}")
+    if plan.get("execution_profile", "full") not in {"fast", "full"}:
+        raise FactoryError("plan execution_profile must be fast or full")
     if version == 1:
         proof = plan.get("proof")
         if evidence_policy == "plan":
@@ -2065,6 +2080,85 @@ def validate_plan(
         question_ids.add(question["id"])
 
 
+def adaptive_routing_receipt(
+    plan: dict[str, Any], config: dict[str, Any]
+) -> dict[str, Any]:
+    """Select the cheap path only when deterministic scope gates all pass."""
+    routing = config["routing"]
+    fast = routing["fast_path"]
+    tasks = plan.get("tasks") if isinstance(plan.get("tasks"), list) else []
+    criteria = (
+        plan.get("success_criteria")
+        if isinstance(plan.get("success_criteria"), list)
+        else []
+    )
+    one_task = len(tasks) == 1 and isinstance(tasks[0], dict)
+    task = tasks[0] if one_task else {}
+    file_patterns = task.get("files", []) if one_task else []
+    acceptance_count = len(plan.get("acceptance", [])) + sum(
+        len(item.get("acceptance", []))
+        for item in tasks
+        if isinstance(item, dict) and isinstance(item.get("acceptance"), list)
+    )
+    blocking_questions = [
+        item
+        for item in plan.get("open_questions", [])
+        if isinstance(item, dict) and item.get("blocking")
+    ]
+    checks = [
+        ("adaptive_mode", routing["mode"] == "adaptive"),
+        ("fast_path_enabled", fast["enabled"] is True),
+        ("planner_requested_fast", plan.get("execution_profile") == "fast"),
+        ("judge_authority", config["approval"]["mode"] == "judge"),
+        ("versioned_plan", plan.get("version") == 1),
+        ("test_proof", plan.get("proof", {}).get("mode") == "tests"),
+        ("single_task", one_task),
+        ("fast_owner", one_task and task.get("owner") == fast["owner"]),
+        (
+            "bounded_file_patterns",
+            one_task
+            and isinstance(file_patterns, list)
+            and len(file_patterns) <= fast["max_file_patterns"],
+        ),
+        (
+            "no_repository_wide_pattern",
+            one_task
+            and isinstance(file_patterns, list)
+            and not {"*", "**", "**/*"}.intersection(file_patterns),
+        ),
+        (
+            "bounded_success_criteria",
+            bool(criteria) and len(criteria) <= fast["max_success_criteria"],
+        ),
+        (
+            "bounded_acceptance",
+            acceptance_count <= fast["max_acceptance_commands"],
+        ),
+        ("no_blocking_questions", not blocking_questions),
+        ("no_declared_risks", plan.get("risks") == []),
+        (
+            "no_special_contract",
+            not any(
+                key in plan
+                for key in ("visual_contract", "prompt_contract", "optimization")
+            ),
+        ),
+        ("delivery_disabled", config["delivery"]["enabled"] is False),
+    ]
+    receipt = {
+        "schema": "pi-graph-factory.routing.v1",
+        "requested_profile": plan.get("execution_profile", "full"),
+        "selected_profile": "fast" if all(passed for _name, passed in checks) else "full",
+        "fast_path_owner": fast["owner"],
+        "checks": [
+            {"name": name, "passed": passed}
+            for name, passed in checks
+        ],
+    }
+    receipt["receipt_sha256"] = digest_json(receipt)
+    return receipt
+
+
 def cmd_init(args: argparse.Namespace) -> dict[str, Any]:
     config_path = Path(args.config).expanduser().resolve()
     config = load_config(config_path)
@@ -2132,6 +2226,7 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
     planner_receipt = None
     planner_receipts: list[dict[str, Any]] = []
     plan_judgment = None
+    routing_receipt = None
     plan_number = int(state.get("plan_revision", 0)) + 1
     if args.generate:
         source = "planner"
@@ -2140,6 +2235,7 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
             "request": state["request"],
             "intake": state.get("intake", {"mode": "direct", "status": "ready"}),
             "approval": config["approval"],
+            "routing": config["routing"],
             "answers": state["answers"],
             "base_commit": state["base_commit"],
             "target_branch": state["target_branch"],
@@ -2223,6 +2319,34 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
                 run / "plans" / f"plan-{plan_number}-cycle-{quality_cycle}.json",
                 plan,
             )
+            routing_receipt = adaptive_routing_receipt(plan, config)
+            atomic_json(
+                run / "receipts" / (
+                    f"routing-{plan_number}-cycle-{quality_cycle}.json"
+                ),
+                routing_receipt,
+            )
+            save_state(
+                run,
+                state,
+                "plan_route_selected",
+                {
+                    "revision": plan_number,
+                    "cycle": quality_cycle,
+                    "requested_profile": routing_receipt["requested_profile"],
+                    "selected_profile": routing_receipt["selected_profile"],
+                    "receipt_sha256": routing_receipt["receipt_sha256"],
+                },
+            )
+            if routing_receipt["selected_profile"] == "fast":
+                plan_judgment = {
+                    "verdict": "pass",
+                    "overall_score": None,
+                    "authority": "adaptive-fast-path",
+                    "routing_receipt_sha256": routing_receipt["receipt_sha256"],
+                    "improvements": [],
+                }
+                break
             judge_context = {
                 "request": state["request"],
                 "intake": state.get("intake", {"mode": "direct", "status": "ready"}),
@@ -2380,6 +2504,7 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
         state["planner_attempts"] = len(planner_receipts)
         state["planning_cycles"] = quality_cycle
     state["plan_judgment"] = plan_judgment
+    state["routing"] = routing_receipt
     save_state(run, state, "plan_submitted", {
         "plan_sha256": state["plan_sha256"],
         "blocking_questions": [x["id"] for x in unanswered],
@@ -2392,11 +2517,16 @@ def cmd_plan(args: argparse.Namespace) -> dict[str, Any]:
         and source == "planner"
         and config["approval"]["mode"] == "judge"
     ):
+        authority = (
+            "adaptive-fast-path"
+            if plan_judgment and plan_judgment.get("authority") == "adaptive-fast-path"
+            else "plan-review"
+        )
         approve_current_plan(
             run,
             state,
             state["plan_sha256"],
-            authority="plan-review",
+            authority=authority,
             event="plan_auto_approved",
         )
     return {"ok": True, "phase": state["phase"], "plan_sha256": state["plan_sha256"],

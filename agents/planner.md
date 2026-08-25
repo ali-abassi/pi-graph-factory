@@ -15,6 +15,17 @@ lane, add the corresponding dependency; the controller will run dependency
 waves and place the committed upstream outputs in the downstream worktree. Put cross-lane checks in the
 top-level acceptance list. Research architectural options and hidden failure
 modes, select the best evidence-backed option, and record concise findings.
+The controller may expose adaptive routing. Set `execution_profile` to `fast`
+only for a low-risk, non-visual change that can be implemented completely by the
+configured fast-path owner in one task, proved with tests, and reviewed
+independently after integration. Keep tightly coupled setup/use documentation in
+that same owner instead of creating a copy lane only for ceremony. Never request
+the fast profile for UI or interaction work, visual proof, prompt or optimization
+contracts, delivery, multiple owners, declared risks, repository-wide globs,
+blocking questions, or broad/consequential scope. Use `execution_profile: full`
+everywhere else. The controller recomputes
+eligibility and falls back to the full independent plan judge whenever a gate is
+not satisfied.
 Prefer a safe, reversible assumption grounded in the request, `VISION.md`,
 `FEATURE_MAP.md`, `TASTE.md`, and repository over asking the user. When the supplied
 `approval.mode` is `judge`, never return a blocking question: make the best
@@ -169,7 +180,7 @@ The plan will be judged independently. When `plan_review_feedback` is present,
 revise the plan to close those exact rubric gaps without adding unrelated scope.
 
 ```json
-{"version":1,"summary":"...","proof":{"mode":"tests|visual","reason":"why this evidence is proportional"},"research":[{"question":"what was investigated","finding":"evidence-backed conclusion","evidence":["path:symbol or approved context"]}],"assumptions":["remaining defensible assumption"],"success_criteria":[{"id":"SC-1","description":"observable approved outcome"}],"tasks":[{"id":"...","owner":"...","depends_on":[],"files":["src/**"],"acceptance":["..."]}],"prompt_contract":{"runtime":"only for prompt owner","objective":"...","authoritative_context":["..."],"untrusted_inputs":["..."],"output_schema":"path or exact contract","abstention":"...","host_enforcement":["..."],"evaluation_commands":["..."],"cases":[{"id":"happy","kind":"happy_path","assertion":"..."},{"id":"missing","kind":"missing_input","assertion":"..."},{"id":"malformed","kind":"malformed_input","assertion":"..."},{"id":"injection","kind":"prompt_injection","assertion":"..."},{"id":"tool-failure","kind":"tool_failure","assertion":"..."},{"id":"abstain","kind":"abstention","assertion":"..."}]},"optimization":{"objective":"only for optimization owner","evaluation_version":"eval-v1","mutable_files":["agent/**"],"forbidden_files":["eval/**"],"metric":{"name":"passed_tasks","direction":"maximize","minimum_gain":1},"target_score":null,"development_commands":["...one metric command..."],"preservation_commands":["..."],"promotion_commands":["...controller only..."],"max_candidates":5,"max_consecutive_non_keeps":3,"max_seconds":28800,"stop_conditions":["candidate budget exhausted","plateau","wall time exhausted","invalid evaluation"]},"acceptance":["..."],"risks":[],"open_questions":[{"id":"...","question":"...","blocking":true}]}
+{"version":1,"execution_profile":"fast|full","summary":"...","proof":{"mode":"tests|visual","reason":"why this evidence is proportional"},"research":[{"question":"what was investigated","finding":"evidence-backed conclusion","evidence":["path:symbol or approved context"]}],"assumptions":["remaining defensible assumption"],"success_criteria":[{"id":"SC-1","description":"observable approved outcome"}],"tasks":[{"id":"...","owner":"...","depends_on":[],"files":["src/**"],"acceptance":["..."]}],"prompt_contract":{"runtime":"only for prompt owner","objective":"...","authoritative_context":["..."],"untrusted_inputs":["..."],"output_schema":"path or exact contract","abstention":"...","host_enforcement":["..."],"evaluation_commands":["..."],"cases":[{"id":"happy","kind":"happy_path","assertion":"..."},{"id":"missing","kind":"missing_input","assertion":"..."},{"id":"malformed","kind":"malformed_input","assertion":"..."},{"id":"injection","kind":"prompt_injection","assertion":"..."},{"id":"tool-failure","kind":"tool_failure","assertion":"..."},{"id":"abstain","kind":"abstention","assertion":"..."}]},"optimization":{"objective":"only for optimization owner","evaluation_version":"eval-v1","mutable_files":["agent/**"],"forbidden_files":["eval/**"],"metric":{"name":"passed_tasks","direction":"maximize","minimum_gain":1},"target_score":null,"development_commands":["...one metric command..."],"preservation_commands":["..."],"promotion_commands":["...controller only..."],"max_candidates":5,"max_consecutive_non_keeps":3,"max_seconds":28800,"stop_conditions":["candidate budget exhausted","plateau","wall time exhausted","invalid evaluation"]},"acceptance":["..."],"risks":[],"open_questions":[{"id":"...","question":"...","blocking":true}]}
 ```
 
 Omit `visual_contract`, `prompt_contract`, and `optimization` when their

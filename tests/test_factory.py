@@ -24,6 +24,7 @@ from compile_factory import SCHEMA, compile_factory  # noqa: E402
 from factory import (  # noqa: E402
     PROJECT_DOC_CONTEXT_LIMIT,
     FactoryError,
+    adaptive_routing_receipt,
     enforce_dispatch_limits,
     is_unsafe_repository_artifact,
     metric_score_from_receipts,
@@ -87,6 +88,46 @@ class FactoryCompilerTests(unittest.TestCase):
             self.assertTrue((ROOT / role["instructions"]).is_file())
             for skill in role.get("skills", []):
                 self.assertTrue((ROOT / skill / "SKILL.md").is_file(), skill)
+
+    def test_adaptive_route_is_narrow_and_falls_back_to_full(self) -> None:
+        plan = {
+            "version": 1,
+            "execution_profile": "fast",
+            "proof": {"mode": "tests", "reason": "non-visual behavior"},
+            "success_criteria": [{"id": "SC-1", "description": "It works."}],
+            "tasks": [{
+                "id": "build",
+                "owner": "product",
+                "depends_on": [],
+                "files": ["app.py", "tests/**", "README.md"],
+                "acceptance": ["python3 -m unittest"],
+            }],
+            "acceptance": ["python3 -m unittest"],
+            "risks": [],
+            "open_questions": [],
+        }
+
+        selected = adaptive_routing_receipt(plan, self.factory)
+        self.assertEqual(selected["selected_profile"], "fast")
+        self.assertTrue(all(item["passed"] for item in selected["checks"]))
+
+        for mutation in (
+            lambda value: value["proof"].update(mode="visual"),
+            lambda value: value.update(visual_contract={}),
+            lambda value: value["tasks"].append(copy.deepcopy(value["tasks"][0])),
+            lambda value: value["tasks"][0].update(owner="copy"),
+            lambda value: value["tasks"][0].update(files=["**"]),
+            lambda value: value["risks"].append("touches a consequential boundary"),
+            lambda value: value["open_questions"].append({
+                "id": "q", "question": "Need input?", "blocking": True,
+            }),
+        ):
+            candidate = copy.deepcopy(plan)
+            mutation(candidate)
+            self.assertEqual(
+                adaptive_routing_receipt(candidate, self.factory)["selected_profile"],
+                "full",
+            )
 
     def test_copywriting_is_a_routable_specialist_without_a_second_lifecycle(self) -> None:
         implementers = {item["id"]: item for item in self.factory["implementers"]}

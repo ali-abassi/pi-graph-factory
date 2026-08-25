@@ -1,8 +1,9 @@
 # Intake modes
 
 Pi Graph Factory accepts three intake modes. They all converge on the same
-planner, independent plan judge, exact-hash authorization, implementation,
-proof, review, and merge lifecycle.
+planner, deterministic route, exact-hash authorization, implementation, proof,
+review, and merge lifecycle. Only bounded low-risk plans may use the fast route;
+all other generated plans retain the independent plan judge.
 
 ```text
 raw idea

@@ -111,6 +111,13 @@ if args.role == "plan":
             )
         ) else []),
     }
+    if os.environ.get("PI_GRAPH_FACTORY_FAST_PLAN") == "1":
+        output["execution_profile"] = "fast"
+        output["proof"] = {
+            "mode": "tests",
+            "reason": "the fixture is a non-visual single-owner behavior change",
+        }
+        output.pop("visual_contract")
     marker_value = os.environ.get("PI_GRAPH_FACTORY_INVALID_PLAN_MARKER")
     if marker_value and not Path(marker_value).exists():
         Path(marker_value).write_text("observed", encoding="utf-8")
@@ -231,7 +238,10 @@ elif args.role.startswith("review:"):
     else:
         counter.write_text(str(count + 1))
     versioned_plan = context["plan"].get("version") == 1
-    if count == 0 or os.environ.get("PI_GRAPH_FACTORY_ALWAYS_REPAIR") == "1":
+    if (
+        count == 0
+        and os.environ.get("PI_GRAPH_FACTORY_REVIEW_PASS_FIRST") != "1"
+    ) or os.environ.get("PI_GRAPH_FACTORY_ALWAYS_REPAIR") == "1":
         issue = {"id": "FIX-1", "owner": "product",
                  "message": "mark implementation reviewed"}
         if versioned_plan:

@@ -27,13 +27,16 @@ repair limits, and external effects.
    demonstrations, and review themes; compare directions; and freeze an
    observable visual contract before implementation. Under default judge
    authority it cannot pause the run to ask a person.
-5. A separate model judges grounding, coverage, feasibility, minimality, and
-   alignment. Anything below 8.5/10 returns with advice for at most three cycles.
-6. When every critical rubric dimension and the weighted score clear the bar,
-   the controller records the judge as authority for the exact generated-plan
-   hash and continues. Human approval is an optional governance mode, not a
-   default workflow step. Externally supplied plans still require it because
-   they bypass the planner/judge loop.
+5. A deterministic router lets only explicitly low-risk, non-visual,
+   single-owner, test-proved plans take a fast route. Every eligibility gate is
+   preserved in a hash-bound receipt. All other work goes to a separate model
+   that judges grounding, coverage, feasibility, minimality, and alignment;
+   anything below 8.5/10 returns with advice for at most three cycles.
+6. The controller records either the passing judge or the validated fast-route
+   receipt as authority for the exact generated-plan hash and continues. Both
+   routes retain independent final review and guarded merge. Human approval is
+   an optional governance mode, not a default workflow step. Externally supplied
+   plans still require it because they bypass generated planning.
 7. One to ten implementation agents work in isolated Git worktrees and explicit
    dependency waves. Independent owners run concurrently. A consumer starts only
    after its declared upstream tasks checkpoint, and its worktree contains those
@@ -79,16 +82,16 @@ repair limits, and external effects.
 - **Future runner adapters:** disposable or policy-restricted environments may
   wrap the same frozen run contract without changing factory semantics.
 
-## Near-term local operations surface
+## Local operations surface
 
-The next product layer is a deliberately small local dashboard over the existing
-run ledger, not a second workflow engine or telemetry backend. It should list
-projects and runs; show phases, agent lanes, blockers, current commands, and last
-meaningful activity; chart tokens by hour/day/project/agent/model; render the
-event timeline; and open plans, inputs, raw transcripts, receipts, tests,
-screenshots, and video. The run directory remains the source of truth. Accounts,
-cloud storage, hosted analytics, and a separate database are out of scope for the
-first version.
+The bundled local dashboard is a deliberately small read-only view over the
+existing run ledger, not a second workflow engine or telemetry backend. It lists
+projects and runs; shows phases, agent lanes, blockers, current commands, and
+last meaningful activity; maps observed agent usage by UTC hour or day; renders
+the complete event timeline; and opens allowlisted plans, inputs, transcripts,
+receipts, tests, screenshots, and video. The run directory remains the source of
+truth. Accounts, cloud storage, hosted analytics, and a separate database remain
+out of scope.
 
 ## Product principles
 
@@ -98,9 +101,10 @@ first version.
 - Repository maps reduce context use but never replace source verification.
 - Project vision and the feature map are durable decision context, not hidden
   permission to expand an approved request.
-- A passing independent anchored judgment authorizes generated plans by default;
-  a human supplies desired context at intake and is not a normal downstream
-  planning gate. Human-governed approval remains an explicit policy override.
+- A passing independent anchored judgment authorizes full-route generated plans;
+  a controller-validated fast receipt may authorize only bounded single-owner
+  test-proof work. A human supplies desired context at intake and is not a
+  normal downstream planning gate. Human governance remains an explicit override.
 - Evidence is proportional to the change and bound to the reviewed commit.
 - Usage is always observed; subscription users are not blocked by arbitrary
   token or dollar ceilings unless they explicitly configure enforcement.

@@ -15,4 +15,6 @@ node_modules/
 .coverage
 coverage/
 graphify-out/
+evidence/dashboard/
+evidence/factory-efficiency/
 steps.yaml

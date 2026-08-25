@@ -18,12 +18,15 @@ interactive grill (+ optional domain docs) | autonomous self-grill | direct
 Graphify + VISION.md + FEATURE_MAP.md + TASTE.md
       |
       v
-planner <-> independent plan judge (8.5/10, three cycles maximum)
-      |
-      +-> uncertainty returns as assumption-revision feedback
-      |
-      v
-judge authorizes the exact typed-plan SHA-256
+planner -> deterministic route
+      |                         |
+      | fast: one owner,        | full: independent plan judge
+      | tests, bounded scope    | (8.5/10, max three cycles)
+      |                         +-> revision feedback
+      +------------+------------+
+                   |
+                   v
+controller authorizes the exact typed-plan SHA-256
       |
       v
        1-10 specialist implementers in isolated Git worktree waves
@@ -64,8 +67,13 @@ Read [VISION.md](VISION.md) for the intended product and
   must create any missing file and the memory receipt names truncation.
 - A graph-first, read-only planner that records repository research and
   defensible assumptions before producing a durable typed plan.
-- An independent rubric judge whose score is recomputed by the controller.
-  Plans below 8.5/10 return to the planner for at most three quality cycles.
+- Adaptive planning overhead: explicitly low-risk, non-visual, test-proved plans
+  with one bounded `product` task can skip the plan-judge call, while a durable
+  controller routing receipt proves every eligibility gate. Visual, prompt,
+  optimization, delivery, multi-owner, broad, or ambiguous plans always take
+  the full independently judged route.
+- On the full route, an independent rubric judge has its score recomputed by the
+  controller. Plans below 8.5/10 return to the planner for at most three cycles.
 - Autonomous assumption revision when a planner proposes a blocking question;
   the judge still applies the same quality threshold to the revised plan.
 - Judge authorization of the exact canonical generated-plan SHA-256 after every
@@ -122,6 +130,10 @@ Read [VISION.md](VISION.md) for the intended product and
 - One-writer run locking, durable `transition_failed` events, inspectable active
   processes, and checkpointed `resume` across interrupted lanes, repairs,
   capture, review, integration, and the post-merge state-save window.
+- A read-only localhost operations dashboard over the existing run ledgers:
+  project/run selection, truthful blockers and execution state, agent-by-hour or
+  agent-by-day activity, exact usage uncertainty, complete events, and guarded
+  access to run artifacts without a second telemetry database.
 - Per-role configurable or disabled process-group timeouts. Token and cost
   ceilings are optional and disabled in the subscription-friendly default.
 - Safe fresh-repository ignore defaults and pre-integration rejection of
@@ -192,7 +204,9 @@ For a broad new idea, choose intake before initialization:
 - `direct` remains the default for an already-specific issue or request.
 
 See [Intake modes](docs/INTAKE.md) for the exact commands and contracts. All
-three paths converge on the same planner and independent plan-quality gate.
+three paths converge on the same planner and deterministic route: bounded
+low-risk work uses the fast policy receipt, while everything else goes through
+the independent plan-quality judge.
 
 The default path does not stop for planning questions. If a candidate plan
 contains one, the controller sends it back to the planner, which must select the
@@ -254,6 +268,30 @@ its implementation, reopen only that exhausted review terminal:
 operator view: current operation, active agents, last meaningful activity,
 lane/worktree status, aggregate usage, blockers, and paths to every plan,
 attempt-specific context, raw log directory, receipt, event, and evidence record.
+
+## Local operations dashboard
+
+Launch the bundled read-only dashboard against a project or a parent directory
+containing several projects:
+
+```bash
+.venv/bin/python scripts/dashboard.py \
+  --root /path/to/projects \
+  --open
+```
+
+The server binds to `127.0.0.1` by default and reads `.factory/runs` directly.
+It does not trigger, resume, repair, merge, deploy, or edit a run. Select any
+discovered run to see blockers, active agents, implementation lanes, complete
+events, usage receipts, and artifacts. The activity map switches between UTC
+hour and day buckets, one row per agent role; a square represents observed
+receipt usage, not invented continuous presence. Unknown subscription-backed
+usage remains explicitly unknown.
+
+Artifact downloads are limited to the server-generated allowlist under the
+supplied roots. Escaping symlinks and unrelated local files are never served.
+Repeat `--root` to scan more than one directory, and use `--port` to choose a
+different local port.
 
 Use `plan --file plan.json` only when another trusted system already produced
 and reviewed the plan; this path intentionally bypasses generated-plan research
@@ -366,7 +404,15 @@ changes.
 
 Generated version 1 plans also require non-empty repository research and an
 explicit assumptions array. The controller validates their shape; the
-independent plan reviewer scores grounding, coverage, feasibility, minimality,
+adaptive router then considers a deliberately narrow fast profile. It is
+eligible only for one bounded `product` task, test proof, no blocking question,
+no visual/prompt/optimization contract, and no delivery. Eligible plans retain
+the same isolated implementation, deterministic checks, independent final
+review, repair, and merge guards; they omit only the separate plan-judge call.
+Every check and the selected route are hash-bound in a routing receipt. Any
+failed eligibility check falls back to the full route.
+
+On the full route, the independent plan reviewer scores grounding, coverage, feasibility, minimality,
 and alignment using anchored half-point ratings. Grounding and feasibility are
 critical: either may fail below the numeric scale. The controller recomputes
 the weighted total and accepts `pass` only at the configured threshold (8.5 by
@@ -487,6 +533,14 @@ plan_review:
   timeout_seconds: 7200
 approval:
   mode: judge  # use human for a separate operator checkpoint
+routing:
+  mode: adaptive  # use full to require the plan judge for every generated plan
+  fast_path:
+    enabled: true
+    owner: product
+    max_file_patterns: 12
+    max_success_criteria: 10
+    max_acceptance_commands: 12
 intelligence:
   provider: graphify
   required: true
@@ -667,8 +721,8 @@ by local state alone.
 
 The canonical repository-mutation path today is `scripts/factory.py`. The
 factory config also compiles into an inspectable Pi Graph Core workflow showing
-a finite window of the same topology: repository intelligence, planning and its
-independent quality gate, parallel roles, evidence, per-cycle pass/repair
+a finite window of the conservative full-route topology: repository intelligence,
+planning and its independent quality gate, parallel roles, evidence, per-cycle pass/repair
 branches, guarded merge exits, and explicit continuation by the canonical
 controller when reviews are unlimited.
 
@@ -684,9 +738,11 @@ piw validate /tmp/factory.steps.yaml
 piw graph /tmp/factory.steps.yaml
 ```
 
-The compiled graph is currently a policy/template surface, not a second
+The compiled graph is currently a conservative policy/template surface, not a second
 authoritative lifecycle state store. Its plan-review node blocks a low score;
-the canonical controller owns the feedback-bearing three-cycle revision loop.
+the canonical controller owns adaptive routing and the feedback-bearing
+three-cycle revision loop. The graph therefore never implies that a full-route
+gate was skipped before the runtime has produced its routing receipt.
 Keeping one lifecycle owner avoids two-engine drift.
 
 ## Verification
@@ -698,7 +754,7 @@ Keeping one lifecycle owner avoids two-engine drift.
 .venv/bin/python -m py_compile scripts/*.py tests/*.py
 ```
 
-The deterministic suite currently covers 129 cases, including:
+The deterministic suite currently covers 137 cases, including:
 
 - simple single-owner first-pass work;
 - a two-owner feature with directed design repair;
@@ -706,6 +762,8 @@ The deterministic suite currently covers 129 cases, including:
 - one-command autonomous execution, judge-bound plan authorization, automatic
   assumption revision without a human pause, optional human approval, and
   generated planning;
+- adaptive three-call routing for bounded single-owner test-proof work, plus
+  deterministic downgrade to the full plan judge for ineligible plans;
 - Graphify deferral, first indexing, commit-aware reuse, and stale refresh;
 - DeepSeek semantic-enrichment dispatch, credential non-persistence, and explicit
   AST fallback when optional enrichment is unavailable;

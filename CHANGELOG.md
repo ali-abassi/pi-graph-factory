@@ -6,6 +6,19 @@ All notable changes to Pi Graph Factory are documented here.
 
 ### Added
 
+- Adaptive fast routing for bounded non-visual work: one `product` task, test
+  proof, no special contract/delivery/blocking question, configurable scope
+  ceilings, a hash-bound routing receipt, and automatic fallback to the full
+  plan judge. The final independent review, repairs, evidence, Git guards, and
+  merge path are unchanged. A deterministic lifecycle fixture reaches merge in
+  three model calls versus the archived five-call small-case baseline; live
+  holdout promotion remains pending.
+- A bundled read-only localhost operations dashboard over durable run ledgers,
+  including project/run navigation, truthful blockers and execution state, a
+  GitHub-style agent-by-hour/day activity map, complete events, exact usage
+  uncertainty, guarded artifact serving, responsive/empty/degraded/error states,
+  and a locked 120-event/10-lane maximum-content fixture.
+
 - Explicit task dependencies and deterministic owner waves. Ready lanes remain
   parallel, while downstream worktrees are prepared from the exact committed
   outputs of every transitive dependency; unknown edges and owner cycles fail

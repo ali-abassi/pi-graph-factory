@@ -37,8 +37,13 @@ for any individual run.
   observable quality bar, real verification driver, artifacts, and criterion
   coverage. New products and major redesigns require three references and two
   alternatives; incremental UI work uses the established system proportionally.
-- Independently judge generated plans with the `plan-quality-v1` rubric, revise below
-  8.5/10, and stop after three unsuccessful quality cycles.
+- Deterministically route only explicitly low-risk, non-visual, single-owner,
+  test-proof plans through a hash-bound fast receipt; bound their file patterns,
+  criteria, and commands, retain final independent review, and fall back to the
+  full route whenever any eligibility gate fails.
+- On the full route, independently judge generated plans with the
+  `plan-quality-v1` rubric, revise below 8.5/10, and stop after three
+  unsuccessful quality cycles.
 - Return blocking planner questions to autonomous revision until they become
   explicit evidence-backed reversible assumptions, then authorize the exact
   generated-plan SHA-256 when the independent judge clears the bar.
@@ -138,15 +143,21 @@ for any individual run.
   activity as the local operations UI's backend contract.
 - Resume only validated checkpoints; fail closed on ambiguous state.
 - Compile an inspectable Pi Graph Core policy topology for Studio/graph visualization.
+- Serve a read-only localhost operations dashboard directly from one or more
+  run-ledger roots, with project/run selection, blockers, agents, lanes, complete
+  events, allowlisted artifacts, and agent-by-hour/day activity derived from
+  normalized receipts. Unknown usage remains unknown and no second state store
+  is introduced.
 
 ## Deliberate gaps
 
 - Issue/webhook ingestion and a hosted clarification interface are external adapters.
-- The local operations dashboard is the next product layer; the machine-readable
-  `inspect` and run-log contract exists, but the browser UI is not bundled yet.
+- Hosted or cross-machine dashboard access, accounts, remote storage, and team
+  collaboration are not bundled; the operations surface is intentionally local.
 - Railway is documented as a persistent trusted runner, not provisioned by this repo.
-- The plan judge has deterministic contract tests but still needs calibration against a
-  user-reviewed corpus of real plans.
+- The plan judge and adaptive route have deterministic contract tests but still
+  need calibration against a user-reviewed corpus of real plans and a fresh
+  direct-`/goal` comparison.
 - Hostile-code sandboxing, universal semantic review, automatic conflict resolution,
   provider-side budget enforcement, and exactly-once deployment are not claimed.
 - Issue triage, tracker publication, multi-run ticket maps, wayfinding, and

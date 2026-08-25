@@ -517,6 +517,38 @@ class FactoryLifecycleTests(unittest.TestCase):
             ["git", "-C", str(self.repo), "status", "--porcelain"], text=True,
         ), "")
 
+    def test_adaptive_fast_path_uses_three_calls_and_keeps_final_review(self) -> None:
+        self.env["PI_GRAPH_FACTORY_FAST_PLAN"] = "1"
+        self.env["PI_GRAPH_FACTORY_REVIEW_PASS_FIRST"] = "1"
+
+        completed = self.command(
+            "start",
+            "--repo", str(self.repo),
+            "--config", str(self.config),
+            "--request", "Make one small non-visual behavior change with tests.",
+            "--id", "adaptive-fast-run",
+        )
+
+        self.assertEqual(completed["phase"], "merged")
+        self.assertEqual(
+            completed["planning"]["approval"]["authority"],
+            "adaptive-fast-path",
+        )
+        run = Path(completed["run"])
+        state = json.loads((run / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["usage"]["calls"], 3)
+        self.assertEqual(state["routing"]["selected_profile"], "fast")
+        self.assertEqual(state["final_review"]["verdict"], "pass")
+        self.assertEqual(len(state["cycles"]), 1)
+        self.assertFalse(list((run / "receipts").glob("plan-review-*.json")))
+        self.assertEqual(len(list((run / "receipts").glob("agent-*.json"))), 3)
+        events = [
+            json.loads(line)
+            for line in (run / "events.jsonl").read_text(encoding="utf-8").splitlines()
+        ]
+        route = next(event for event in events if event["event"] == "plan_route_selected")
+        self.assertEqual(route["payload"]["selected_profile"], "fast")
+
     def test_start_runs_from_request_through_guarded_merge_without_human_approval(self) -> None:
         completed = self.command(
             "start",

@@ -60,13 +60,16 @@ provider calls remain supply-chain and data-egress boundaries. Disable
 `intelligence.auto_install`, preinstall an audited build, or set
 `PI_GRAPH_FACTORY_GRAPHIFY` to a trusted command in restricted environments.
 
-The independent plan judge is an AI quality control and the default configured
-plan authority, not a security boundary. The controller validates its schema,
-recomputes its weighted score, limits revision cycles, and binds a pass to the
-exact generated-plan hash. Its rubric has not yet been calibrated against a
-large human-rated corpus; use `approval.mode: human` for high-impact work that
-requires an operator checkpoint. Externally supplied plans always require
-exact human approval because they bypass the generated-plan judge.
+The independent plan judge is an AI quality control, not a security boundary.
+The adaptive default omits that call only for a single bounded, non-visual,
+test-proved owner with no special contract, delivery, or blocking question; the
+controller records every predicate in a hash-bound routing receipt. All other
+generated plans retain the judge. The controller validates the judgment schema,
+recomputes its weighted score, limits revision cycles, and binds either authority
+to the exact generated-plan hash. The rubric and fast policy have not yet been
+calibrated against a large human-rated corpus; use `routing.mode: full` or
+`approval.mode: human` for high-impact work. Externally supplied plans always
+require exact human approval because they bypass generated planning.
 
 Under the default judge authority, a generated plan cannot pause on a blocking
 question. The controller returns it for bounded revision into an explicit,

@@ -1,0 +1,787 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Pi Graph Factory — Operations</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --canvas: #fff;
+      --surface: #fafafa;
+      --surface-strong: #f3f5f3;
+      --ink: #171918;
+      --muted: #646966;
+      --faint: #8e9490;
+      --line: rgb(23 25 24 / 10%);
+      --line-strong: rgb(23 25 24 / 18%);
+      --accent: #2e6f45;
+      --accent-pale: #e9f2eb;
+      --danger: #a33b35;
+      --danger-pale: #fbefed;
+      --success: #2e6f45;
+      --success-pale: #e9f2eb;
+      --warning: #7b5b1a;
+      --warning-pale: #f8f2e3;
+      --focus: #1769e0;
+      --activity-0: #f0f2f0;
+      --activity-1: #dceadd;
+      --activity-2: #a9cfaf;
+      --activity-3: #63a271;
+      --activity-4: #2e6f45;
+      --radius: 8px;
+      --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    html { overflow-x: clip; }
+
+    body {
+      margin: 0;
+      background: var(--canvas);
+      color: var(--ink);
+      font: 15px/1.55 var(--sans);
+      overflow-wrap: anywhere;
+    }
+
+    button, input, select { font: inherit; }
+    button, a, input, select, summary { -webkit-tap-highlight-color: transparent; }
+
+    button:focus-visible,
+    a:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    summary:focus-visible,
+    [tabindex]:focus-visible {
+      outline: 3px solid color-mix(in srgb, var(--focus) 35%, transparent);
+      outline-offset: 2px;
+    }
+
+    button {
+      min-height: 42px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      background: var(--canvas);
+      color: var(--ink);
+      padding: 9px 14px;
+      cursor: pointer;
+      transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+    }
+
+    button:hover { background: var(--surface); border-color: rgb(23 25 24 / 34%); }
+    button:active { background: var(--surface-strong); }
+    button:disabled { cursor: not-allowed; color: var(--faint); background: var(--surface-strong); }
+    a { color: #235a39; text-underline-offset: 3px; }
+    code, pre, .mono { font-family: var(--mono); }
+
+    .topbar {
+      min-height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--line);
+      background: var(--canvas);
+    }
+
+    .brand { display: flex; align-items: center; gap: 9px; font-weight: 650; letter-spacing: -.01em; }
+    .brand b { color: var(--accent); font-size: 20px; }
+    .brand small { color: var(--muted); font-size: 13px; font-weight: 450; }
+
+    .freshness { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
+    .freshness::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--success); }
+    .freshness[data-state="loading"]::before { background: var(--warning); }
+    .freshness[data-state="error"]::before { background: var(--danger); }
+
+    .shell { min-height: calc(100vh - 64px); display: grid; grid-template-columns: minmax(248px, 292px) minmax(0, 1fr); }
+
+    .rail {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--line);
+      background: var(--surface);
+    }
+
+    .rail-head { padding: 26px 20px 12px; display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
+    .kicker { color: var(--muted); font-size: 13px; line-height: 1.35; }
+    .rail h2, .panel h2, .panel h3 { margin: 0; }
+    .rail h2 { margin-top: 3px; font-size: 21px; font-weight: 600; letter-spacing: -.025em; }
+    .count { color: var(--muted); font-size: 13px; white-space: nowrap; }
+    .run-list { flex: 1; overflow: auto; padding: 4px 12px 20px; }
+    .project-group { margin: 10px 0 22px; }
+
+    .project-label {
+      padding: 0 8px 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 550;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .run-button {
+      width: 100%;
+      min-height: 0;
+      text-align: left;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 6px 12px;
+      padding: 12px;
+      margin: 3px 0;
+      border-color: transparent;
+      background: transparent;
+    }
+
+    .run-button:hover { background: var(--canvas); border-color: var(--line); }
+    .run-button[aria-current="true"] { background: var(--canvas); border-color: var(--line-strong); }
+    .run-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 12px/1.4 var(--mono); }
+    .run-time, .run-tokens { color: var(--muted); font: 11px/1.35 var(--mono); }
+
+    .phase {
+      align-self: start;
+      border-radius: 999px;
+      padding: 4px 8px;
+      background: var(--surface-strong);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .phase[data-tone="bad"] { background: var(--danger-pale); color: var(--danger); }
+    .phase[data-tone="good"] { background: var(--success-pale); color: var(--success); }
+    .phase[data-tone="active"] { background: var(--accent-pale); color: var(--accent); }
+    .phase[data-tone="warn"] { background: var(--warning-pale); color: var(--warning); }
+
+    .rail-foot { border-top: 1px solid var(--line); padding: 14px 20px 16px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .workspace { min-width: 0; padding: 42px clamp(24px, 4vw, 64px) 80px; }
+
+    .empty-workspace { max-width: 620px; margin: 14vh auto 0; }
+    .empty-workspace h1 { margin: 4px 0 10px; font-size: clamp(29px, 4vw, 44px); font-weight: 560; letter-spacing: -.045em; }
+    .empty-workspace p { color: var(--muted); max-width: 56ch; }
+    .empty-workspace pre { background: var(--surface); border: 1px solid var(--line); padding: 14px; border-radius: var(--radius); overflow: auto; white-space: pre-wrap; }
+
+    .run-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; padding-bottom: 28px; }
+    .run-header h1 { margin: 8px 0 10px; max-width: 820px; font-size: clamp(27px, 3.3vw, 44px); font-weight: 560; line-height: 1.08; letter-spacing: -.05em; }
+    .repo-path { color: var(--muted); font: 12px/1.5 var(--mono); }
+    .header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+    .header-actions button:first-child { background: var(--ink); border-color: var(--ink); color: white; }
+    .header-actions button:first-child:hover { background: #343735; }
+
+    .degraded { margin: 0 0 20px; padding: 14px 16px; border-radius: var(--radius); background: var(--warning-pale); color: var(--warning); }
+
+    .facts {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 24px;
+      padding: 20px 24px;
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .fact { min-width: 0; }
+    .fact span { display: block; color: var(--muted); font-size: 12px; }
+    .fact strong { display: block; margin-top: 5px; font-size: 15px; font-weight: 600; line-height: 1.3; }
+    .fact strong.mono { font-size: 12px; }
+
+    .blocker-band { margin: 24px 0 0; padding: 15px 18px; border-radius: var(--radius); background: var(--danger-pale); }
+    .blocker-band[data-clear="true"] { background: var(--success-pale); }
+    .blocker-band h2 { font-size: 14px; font-weight: 600; color: var(--danger); }
+    .blocker-band[data-clear="true"] h2 { color: var(--success); }
+    .blocker-band p { margin: 8px 0 0; }
+    .blocker-band details { margin-top: 10px; }
+    .blocker-band summary { width: fit-content; color: var(--danger); cursor: pointer; font-weight: 600; }
+    .blocker-band ol { margin: 10px 0 0; padding-left: 20px; }
+    .blocker-band li + li { margin-top: 8px; }
+
+    .split { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(270px, .5fr); gap: 48px; align-items: start; }
+    .panel { min-width: 0; margin-top: 48px; padding-top: 32px; border-top: 1px solid var(--line); }
+    .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+    .panel h2 { margin-top: 3px; font-size: 22px; font-weight: 600; letter-spacing: -.025em; }
+    .panel-note { margin: 6px 0 0; color: var(--muted); font-size: 13px; max-width: 72ch; }
+
+    .usage-total { font: 600 clamp(28px, 3.4vw, 44px)/1 var(--mono); letter-spacing: -.06em; }
+    .usage-total small { display: block; margin-top: 8px; color: var(--muted); font: 12px/1.3 var(--sans); letter-spacing: 0; }
+    .usage-controls { display: grid; gap: 5px; }
+    .usage-controls label { color: var(--muted); font-size: 12px; }
+
+    select, input[type="search"] {
+      min-height: 42px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      background: var(--canvas);
+      color: var(--ink);
+      padding: 8px 10px;
+    }
+
+    .activity-summary { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-bottom: 24px; }
+    .activity-legend { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11px; }
+    .activity-legend i { width: 13px; height: 13px; border-radius: 3px; background: var(--activity-0); }
+    .activity-legend i[data-level="1"] { background: var(--activity-1); }
+    .activity-legend i[data-level="2"] { background: var(--activity-2); }
+    .activity-legend i[data-level="3"] { background: var(--activity-3); }
+    .activity-legend i[data-level="4"] { background: var(--activity-4); }
+
+    .activity-scroll { overflow-x: auto; padding: 4px 2px 12px; scrollbar-width: thin; }
+    .activity-map {
+      min-width: max-content;
+      display: grid;
+      grid-template-columns: minmax(164px, 1fr) repeat(var(--activity-columns), 23px);
+      grid-auto-rows: 23px;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .activity-corner, .activity-column { color: var(--muted); font-size: 11px; }
+    .activity-column { text-align: center; font-family: var(--mono); }
+    .activity-agent { min-width: 0; padding-right: 12px; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+    .activity-agent span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
+    .activity-agent small { color: var(--muted); font: 10px var(--mono); }
+    .activity-cell { width: 21px; height: 21px; min-height: 0; padding: 0; border: 0; border-radius: 4px; background: var(--activity-0); }
+    .activity-cell[data-level="1"] { background: var(--activity-1); }
+    .activity-cell[data-level="2"] { background: var(--activity-2); }
+    .activity-cell[data-level="3"] { background: var(--activity-3); }
+    .activity-cell[data-level="4"] { background: var(--activity-4); }
+    .activity-cell[data-unknown="true"] { outline: 1px solid #9b771f; outline-offset: -2px; }
+    .activity-cell:hover { background: var(--ink); border: 0; }
+
+    .activity-detail { min-height: 44px; margin-top: 12px; padding: 11px 13px; border-radius: var(--radius); background: var(--surface); color: var(--muted); font-size: 12px; }
+
+    .usage-meta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; margin-top: 20px; }
+    .usage-meta span { color: var(--muted); font-size: 12px; }
+    .usage-meta b { display: block; margin-top: 3px; color: var(--ink); font: 600 12px var(--mono); }
+
+    .agent-list, .lane-list { display: grid; gap: 2px; }
+    .agent, .lane { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 11px 0; }
+    .agent + .agent, .lane + .lane { border-top: 1px solid var(--line); }
+    .agent strong, .lane strong { display: block; font: 600 12px var(--mono); }
+    .agent small, .lane small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+
+    .status-word { color: var(--muted); font-size: 12px; font-weight: 600; }
+    .status-word[data-tone="bad"] { color: var(--danger); }
+    .status-word[data-tone="good"] { color: var(--success); }
+    .status-word[data-tone="active"] { color: var(--accent); }
+    .subsection { margin-top: 28px; }
+    .subsection h3 { margin-bottom: 8px; font-size: 15px; font-weight: 600; }
+
+    .timeline-tools { display: flex; align-items: center; gap: 10px; }
+    .timeline-tools input { width: min(330px, 48vw); }
+    .event-list { display: grid; gap: 4px; }
+    .event { background: var(--canvas); border-radius: var(--radius); }
+    .event + .event { border-top: 1px solid var(--line); border-radius: 0; }
+
+    .event summary {
+      min-height: 52px;
+      display: grid;
+      grid-template-columns: 54px minmax(160px, .65fr) minmax(90px, .35fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 11px 6px;
+      cursor: pointer;
+      list-style: none;
+    }
+
+    .event summary::-webkit-details-marker { display: none; }
+    .event summary:hover { background: var(--surface); }
+    .event-sequence, .event-phase, .event-time { color: var(--muted); font: 11px var(--mono); }
+    .event-name { font: 600 12px var(--mono); }
+
+    .event pre {
+      max-height: 520px;
+      overflow: auto;
+      margin: 0;
+      padding: 16px;
+      border-radius: var(--radius);
+      background: #f4f5f4;
+      color: var(--ink);
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+    }
+
+    .artifact-groups { display: grid; gap: 2px; margin-top: 20px; }
+    .artifact-group + .artifact-group { border-top: 1px solid var(--line); }
+    .artifact-group summary { padding: 14px 2px; cursor: pointer; font-weight: 600; }
+    .artifact-count { color: var(--muted); font: 11px var(--mono); margin-left: 6px; }
+    .artifact-list { margin: 0 0 14px; padding: 0; list-style: none; display: grid; gap: 6px; }
+    .artifact-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: baseline; }
+    .artifact-list a { font: 12px/1.45 var(--mono); }
+    .artifact-size { color: var(--muted); font: 11px var(--mono); white-space: nowrap; }
+
+    .notice { color: var(--muted); padding: 12px 0; }
+    .error-box, .artifact-error { margin: 20px 0; padding: 16px; border-radius: var(--radius); background: var(--danger-pale); color: var(--danger); }
+    .artifact-error { margin: 14px 0; }
+    .artifact-error code { display: block; margin: 7px 0; color: var(--ink); }
+    .artifact-error button { margin-top: 8px; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+    @media (max-width: 980px) {
+      .shell { grid-template-columns: 1fr; }
+      .rail { border-right: 0; border-bottom: 1px solid var(--line); max-height: 238px; }
+      .run-list { display: flex; gap: 8px; overflow-x: auto; }
+      .project-group { min-width: 280px; margin: 0; }
+      .rail-foot { display: none; }
+      .workspace { padding-top: 32px; }
+      .facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .split { grid-template-columns: 1fr; gap: 0; }
+    }
+
+    @media (max-width: 680px) {
+      .topbar { padding: 0 14px; }
+      .brand small { display: none; }
+      .freshness { max-width: 48%; text-align: right; }
+      .workspace { padding-inline: 18px; }
+      .run-header { display: block; }
+      .header-actions { justify-content: flex-start; margin-top: 16px; }
+      .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+      .event summary { grid-template-columns: 42px minmax(0, 1fr); }
+      .event-phase, .event-time { display: none; }
+      .usage-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .panel-head { display: block; }
+      .usage-controls { margin-top: 14px; }
+      .timeline-tools { margin-top: 12px; }
+      .timeline-tools input { width: 100%; }
+      .activity-summary { align-items: flex-start; flex-direction: column; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><b>π</b> Graph Factory <small>local operations</small></div>
+    <div id="freshness" class="freshness" role="status" aria-live="polite">Reading local ledgers…</div>
+  </header>
+  <div class="shell">
+    <aside class="rail" aria-label="Projects and runs">
+      <div class="rail-head">
+        <div><div class="kicker">Run ledger</div><h2>Projects</h2></div>
+        <div id="run-count" class="count">—</div>
+      </div>
+      <nav id="run-list" class="run-list" aria-label="Factory runs" aria-busy="true"></nav>
+      <div id="rail-foot" class="rail-foot">The filesystem is the source of truth.</div>
+    </aside>
+    <main id="workspace" class="workspace" aria-busy="true">
+      <div class="empty-workspace">
+        <div class="kicker">Opening local ledgers</div>
+        <h1>Reading factory runs</h1>
+        <p>State, events, usage receipts, active agents, and proof artifacts are being read directly from the allowed local roots.</p>
+      </div>
+    </main>
+  </div>
+  <div id="announcer" class="sr-only" aria-live="polite"></div>
+
+  <script>
+    "use strict";
+
+    const app = {
+      snapshot: null,
+      selected: null,
+      loading: false,
+      usagePeriod: "hour",
+      eventFilter: "",
+    };
+
+    const $ = (selector) => document.querySelector(selector);
+    const escapeHTML = (value) => String(value ?? "").replace(/[&<>'"]/g, character => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"
+    })[character]);
+
+    function formatNumber(value) {
+      const number = Number(value || 0);
+      return new Intl.NumberFormat("en", { notation: number >= 1000000 ? "compact" : "standard", maximumFractionDigits: 1 }).format(number);
+    }
+
+    function exactNumber(value) {
+      return new Intl.NumberFormat("en").format(Number(value || 0));
+    }
+
+    function formatBytes(value) {
+      let size = Number(value || 0);
+      const units = ["B", "KB", "MB", "GB"];
+      let unit = 0;
+      while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit += 1; }
+      return `${size < 10 && unit ? size.toFixed(1) : Math.round(size)} ${units[unit]}`;
+    }
+
+    function relativeTime(value) {
+      if (!value) return "unknown";
+      const then = new Date(value).getTime();
+      if (!Number.isFinite(then)) return String(value);
+      const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
+      if (seconds < 60) return `${seconds}s ago`;
+      if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+      if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+      return `${Math.floor(seconds / 86400)}d ago`;
+    }
+
+    function exactTime(value) {
+      if (!value) return "unknown";
+      const date = new Date(value);
+      return Number.isFinite(date.getTime()) ? date.toLocaleString() : String(value);
+    }
+
+    function titleize(value) {
+      const text = String(value || "unknown").replace(/[_-]+/g, " ");
+      return text.charAt(0).toUpperCase() + text.slice(1);
+    }
+
+    function tone(value) {
+      const phase = String(value || "").toLowerCase();
+      if (["failed", "human_required", "delivery_failed", "degraded"].includes(phase)) return "bad";
+      if (["merged", "delivered", "merge_ready", "delivery_ready"].includes(phase)) return "good";
+      if (["implementing", "reviewing", "planning", "intake"].includes(phase)) return "active";
+      return "warn";
+    }
+
+    function selectedRun() {
+      return app.snapshot?.runs.find(run => run.key === app.selected) || null;
+    }
+
+    function chooseRun(key, announce = true) {
+      if (!app.snapshot?.runs.some(run => run.key === key)) return;
+      app.selected = key;
+      history.replaceState(null, "", `#${encodeURIComponent(key)}`);
+      renderRail();
+      renderWorkspace();
+      if (announce) {
+        const run = selectedRun();
+        $("#announcer").textContent = `Selected ${run.project}, run ${run.id}, phase ${run.phase}`;
+      }
+    }
+
+    async function load() {
+      if (app.loading) return;
+      app.loading = true;
+      const workspace = $("#workspace");
+      workspace.setAttribute("aria-busy", "true");
+      $("#run-list").setAttribute("aria-busy", "true");
+      $("#freshness").dataset.state = "loading";
+      $("#freshness").textContent = app.snapshot ? "Refreshing local ledgers…" : "Reading local ledgers…";
+      const refresh = $("#refresh");
+      if (refresh) {
+        refresh.disabled = true;
+        refresh.textContent = "Refreshing…";
+      }
+      try {
+        const response = await fetch("/api/dashboard", { cache: "no-store" });
+        if (!response.ok) throw new Error(`Dashboard endpoint returned ${response.status}`);
+        app.snapshot = await response.json();
+        const requested = decodeURIComponent(location.hash.slice(1));
+        const preserved = app.snapshot.runs.some(run => run.key === app.selected) ? app.selected : null;
+        app.selected = (requested && app.snapshot.runs.some(run => run.key === requested) && requested)
+          || preserved
+          || app.snapshot.runs[0]?.key
+          || null;
+        renderRail();
+        renderWorkspace();
+        const time = new Date(app.snapshot.generated_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        $("#freshness").dataset.state = "ready";
+        $("#freshness").textContent = `Read from disk at ${time}`;
+      } catch (error) {
+        $("#freshness").dataset.state = "error";
+        $("#freshness").textContent = "Ledger read failed";
+        workspace.innerHTML = `<div class="error-box" role="alert"><strong>Dashboard unavailable.</strong><br>${escapeHTML(error.message)}<br><br>Keep this tab open and restart the local server, then use Refresh.</div><button id="retry">Refresh</button>`;
+        $("#retry")?.addEventListener("click", load);
+      } finally {
+        app.loading = false;
+        workspace.setAttribute("aria-busy", "false");
+        $("#run-list").setAttribute("aria-busy", "false");
+      }
+    }
+
+    function renderRail() {
+      if (!app.snapshot) return;
+      const groups = new Map();
+      app.snapshot.runs.forEach(run => {
+        if (!groups.has(run.repo)) groups.set(run.repo, []);
+        groups.get(run.repo).push(run);
+      });
+      const projectMeta = new Map(app.snapshot.projects.map(project => [project.repo, project]));
+      $("#run-count").textContent = `${app.snapshot.runs.length} run${app.snapshot.runs.length === 1 ? "" : "s"}`;
+      $("#run-list").innerHTML = [...groups.entries()].map(([repo, runs]) => {
+        const project = projectMeta.get(repo) || { name: runs[0].project, total_tokens: 0 };
+        return `<section class="project-group" aria-label="${escapeHTML(project.name)}">
+          <div class="project-label"><span>${escapeHTML(project.name)}</span><span>${formatNumber(project.total_tokens)} tok</span></div>
+          ${runs.map(run => `<button class="run-button" data-run="${run.key}" aria-current="${run.key === app.selected}">
+            <span class="run-name" title="${escapeHTML(run.id)}">${escapeHTML(run.id)}</span>
+            <span class="phase" data-tone="${tone(run.phase)}">${escapeHTML(titleize(run.phase))}</span>
+            <span class="run-time" title="${escapeHTML(exactTime(run.updated_at))}">${escapeHTML(relativeTime(run.updated_at))}</span>
+            <span class="run-tokens">${formatNumber(run.usage.total_tokens)} tok</span>
+          </button>`).join("")}
+        </section>`;
+      }).join("");
+      $("#run-list").querySelectorAll("[data-run]").forEach(button => {
+        button.addEventListener("click", () => chooseRun(button.dataset.run));
+        button.addEventListener("focus", () => button.scrollIntoView({
+          block: "nearest",
+          inline: "nearest",
+        }));
+      });
+      const total = app.snapshot.runs.reduce((sum, run) => sum + Number(run.usage.total_tokens || 0), 0);
+      $("#rail-foot").textContent = `${app.snapshot.projects.length} project${app.snapshot.projects.length === 1 ? "" : "s"} · ${exactNumber(total)} observed tokens · filesystem source of truth`;
+    }
+
+    function renderWorkspace() {
+      const run = selectedRun();
+      if (!run) {
+        const roots = app.snapshot?.roots || [];
+        const errors = app.snapshot?.discovery_errors || [];
+        $("#workspace").innerHTML = `<div class="empty-workspace">
+          <div class="kicker">No run ledgers found</div>
+          <h1>The factory is quiet.</h1>
+          <p>Searched ${roots.length ? roots.map(escapeHTML).join(", ") : "the current directory"}. Point the server at a project or a parent directory containing <code>.factory/runs</code>.</p>
+          ${errors.length ? `<div class="error-box" role="alert">${errors.map(escapeHTML).join("<br>")}</div>` : ""}
+          <pre>python3 scripts/dashboard.py --root /path/to/projects --open</pre>
+          <button id="refresh-empty">Refresh</button>
+        </div>`;
+        $("#refresh-empty")?.addEventListener("click", load);
+        return;
+      }
+
+      const liveAgents = run.active_agents.filter(agent => agent.alive);
+      const operation = run.operation || "none recorded";
+      const degraded = [...(app.snapshot.discovery_errors || []), ...(run.degraded || [])];
+      $("#workspace").innerHTML = `
+        <header class="run-header">
+          <div>
+            <div class="kicker">${escapeHTML(run.project)} · <span class="phase" data-tone="${tone(run.phase)}">${escapeHTML(titleize(run.phase))}</span></div>
+            <h1>${escapeHTML(run.id)}</h1>
+            <div class="repo-path">${escapeHTML(run.repo)}</div>
+          </div>
+          <div class="header-actions">
+            <button id="refresh">Refresh from disk</button>
+            <button id="copy-path" data-copy="${escapeHTML(run.run_path)}">Copy run path</button>
+          </div>
+        </header>
+        ${degraded.length ? `<div class="degraded" role="alert"><strong>Degraded ledger</strong><br>${degraded.map(escapeHTML).join("<br>")}</div>` : ""}
+        <section class="facts" aria-label="Run facts">
+          ${fact("Phase", titleize(run.phase))}
+          ${fact("Recorded operation", operation, true)}
+          ${fact("Last ledger update", relativeTime(run.updated_at), false, exactTime(run.updated_at))}
+          ${fact("Live agents", `${liveAgents.length} of ${run.active_agents.length}`)}
+          ${fact("Review loops", exactNumber(run.completed_cycles))}
+        </section>
+        ${renderBlockers(run.blockers)}
+        <div class="split">
+          ${renderUsage(run)}
+          ${renderExecution(run)}
+        </div>
+        ${renderTimeline(run)}
+        ${renderArtifacts(run)}
+      `;
+      bindWorkspace(run);
+    }
+
+    function fact(label, value, mono = false, title = "") {
+      return `<div class="fact"><span>${escapeHTML(label)}</span><strong class="${mono ? "mono" : ""}" title="${escapeHTML(title)}">${escapeHTML(value)}</strong></div>`;
+    }
+
+    function renderBlockers(blockers) {
+      if (!blockers.length) return `<section class="blocker-band" data-clear="true"><h2>No blockers recorded</h2></section>`;
+      const remaining = blockers.slice(1);
+      return `<section class="blocker-band" aria-labelledby="blocker-title"><h2 id="blocker-title">${blockers.length} blocker${blockers.length === 1 ? " requires" : "s require"} attention</h2><p>${escapeHTML(blockers[0])}</p>${remaining.length ? `<details><summary>Show ${remaining.length} more blocker${remaining.length === 1 ? "" : "s"}</summary><ol start="2">${remaining.map(blocker => `<li>${escapeHTML(blocker)}</li>`).join("")}</ol></details>` : ""}</section>`;
+    }
+
+    function renderUsage(run) {
+      const records = run.usage_records || [];
+      const keyForRecord = record => {
+        const date = new Date(record.at);
+        if (!Number.isFinite(date.getTime())) return null;
+        return app.usagePeriod === "day"
+          ? date.toISOString().slice(0, 10)
+          : `${date.toISOString().slice(0, 13)}:00`;
+      };
+      const recordTimes = records.map(record => new Date(record.at).getTime()).filter(Number.isFinite);
+      const latest = recordTimes.length ? Math.max(...recordTimes) : Date.now();
+      const bucketCount = app.usagePeriod === "day" ? 14 : 24;
+      const bucketMilliseconds = app.usagePeriod === "day" ? 86400000 : 3600000;
+      const end = app.usagePeriod === "day"
+        ? Date.UTC(new Date(latest).getUTCFullYear(), new Date(latest).getUTCMonth(), new Date(latest).getUTCDate())
+        : Math.floor(latest / bucketMilliseconds) * bucketMilliseconds;
+      const start = end - (bucketCount - 1) * bucketMilliseconds;
+      const keys = Array.from({ length: bucketCount }, (_item, index) => {
+        const date = new Date(start + index * bucketMilliseconds);
+        return app.usagePeriod === "day"
+          ? date.toISOString().slice(0, 10)
+          : `${date.toISOString().slice(0, 13)}:00`;
+      });
+      const roleTotals = run.usage_by_role || {};
+      const roles = [...new Set(records.map(record => record.role || "unknown"))].sort(
+        (a, b) => Number(roleTotals[b] || 0) - Number(roleTotals[a] || 0) || a.localeCompare(b)
+      );
+      const cells = new Map();
+      records.forEach(record => {
+        const key = keyForRecord(record);
+        if (!key) return;
+        const id = `${record.role || "unknown"}\u0000${key}`;
+        const cell = cells.get(id) || { tokens: 0, calls: 0, unknown: 0 };
+        cell.tokens += Number(record.total || 0);
+        cell.calls += 1;
+        cell.unknown += record.unknown ? 1 : 0;
+        cells.set(id, cell);
+      });
+      const maximum = Math.max(...[...cells.values()].map(cell => cell.tokens), 1);
+      const labelForKey = key => app.usagePeriod === "day"
+        ? new Date(`${key}T00:00:00Z`).toLocaleDateString([], { month: "short", day: "numeric", timeZone: "UTC" })
+        : Number(key.slice(11, 13)) % 3 === 0 ? key.slice(11, 13) : "";
+      const accessibleLabelForKey = key => app.usagePeriod === "day"
+        ? new Date(`${key}T00:00:00Z`).toLocaleDateString([], { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })
+        : `${key.slice(0, 10)} at ${key.slice(11, 13)}:00 UTC`;
+      const map = keys.length && roles.length ? `<div class="activity-scroll" role="region" aria-label="Agent activity map. Use arrow keys to move between time buckets.">
+        <div class="activity-map" style="--activity-columns:${keys.length}">
+          <div class="activity-corner">Agent</div>
+          ${keys.map(key => `<div class="activity-column">${escapeHTML(labelForKey(key))}</div>`).join("")}
+          ${roles.map((role, row) => `<div class="activity-agent"><span>${escapeHTML(role)}</span><small>${formatNumber(roleTotals[role] || 0)}</small></div>${keys.map((key, column) => {
+            const cell = cells.get(`${role}\u0000${key}`) || { tokens: 0, calls: 0, unknown: 0 };
+            const level = cell.tokens ? Math.max(1, Math.min(4, Math.ceil(cell.tokens / maximum * 4))) : 0;
+            const label = `${role}, ${accessibleLabelForKey(key)}: ${exactNumber(cell.tokens)} observed tokens across ${cell.calls} receipt${cell.calls === 1 ? "" : "s"}${cell.unknown ? `, ${cell.unknown} with unknown usage` : ""}`;
+            return `<button class="activity-cell" tabindex="${row === 0 && column === 0 ? "0" : "-1"}" data-row="${row}" data-column="${column}" data-level="${level}" data-unknown="${cell.unknown > 0}" data-role="${escapeHTML(role)}" data-period="${escapeHTML(key)}" data-tokens="${cell.tokens}" data-calls="${cell.calls}" aria-label="${escapeHTML(label)}" title="${escapeHTML(label)}"></button>`;
+          }).join("")}`).join("")}
+        </div>
+      </div>` : `<p class="notice">No timestamped agent receipts are available for this run.</p>`;
+      return `<section class="panel" aria-labelledby="usage-title">
+        <div class="panel-head">
+          <div><div class="kicker">Observed agent receipts</div><h2 id="usage-title">Activity map</h2><p class="panel-note">Each square is one agent in one UTC time bucket. Intensity reflects observed tokens, not continuous presence.</p></div>
+          <div class="usage-controls"><label for="usage-period">Time scale</label><select id="usage-period"><option value="hour" ${app.usagePeriod === "hour" ? "selected" : ""}>By hour</option><option value="day" ${app.usagePeriod === "day" ? "selected" : ""}>By day</option></select></div>
+        </div>
+        <div class="activity-summary"><div class="usage-total">${exactNumber(run.usage.total_tokens)}<small>Observed tokens</small></div><div class="activity-legend" aria-label="Activity intensity legend"><span>Less</span>${[0,1,2,3,4].map(level => `<i data-level="${level}"></i>`).join("")}<span>More</span></div></div>
+        ${map}
+        <div id="activity-detail" class="activity-detail" aria-live="polite">Select a square for exact agent activity.</div>
+        <div class="usage-meta">
+          <span>Recorded calls<b>${exactNumber(run.usage.calls)}</b></span>
+          <span>Input tokens<b>${exactNumber(run.usage.input_tokens)}</b></span>
+          <span>Output tokens<b>${exactNumber(run.usage.output_tokens)}</b></span>
+          <span>Unknown calls<b>${exactNumber(run.usage.unknown_calls)}</b></span>
+        </div>
+        <p class="panel-note">Known API cost: $${Number(run.usage.cost_usd || 0).toFixed(4)}. ${run.usage.unknown_calls ? "Subscription-backed or unreported calls remain unknown; the dashboard does not invent their tokens or cost." : "All recorded calls report usage."}</p>
+      </section>`;
+    }
+
+    function renderExecution(run) {
+      const agents = run.active_agents.length ? run.active_agents.map(agent => `<div class="agent"><div><strong>${escapeHTML(agent.role)}</strong><small>${agent.pid ? `PID ${escapeHTML(agent.pid)}` : "No PID"}${agent.last_activity_at ? ` · ${escapeHTML(relativeTime(agent.last_activity_at))}` : ""}</small></div><span class="status-word" data-tone="${agent.alive ? "active" : ""}">${agent.alive ? "Live" : "Stopped"}</span></div>`).join("") : `<p class="notice">No factory-owned agent process records.</p>`;
+      const lanes = run.lanes.length ? run.lanes.map(lane => `<div class="lane"><div><strong>${escapeHTML(lane.owner)}</strong><small>${lane.task_count} task${lane.task_count === 1 ? "" : "s"}${lane.depends_on.length ? ` · after ${escapeHTML(lane.depends_on.join(", "))}` : ""}</small></div><span class="status-word" data-tone="${lane.status === "failed" ? "bad" : lane.status === "checkpointed" ? "good" : lane.status === "active" ? "active" : ""}">${escapeHTML(titleize(lane.status))}</span></div>`).join("") : `<p class="notice">No implementation lanes in the current plan.</p>`;
+      return `<section class="panel" aria-labelledby="execution-title">
+        <div class="kicker">Controller state</div><h2 id="execution-title">Execution</h2>
+        <div class="subsection"><h3>Agents</h3><div class="agent-list">${agents}</div></div>
+        <div class="subsection"><h3>Lanes</h3><div class="lane-list">${lanes}</div></div>
+        ${run.next_command ? `<div class="subsection"><h3>Next command</h3><code>${escapeHTML(run.next_command)}</code></div>` : ""}
+      </section>`;
+    }
+
+    function renderTimeline(run) {
+      const filter = app.eventFilter.trim().toLowerCase();
+      const events = run.events.filter(event => !filter || JSON.stringify(event).toLowerCase().includes(filter));
+      return `<section class="panel" aria-labelledby="timeline-title">
+        <div class="panel-head">
+          <div><div class="kicker">Append-only history</div><h2 id="timeline-title">Event ledger</h2><p id="event-count" class="panel-note">Showing ${events.length} of ${run.events.length} complete events</p></div>
+          <div class="timeline-tools"><label class="sr-only" for="event-filter">Filter events</label><input id="event-filter" type="search" value="${escapeHTML(app.eventFilter)}" placeholder="Filter event, phase, payload…" autocomplete="off"></div>
+        </div>
+        <div id="event-list" class="event-list">${events.length ? events.map(renderEvent).join("") : `<p class="notice">No events match this filter.</p>`}</div>
+      </section>`;
+    }
+
+    function renderEvent(event) {
+      const payload = JSON.stringify(event.payload ?? {}, null, 2);
+      return `<details class="event"><summary><span class="event-sequence">#${escapeHTML(event.sequence ?? "—")}</span><span class="event-name">${escapeHTML(event.event || "unknown_event")}</span><span class="event-phase">${escapeHTML(event.phase || "unknown")}</span><time class="event-time" title="${escapeHTML(exactTime(event.at))}">${escapeHTML(relativeTime(event.at))}</time></summary><pre>${escapeHTML(payload)}</pre></details>`;
+    }
+
+    function renderArtifacts(run) {
+      const groups = run.artifacts.map((group, index) => `<details class="artifact-group" ${index < 2 ? "open" : ""}><summary>${escapeHTML(group.name)} <span class="artifact-count">${group.items.length}</span></summary><ul class="artifact-list">${group.items.map(item => `<li><a href="/api/artifact?id=${encodeURIComponent(item.id)}" data-artifact-path="${escapeHTML(item.path)}" title="Open ${escapeHTML(item.path)}">${escapeHTML(item.path)}</a><span class="artifact-size">${formatBytes(item.bytes)}</span></li>`).join("")}</ul></details>`).join("");
+      return `<section class="panel" aria-labelledby="artifacts-title"><div class="kicker">Direct evidence</div><h2 id="artifacts-title">Artifacts</h2><p class="panel-note">Every listed file is served read-only from this run directory. Large logs open at their full size and are never loaded into the dashboard automatically.</p><div id="artifact-error" aria-live="assertive"></div><div class="artifact-groups">${groups || `<p class="notice">No run artifacts found.</p>`}</div></section>`;
+    }
+
+    function bindWorkspace(run) {
+      $("#refresh")?.addEventListener("click", load);
+      $("#copy-path")?.addEventListener("click", async event => {
+        const button = event.currentTarget;
+        try {
+          await navigator.clipboard.writeText(run.run_path);
+          button.textContent = "Copied";
+          $("#announcer").textContent = "Run path copied";
+        } catch (_error) {
+          button.textContent = "Copy unavailable";
+          button.disabled = true;
+        }
+      });
+      $("#usage-period")?.addEventListener("change", event => {
+        app.usagePeriod = event.target.value;
+        renderWorkspace();
+      });
+      document.querySelectorAll(".activity-cell").forEach(cell => cell.addEventListener("click", event => {
+        const target = event.currentTarget;
+        document.querySelectorAll(".activity-cell").forEach(item => item.tabIndex = -1);
+        target.tabIndex = 0;
+        const bucket = app.usagePeriod === "day"
+          ? new Date(`${target.dataset.period}T00:00:00Z`).toLocaleDateString([], { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })
+          : `${target.dataset.period.slice(0, 10)} at ${target.dataset.period.slice(11, 13)}:00 UTC`;
+        $("#activity-detail").innerHTML = `<strong>${escapeHTML(target.dataset.role)}</strong> · ${escapeHTML(bucket)} · <span class="mono">${exactNumber(target.dataset.tokens)}</span> observed tokens across ${exactNumber(target.dataset.calls)} receipt${Number(target.dataset.calls) === 1 ? "" : "s"}.`;
+      }));
+      document.querySelectorAll(".activity-cell").forEach(cell => cell.addEventListener("keydown", event => {
+        const movements = {
+          ArrowLeft: [0, -1],
+          ArrowRight: [0, 1],
+          ArrowUp: [-1, 0],
+          ArrowDown: [1, 0],
+        };
+        if (!(event.key in movements)) return;
+        event.preventDefault();
+        const [rowDelta, columnDelta] = movements[event.key];
+        const row = Number(event.currentTarget.dataset.row) + rowDelta;
+        const column = Number(event.currentTarget.dataset.column) + columnDelta;
+        const target = document.querySelector(`.activity-cell[data-row="${row}"][data-column="${column}"]`);
+        if (!target) return;
+        event.currentTarget.tabIndex = -1;
+        target.tabIndex = 0;
+        target.focus();
+        target.scrollIntoView({ block: "nearest", inline: "nearest" });
+      }));
+      $("#event-filter")?.addEventListener("input", event => {
+        app.eventFilter = event.target.value;
+        const filter = app.eventFilter.trim().toLowerCase();
+        const events = run.events.filter(item => !filter || JSON.stringify(item).toLowerCase().includes(filter));
+        $("#event-count").textContent = `Showing ${events.length} of ${run.events.length} complete events`;
+        $("#event-list").innerHTML = events.length ? events.map(renderEvent).join("") : `<p class="notice">No events match this filter.</p>`;
+      });
+      document.querySelectorAll("[data-artifact-path]").forEach(link => link.addEventListener("click", async event => {
+        event.preventDefault();
+        const target = event.currentTarget;
+        if (target.getAttribute("aria-busy") === "true") return;
+        target.setAttribute("aria-busy", "true");
+        const path = target.dataset.artifactPath;
+        try {
+          const response = await fetch(target.href, {
+            cache: "no-store",
+            headers: { Range: "bytes=0-0" },
+          });
+          await response.arrayBuffer();
+          if (!response.ok) throw new Error(`local server returned ${response.status}`);
+          location.assign(target.href);
+        } catch (error) {
+          const container = $("#artifact-error");
+          container.innerHTML = `<div class="artifact-error" role="alert"><strong>Artifact unavailable</strong><code>${escapeHTML(path)}</code><span>${escapeHTML(error.message)}. The file may have moved or the run ledger may have changed. Refresh from disk to rebuild the artifact list.</span><br><button id="refresh-artifacts">Refresh from disk</button></div>`;
+          $("#refresh-artifacts").addEventListener("click", load);
+          container.scrollIntoView({ block: "nearest" });
+        } finally {
+          target.removeAttribute("aria-busy");
+        }
+      }));
+    }
+
+    window.addEventListener("hashchange", () => {
+      const key = decodeURIComponent(location.hash.slice(1));
+      if (key && key !== app.selected) chooseRun(key, false);
+    });
+    load();
+    setInterval(() => { if (!document.hidden) load(); }, 15000);
+  </script>
+</body>
+</html>
