@@ -62,8 +62,10 @@ for any individual run.
 - Execute approved task checks and integrate passing lane commits deterministically.
 - Give a malformed initial implementer receipt one read-only, diff-fingerprinted
   correction; refuse a second invalid receipt or any correction-time mutation.
-- Normalize a provably linear agent-created lane commit during execution or resume
-  while refusing rewritten baselines, merge history, blocked work, and scope drift.
+- Normalize a provably linear agent-created implementation or repair commit
+  during execution or resume while refusing rewritten baselines, merge history,
+  blocked work, and scope drift. Constrain repairs to the reviewer's exact
+  target files, not the owner's broader initial task scope.
 - Apply a smallest-complete-change policy through implementer instructions and skills.
 - Apply the Ponytail solution ladder in product and design lanes across Pi,
   Claude Code, and Codex harnesses.

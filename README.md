@@ -347,11 +347,13 @@ acceptance command creates a recognized untracked build cache such as SwiftPM
 `.build`, the controller deletes only the newly observed cache files, records a
 cleanup receipt, and still rejects every source, tracked, secret, or arbitrary
 untracked mutation.
-Agents should not commit lane work. If one creates only linear descendant
-commits on its assigned disposable branch, the controller records their hashes,
-soft-resets to the pre-dispatch baseline, and validates the complete delta before
-creating the authoritative lane commit. A detached/switched branch, amended or
-replaced baseline, or merge commit fails closed.
+Agents should not commit implementation or repair work. If one creates only
+linear descendant commits on its assigned disposable branch, the controller
+records their hashes, soft-resets to the pre-dispatch baseline, and validates
+the complete delta before creating the authoritative controller commit. Repairs
+may touch only the reviewer's exact target files, even when the owner's original
+task had a broader scope. A detached/switched branch, amended or replaced
+baseline, merge commit, or tracked scope escape fails closed.
 The controller then runs each task's approved commands before committing its
 lane, and reruns top-level acceptance on the integrated commit every review
 cycle.

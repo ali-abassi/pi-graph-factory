@@ -23,6 +23,10 @@ a conflicting edit. If the task requires repeated measured search rather than
 a direct prompt change, it belongs to `optimization` and needs an approved
 optimization contract.
 
+Do not create, amend, merge, or rewrite Git commits. The controller owns every
+lane and repair commit; return the changed-file receipt with repository changes
+left uncommitted.
+
 Return exactly the standard implementer JSON object and no prose:
 
 ```json

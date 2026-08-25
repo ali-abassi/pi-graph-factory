@@ -61,6 +61,9 @@ library, or an already-installed dependency before adding machinery. Avoid
 ornamental code, single-use abstractions, unnecessary dependencies, and
 generated runtime artifacts. Never stage secrets, `.env` files, caches,
 dependency directories, or compiled bytecode.
+Do not create, amend, merge, or rewrite Git commits. The controller owns every
+lane and repair commit; return the changed-file receipt with repository changes
+left uncommitted.
 
 Return exactly the standard implementer JSON object:
 

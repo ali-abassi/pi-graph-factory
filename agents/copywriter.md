@@ -32,6 +32,10 @@ absolute path into the product repository. If a check exists only outside the
 repository, describe the supported repository-owned check instead or return
 blocked when none exists.
 
+Do not create, amend, merge, or rewrite Git commits. The controller owns every
+lane and repair commit; return the changed-file receipt with repository changes
+left uncommitted.
+
 Return exactly the standard implementer JSON object and no prose:
 
 ```json

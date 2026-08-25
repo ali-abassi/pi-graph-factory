@@ -99,6 +99,12 @@ All notable changes to Pi Graph Factory are documented here.
 
 ### Changed
 
+- Repair agents are now held to the reviewer's exact target files. Linear
+  commits created by a repair agent are normalized back to the controller
+  baseline, while untracked repair scope escapes are discarded and receipted;
+  tracked escapes, rewritten history, and merge history still fail closed.
+- Designer, copywriter, and prompt-engineer instructions now explicitly leave
+  Git commits to the controller.
 - Pi Graph validation examples and CI now use the public 0.4 CLI contract,
   which validates strictly by default and no longer accepts `--strict`.
 - Codex implementers now use `--approve-for-me` as the single workspace-write

@@ -3749,6 +3749,19 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
             )
         enforce_dispatch_limits(state, config["limits"], f"repair:{cycle}:{owner}")
         tasks = [task for task in state["plan"]["tasks"] if task["owner"] == owner]
+        repair_files = sorted({
+            target
+            for issue in owned
+            for target in issue.get(
+                "target_files",
+                [path for task in tasks for path in task["files"]],
+            )
+        })
+        repair_scope = [{
+            "id": f"review-{cycle}-{owner}",
+            "owner": owner,
+            "files": repair_files,
+        }]
         expected_issues = {issue["id"] for issue in owned}
         repair_context = {
             "request": state["request"],
@@ -3761,6 +3774,11 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
         receipt = None
         correction_files: list[str] | None = None
         correction_digest: str | None = None
+        repair_baseline_head = git(integration, "rev-parse", "HEAD")
+        repair_branch = git(integration, "branch", "--show-current")
+        repair_baseline_tracked = set(git(integration, "ls-files").splitlines())
+        agent_commit_recovery = None
+        scope_correction = None
         for attempt in range(1, 3):
             state["operation"] = {
                 "kind": "repair",
@@ -3806,6 +3824,17 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
                 run / "receipts" / f"repair-{cycle}-{owner}-attempt-{attempt}.json",
                 receipt,
             )
+            attempt_commit_recovery = normalize_agent_created_commits(
+                run,
+                owner,
+                integration,
+                repair_branch,
+                repair_baseline_head,
+                receipt["receipt_sha256"],
+            )
+            if attempt_commit_recovery is not None:
+                agent_commit_recovery = attempt_commit_recovery
+            git(integration, "add", "-A")
             output = receipt["output"]
             if (
                 receipt["status"] != "passed"
@@ -3814,6 +3843,33 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
                 or not output.get("checks")
             ):
                 raise FactoryError(f"repair agent {owner} did not return passing checks")
+            actual = staged_files(integration)
+            reported = output.get("changed_files", actual)
+            if (
+                not isinstance(reported, list)
+                or not all(isinstance(path, str) for path in reported)
+                or len(set(reported)) != len(reported)
+            ):
+                raise FactoryError(
+                    f"repair agent {owner} did not return unique changed_files"
+                )
+            actual, attempt_scope_correction = discard_untracked_scope_escapes(
+                run,
+                owner,
+                repair_scope,
+                integration,
+                actual,
+                repair_baseline_tracked,
+                sorted(reported),
+                receipt["receipt_sha256"],
+            )
+            if attempt_scope_correction is not None:
+                scope_correction = attempt_scope_correction
+            elif sorted(reported) != actual:
+                raise FactoryError(
+                    f"repair agent {owner} changed-file receipt does not match Git: "
+                    f"claimed={sorted(reported)}, actual={actual}"
+                )
             if owner == OPTIMIZATION_OWNER:
                 validate_controller_optimization_receipt(
                     output, state["plan"]["optimization"]
@@ -3841,7 +3897,7 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
                 break
             git(integration, "add", "-A")
             current_files = staged_files(integration)
-            validate_lane_changes(owner, tasks, current_files)
+            validate_lane_changes(owner, repair_scope, current_files)
             if attempt == 2:
                 raise FactoryError(validation_error)
             correction_files = current_files
@@ -3850,6 +3906,7 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
                 **repair_context,
                 "previous_invalid_receipt": output,
                 "controller_validation_error": validation_error,
+                "controller_observed_changed_files": current_files,
                 "repair_instruction": (
                     "Return a complete corrected receipt for work already performed. "
                     "Do not edit, create, delete, stage, or commit any file."
@@ -3865,7 +3922,7 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
             raise FactoryError(
                 f"repair receipt correction for {owner} mutated repository files"
             )
-        validate_lane_changes(owner, tasks, actual)
+        validate_lane_changes(owner, repair_scope, actual)
         before_acceptance = staged_change_digest(integration)
         acceptance, acceptance_cleanup = run_verified_acceptance(
             run,
@@ -3890,6 +3947,10 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
             "prompt_evaluation": prompt_evaluation,
             "generated_output_cleanup": acceptance_cleanup,
         }
+        if scope_correction is not None:
+            receipt["scope_correction"] = scope_correction
+        if agent_commit_recovery is not None:
+            receipt["agent_commit_recovery"] = agent_commit_recovery
         git(integration, "commit", "-m", f"factory: repair cycle {cycle} ({owner})")
         repair_commit = git(integration, "rev-parse", "HEAD")
         if owner == OPTIMIZATION_OWNER:

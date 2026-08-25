@@ -204,6 +204,46 @@ class FactoryReliabilityTests(unittest.TestCase):
         lane = next(event for event in events if event["event"] == "lane_completed")
         self.assertEqual(lane["payload"]["normalized_agent_commits"], recovery["agent_commits"])
 
+    def test_linear_repair_commit_is_normalized_and_recorded(self) -> None:
+        run = self.approved_run(["product"])
+        self.env["PI_GRAPH_FACTORY_EXPECTED_LANES"] = "1"
+        self.env["PI_GRAPH_FACTORY_RELIABILITY_MODE"] = "repair_commit"
+
+        completed = self.cli("run", "--run", str(run))
+
+        self.assertEqual(completed["phase"], "merged")
+        state = json.loads((run / "state.json").read_text())
+        repair = state["cycles"][0]["repairs"][0]
+        recovery = repair["agent_commit_recovery"]
+        self.assertEqual(len(recovery["agent_commits"]), 1)
+        self.assertEqual(repair["verification"]["changed_files"], ["product.txt"])
+        self.assertEqual(
+            subprocess.run(
+                ["git", "log", "-1", "--format=%s"],
+                cwd=self.repo,
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout.strip(),
+            "factory: repair cycle 1 (product)",
+        )
+
+    def test_committed_repair_scope_escape_is_discarded_and_pruned(self) -> None:
+        run = self.approved_run(["product"])
+        self.env["PI_GRAPH_FACTORY_EXPECTED_LANES"] = "1"
+        self.env["PI_GRAPH_FACTORY_RELIABILITY_MODE"] = "repair_commit_escape"
+
+        completed = self.cli("run", "--run", str(run))
+
+        self.assertEqual(completed["phase"], "merged")
+        state = json.loads((run / "state.json").read_text())
+        repair = state["cycles"][0]["repairs"][0]
+        self.assertEqual(
+            repair["scope_correction"]["discarded_files"],
+            ["outside/AppIcon.appiconset/Contents.json"],
+        )
+        self.assertFalse((run / "worktrees" / "integration" / "outside").exists())
+
     def test_committed_tracked_scope_escape_still_fails_closed(self) -> None:
         (self.repo / "outside.txt").write_text("tracked baseline\n", encoding="utf-8")
         subprocess.run(["git", "add", "outside.txt"], cwd=self.repo, check=True)

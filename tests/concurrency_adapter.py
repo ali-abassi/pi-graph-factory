@@ -79,8 +79,44 @@ if args.role.startswith("implement:"):
         )
     output = {"status": "pass", "changed_files": sorted(changed),
               "checks": ["barrier passed"], "summary": owner}
+elif args.role.startswith("repair:"):
+    _, cycle, owner, *_ = args.role.split(":")
+    if mode not in {"repair_commit", "repair_commit_escape"}:
+        raise SystemExit(f"unsupported reliability repair mode: {mode}")
+    target = Path(f"{owner}.txt")
+    target.write_text(target.read_text(encoding="utf-8") + f"repaired in cycle {cycle}\n", encoding="utf-8")
+    changed = [target.as_posix()]
+    if mode == "repair_commit_escape":
+        escaped = Path("outside/AppIcon.appiconset/Contents.json")
+        escaped.parent.mkdir(parents=True)
+        escaped.write_text("{}\n", encoding="utf-8")
+        changed.append(escaped.as_posix())
+    subprocess.run(["git", "add", "-A"], check=True)
+    subprocess.run(
+        ["git", "commit", "-qm", f"agent repair commit by {owner}"], check=True
+    )
+    output = {
+        "status": "pass",
+        "changed_files": changed,
+        "checks": [{"command": f"test -s {target}", "passed": True}],
+        "summary": f"repaired {owner}",
+        "addressed": ["FIX-COMMIT"],
+    }
 elif args.role.startswith("review:"):
-    output = {"verdict": "pass", "issues": [], "evidence": [context["evidence"]["sha256"]]}
+    cycle = int(args.role.split(":", 1)[1])
+    if mode in {"repair_commit", "repair_commit_escape"} and cycle == 1:
+        output = {
+            "verdict": "repair",
+            "issues": [{
+                "id": "FIX-COMMIT",
+                "owner": "product",
+                "message": "exercise controller-owned repair commits",
+                "target_files": ["product.txt"],
+            }],
+            "evidence": [context["evidence"]["sha256"]],
+        }
+    else:
+        output = {"verdict": "pass", "issues": [], "evidence": [context["evidence"]["sha256"]]}
 else:
     raise SystemExit(f"unsupported reliability role: {args.role}")
 
