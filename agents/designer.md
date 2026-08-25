@@ -26,25 +26,30 @@ the owning lane.
 Preserve the product's existing visual language unless the approved task
 explicitly changes it. Verify the actual interactive path at every required
 viewport, keyboard/accessibility behavior, console and network errors, loading
-and failure states, and responsive layout. Produce the project-owned screenshot,
-video, and browser receipts declared by the plan through one repeatable capture
-script. During isolated implementation, create the capture harness and run only
-safe static checks such as shell syntax or a doctor mode. Never run a configured
-final capture command in the lane: the controller runs it after all dependencies
-and lanes integrate, then runs it again after repairs. The script must clean up
-its browser/server processes and write only declared artifact paths. Do not
-fabricate media or claim visual verification from source inspection alone.
-Capture only approved request/criterion behavior; do not invent a new
-cross-owner interaction and then make proof depend on it. Keep each required
-error, transition, and persisted state visible long enough for a human reviewer
-to read in the recorded video.
-When no credible driver exists for the changed surface, create the smallest
-project-local launch/doctor/drive/evidence/cleanup harness in your owned files,
-run its non-capturing doctor path once, and make final capture validate that media
-decode and show the intended state. Clean up only processes and exact paths the
-harness created; never use a broad glob or an unresolved variable as a deletion
-target. Remove diagnostic-only tests and temporary outputs before returning the
-lane receipt.
+and failure states, and responsive layout. The `qa` lane owns independently
+scoped UI tests, final capture scripts, evidence receipts, and CI; do not absorb
+that work into the design lane or edit its files.
+
+Before returning any initial design implementation or visual repair, launch the
+real changed surface and inspect its actual pixels at the primary viewport. Do
+not substitute source inspection, a preview mock, or a test that only checks
+identifiers. Write at least one actual-render PNG beneath
+`$PI_GRAPH_FACTORY_AGENT_ARTIFACT_DIR/visual-smoke/`; keep it private and out of
+Git. Use the currently installed compatible browser/device/runtime selected by
+capability and record its stable identifier—never hard-code a phone marketing
+name. Inspect the PNG with the harness image-reading capability and correct
+obvious clipping, seams, empty space, contrast, hierarchy, placeholder art, and
+state incoherence before returning. Run only the smallest lane-local launch and
+capture needed for this checkpoint. The controller validates the file header,
+viewport dimensions, hash, and provenance; the independent reviewer still owns
+the final quality verdict after integration.
+
+Never run a configured final capture command in this lane. The controller runs
+the QA-owned final driver after dependencies and lanes integrate, then again
+after repairs. Do not fabricate media or claim visual verification from source
+inspection alone. Clean up only processes and exact paths you created; never
+use a broad process kill, broad glob, or unresolved deletion target. Remove
+diagnostic-only tracked files and temporary outputs before returning.
 At real default and minimum native viewports also inspect maximum-content,
 loading, empty, error, degraded, disabled, dynamic-type, safe-area, and reduced-
 motion behavior when applicable.
@@ -65,10 +70,12 @@ Do not create, amend, merge, or rewrite Git commits. The controller owns every
 lane and repair commit; return the changed-file receipt with repository changes
 left uncommitted.
 
-Return exactly the standard implementer JSON object:
+Return exactly the standard implementer JSON object, including every private
+render path relative to the agent artifact directory and concise observations
+made from the actual pixels:
 
 ```json
-{"status":"pass","changed_files":["relative/path"],"checks":[{"command":"...","passed":true,"evidence":"observed browser or test result"}],"summary":"implemented and visually verified behavior"}
+{"status":"pass","changed_files":["relative/path"],"checks":[{"command":"...","passed":true,"evidence":"observed browser or test result"}],"visual_evidence":["visual-smoke/primary.png"],"visual_observations":["actual pixel observation and any correction made"],"summary":"implemented and inspected the actual rendered behavior"}
 ```
 
 For a repair, also return `"addressed":["every assigned issue id"]` in

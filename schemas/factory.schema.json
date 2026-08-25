@@ -126,6 +126,7 @@
         "instructions": {"type": "string", "minLength": 1},
         "skills": {"type": "array", "items": {"type": "string"}},
         "tools": {"type": "array", "items": {"type": "string"}},
+        "requires_visual_smoke": {"type": "boolean"},
         "fallbacks": {
           "type": "array", "maxItems": 2,
           "items": {"$ref": "#/$defs/agentFallback"}

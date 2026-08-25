@@ -78,7 +78,7 @@ Read [VISION.md](VISION.md) for the intended product and
   concurrently in an isolated branch/worktree, and a downstream worktree starts
   from the exact committed outputs of its transitive dependencies.
 - Configured specialist ownership: product, UI design, generated visual assets,
-  copywriting, prompt engineering, and measured optimization by default, with
+  copywriting, prompt engineering, QA/evidence, and measured optimization by default, with
   only specialists named in the approved plan dispatched. The default visual-
   asset lane uses Codex with built-in OpenAI image generation and never shares
   UI-code ownership.
@@ -389,6 +389,16 @@ and success-criterion coverage. Generated raster files must belong to the
 the built experience against this frozen contract instead of deciding whether
 it merely compiles.
 
+Visual implementation also has an earlier fail-closed checkpoint. Before a
+design lane can integrate, it must launch the changed surface, inspect the
+actual pixels, preserve a private PNG under `visual-smoke/`, and report concrete
+observations. The controller verifies that the file is a decodable,
+viewport-sized PNG and binds its dimensions and SHA-256 into the lane receipt.
+This catches missing or fake render proof early; it does not replace the final
+independent taste and behavior review. Independently scoped UI/integration
+tests, capture scripts, evidence receipts, and CI belong to the `qa` lane, so a
+small evidence defect no longer routes through the full Claude design context.
+
 Version 1 plans make approved outcomes explicit. The implementation reviewer must return one
 pass/fail entry with concrete inspected evidence for every success criterion in
 the original order; missing, duplicate, unknown, or failed-but-unrouted criteria
@@ -405,7 +415,7 @@ operator's direct review.
 
 Edit [`factory.yaml`](factory.yaml) to choose each role's harness, model,
 thinking level, instructions, skills, and tools. The example uses Pi for product,
-copywriting, prompt engineering, optimization, planning, and independent review;
+copywriting, prompt engineering, QA, optimization, planning, and independent review;
 Claude Code for UI design; and Codex Luna xhigh for generated visual assets.
 
 Configured skills are native `--skill` inputs for Pi. For Claude Code and Codex,
@@ -454,9 +464,13 @@ Pi usage is read from its settled assistant event. Claude Code usage is derived
 from unique message ids in its preserved native transcript, including cache
 creation/read tokens without double-counting repeated JSONL records. Codex usage
 remains `null` unless its local harness output exposes it. The factory does not
-invent token or cost numbers. Pi/Codex JSON events and all harness diagnostics
-are persisted privately while the child is still running, so long xhigh turns
-produce truthful activity evidence before their final receipt.
+invent token or cost numbers. Harness events and diagnostics are persisted
+privately while the child is still running. Large repeated transport values—
+especially base64 image/tool payloads repeated across Pi events—are stored once
+as content-addressed gzip blobs, while the readable event stream holds SHA-256
+references and previews. A bounded in-memory tail and the final settled event
+remain available for receipt parsing. No log evidence is discarded, but one
+payload cannot inflate a run log through protocol duplication.
 
 ## Limits and usage
 
@@ -490,11 +504,14 @@ implementers:
     timeout_seconds: 14400
   - id: design
     timeout_seconds: 14400
+    requires_visual_smoke: true
     fallbacks:
       - harness: pi
         model: openai-codex/gpt-5.6-luna
         thinking: xhigh
   - id: copy
+    timeout_seconds: 14400
+  - id: qa
     timeout_seconds: 14400
 review:
   max_cycles: null       # unlimited; use a positive integer for a finite cap
@@ -554,6 +571,12 @@ For every review cycle the controller:
 4. binds the manifest to the integration commit and approved plan;
 5. asks the independent reviewer for a typed `pass` or `repair` verdict; and
 6. requires the reviewer to cite that exact manifest hash.
+
+Current-commit controller receipts are authoritative for command identity,
+exit status, and artifact hashes. Reviewers inspect the underlying assertions
+and pixels, but rerun an identical expensive build or capture only when they
+name a concrete new falsification hypothesis. This keeps independent review
+adversarial without paying repeatedly for the same exit code.
 
 Any repair changes the commit, invalidates the old proof, and triggers capture
 and review again. File existence and provenance are mechanical. Semantic visual
@@ -675,7 +698,7 @@ Keeping one lifecycle owner avoids two-engine drift.
 .venv/bin/python -m py_compile scripts/*.py tests/*.py
 ```
 
-The deterministic suite currently covers 107 cases, including:
+The deterministic suite currently covers 129 cases, including:
 
 - simple single-owner first-pass work;
 - a two-owner feature with directed design repair;
@@ -723,13 +746,16 @@ The deterministic suite currently covers 107 cases, including:
 - one read-only initial-implementer receipt correction, refusal of
   correction-time writes, and resume normalization of a linear agent commit;
 - immutable per-attempt contexts and private adapter/harness logs, native Claude
-  transcript preservation, deduplicated Claude usage, and live activity metadata;
+  transcript preservation, deduplicated Claude usage, content-addressed large
+  payloads, bounded in-memory capture, and live activity metadata;
+- independent QA/evidence ownership for generated visual products plus
+  decodable, viewport-sized pre-integration visual-smoke refusal paths;
 - one read-only repair-receipt correction and refusal of correction-time writes;
 - fresh proof after repair, successful merge, target/config drift, finite-cap
   escalation, and explicit unlimited-review continuation.
 
 CI runs the suite on Ubuntu and macOS with Python 3.10 and 3.14, compiles the
-31-node policy graph, and validates it with the public Pi Graph Core release.
+32-step policy graph, and validates it with the public Pi Graph Core release.
 The measured hill-climb and candidate ledger are in
 [`docs/IMPROVEMENT.md`](docs/IMPROVEMENT.md) and
 [`docs/improvement-ledger.jsonl`](docs/improvement-ledger.jsonl).

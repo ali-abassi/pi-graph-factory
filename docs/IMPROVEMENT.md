@@ -410,3 +410,50 @@
   or remote production platform. The hard delivery target was a local executable;
   real deployments still require project-specific deploy, health, and rollback
   commands plus appropriate external isolation.
+
+## New-product visual failure climb v18
+
+- **Trigger:** a fresh iOS game evaluation compiled and exercised its nominal
+  flow but looked visibly poor. The factory correctly refused to pass it, yet
+  the run took hours, sent tiny evidence-script repairs back through the full
+  Claude design context, reran expensive builds, and produced reviewer streams
+  of 120,401,901 and 178,079,345 bytes.
+- **Reconstruction:** the design lane owned UI source, UI tests, capture tooling,
+  and final evidence. Its largest call accounted for 7,259,097 tokens, while the
+  entire frozen run recorded 10,843,938 tokens across 14 calls. The largest raw
+  reviewer stream was mostly the same image/tool payload repeated by Pi across
+  tool updates, message start/end, turn end, and agent end; human-readable text
+  deltas were only about 258 KB. Green UI tests asserted identifiers and nominal
+  flow, not visual coherence. Evidence failed closed, first on an app icon build
+  defect and then on an attachment filename mismatch, but only after expensive
+  implementation.
+- **Root causes:** visual implementation had no controller-required actual-pixel
+  checkpoint before integration; QA/evidence ownership was fused into design;
+  repair dispatch inherited the owner's broad task acceptance, plan context,
+  and expensive skills; reviewers had no instruction against replaying an
+  already current-commit expensive command; raw provider event transport was
+  preserved verbatim even when it duplicated the same binary payload.
+- **Candidate:** add `qa` as an ordinary scoped implementer for integration/UI
+  tests, evidence drivers and receipts, CI, and verification tooling. Require
+  design implementations and visual repairs to preserve a private decodable,
+  viewport-sized actual-render PNG plus pixel observations before integration.
+  Slice repairs to target-matching tasks, criteria, acceptance, and relevant
+  skills. Treat controller receipts as authoritative for command identity and
+  exit status while preserving targeted adversarial reviewer checks. Store
+  large harness values once as content-addressed gzip blobs and replace repeated
+  inline values with SHA-256 references in the readable event stream.
+- **Measured log effect:** applying the content-addressed representation to the
+  178,079,345-byte reviewer stream produced about 2.2 MB of normalized events
+  plus 21.1 MB of lossless compressed blobs—about an 86.9% reduction while
+  retaining every distinct large payload once.
+- **Result:** all 129 deterministic tests pass. Ruff, Python compilation,
+  Bandit medium/high, dependency audit, Gitleaks, and the public Core policy
+  validator pass; the compiled policy now has 32 steps.
+- **Non-goal:** do not polish or special-case the failed game. It remains a
+  frozen negative evaluation. These changes address factory routing,
+  observability, proof timing, and cost amplification for every visual project.
+- **Assurance boundary:** a valid smoke PNG proves that an actual viewport was
+  rendered and preserved, not that the design is good. The final independent
+  visual-contract/taste review remains required, and a future calibrated visual
+  corpus may justify a separate early quality judge if smoke plus stronger QA
+  still fails to move quality feedback early enough.

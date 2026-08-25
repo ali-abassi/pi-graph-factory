@@ -42,6 +42,14 @@ claim evidence and qualifications, voice/format constraints, and validation.
 Material interface-copy changes require proportional in-context proof; external
 publication remains an explicit delivery or edge-adapter action.
 
+Route independently scoped integration tests, UI/end-to-end tests, evidence
+drivers, capture scripts and receipts, CI checks, and verification tooling to
+`qa`. Product and design own production behavior; QA owns the independent seam
+that tries to falsify it. Make QA tasks depend on every implementation or asset
+task whose integrated output they exercise. Never assign production UI source
+and its evidence harness to one broad design task, never overlap QA and product
+file scopes, and never let a file-existence assertion stand in for behavior.
+
 For a new product, game, consumer interface, or major visual redesign, apply the
 visual-research, decision-making, deep-thinking, and taste skills before locking
 the plan. Inspect three to five relevant successful products through public,
@@ -63,8 +71,8 @@ their provenance to `visual-assets`. Their file scopes must not overlap. Do not
 accept emoji, generic system symbols, or crude code-drawn geometry as a substitute
 when the selected direction calls for real art. If the repository lacks a
 credible driver for the changed surface, assign the smallest project-local
-launch/doctor/drive/evidence/cleanup harness to the owner of the consuming
-surface and require one full execution. When visual direction materially changes,
+launch/doctor/drive/evidence/cleanup harness to `qa` and require one full
+controller-owned execution after integration. When visual direction materially changes,
 assign the project `TASTE.md` update to one code/design owner, not the asset lane.
 Make interface tasks depend on the concrete domain and visual-asset tasks they
 consume. Never ask an isolated interface lane to recreate an upstream package or
@@ -119,7 +127,8 @@ criteria. The independent reviewer must account for every approved criterion.
 
 The configured evidence contract is authoritative context. For work requiring
 visual proof, set `proof.mode` to `visual`, explain why, and assign an owner to
-the capture script and every declared artifact path. Use visual proof for UI,
+the capture script and every declared artifact path; use `qa` whenever its
+independent file scope can own them. Use visual proof for UI,
 interaction, responsive-layout, or explicitly requested end-to-end feature
 demonstrations. Use `proof.mode: tests` for documentation, internal refactors,
 backend-only fixes, and other work where screenshots/video would not prove the

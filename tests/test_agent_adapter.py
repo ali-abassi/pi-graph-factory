@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import json
 import sys
 import tempfile
@@ -11,6 +12,8 @@ from scripts.agent_adapter import (
     claude_usage,
     codex_command,
     decode_output,
+    pi_output,
+    preserve_harness_artifacts,
     run_streaming,
     skill_prompt,
 )
@@ -108,6 +111,73 @@ class AgentAdapterTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0)
             self.assertEqual((artifacts / "harness.stdout").read_text(), "one\ntwo\n")
             self.assertEqual((artifacts / "harness.stderr").read_text(), "")
+            self.assertFalse((artifacts / "harness.blobs").exists())
+
+    def test_large_pi_transport_payloads_are_lossless_but_not_inlined(self) -> None:
+        large = "A" * 100_000
+        events = [
+            {
+                "type": "tool_execution_end",
+                "toolName": "read",
+                "result": {"content": [{"type": "image", "data": large}]},
+            },
+            {
+                "type": "message_end",
+                "message": {
+                    "role": "toolResult",
+                    "content": [{"type": "image", "data": large}],
+                },
+            },
+            {
+                "type": "agent_end",
+                "messages": [{"role": "toolResult", "content": large}],
+            },
+            {
+                "type": "message_end",
+                "message": {
+                    "role": "assistant",
+                    "stopReason": "stop",
+                    "content": [{"type": "text", "text": '{"verdict":"pass"}'}],
+                    "usage": {
+                        "input": 1,
+                        "output": 2,
+                        "totalTokens": 3,
+                        "cost": {"total": 0.01},
+                    },
+                },
+            },
+        ]
+        script = (
+            "import json\n"
+            f"events = {events!r}\n"
+            "for event in events: print(json.dumps(event), flush=True)\n"
+        )
+        with tempfile.TemporaryDirectory() as raw:
+            artifacts = Path(raw)
+            result = run_streaming([sys.executable, "-c", script], artifacts)
+
+            normalized = (artifacts / "harness.stdout").read_text(encoding="utf-8")
+            blobs = list((artifacts / "harness.blobs").glob("*.gz"))
+
+            self.assertEqual(result.returncode, 0)
+            self.assertNotIn(large, normalized)
+            self.assertEqual(len(blobs), 1)
+            reference = f'harness.blobs/{blobs[0].name}'
+            self.assertIn(f'"$artifact":"{reference}"', normalized)
+            with gzip.open(blobs[0], "rt") as source:
+                self.assertEqual(source.read(), large)
+            text, usage = pi_output(result.stdout)
+            self.assertEqual(text, '{"verdict":"pass"}')
+            self.assertEqual(usage["total"], 3)
+            visual_smoke = artifacts / "visual-smoke" / "primary.png"
+            visual_smoke.parent.mkdir()
+            visual_smoke.write_bytes(b"private-render")
+            manifest, _ = preserve_harness_artifacts(
+                artifacts, result.stdout, result.stderr, None
+            )
+            recorded = {Path(item["path"]).name for item in manifest["files"]}
+            self.assertIn(blobs[0].name, recorded)
+            self.assertIn("primary.png", recorded)
 
     def test_claude_usage_deduplicates_repeated_jsonl_message_records(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

@@ -11,7 +11,7 @@ only the README. These are placement decisions, not a vendored dependency.
 | Experience first | New product and UI planning now optimizes for one polished core loop instead of maximizing feature count. The visual contract makes audience, screens, states, art direction, and observable quality explicit. |
 | Exhaust the design space | A new product or major redesign records at least two genuinely distinct directions and why one won. Incremental work may follow the established system without prototype ceremony. |
 | Blast radius | Planner and reviewer must identify the cross-component fact a risky change depends on and push it toward executable proof. An unproved safety assumption stays named rather than becoming confident prose. |
-| Create a verification skill | Product and design owners can add the smallest project-local launch/doctor/drive/evidence/cleanup harness when the changed surface lacks one. The harness must be executed once and validate artifact semantics. |
+| Create a verification skill | The QA owner can add the smallest project-local launch/doctor/drive/evidence/cleanup harness when the changed surface lacks one. It depends on the production owner, must be executed once after integration, and must validate artifact semantics. |
 | Show me your work | The factory already preserves append-only events, contexts, commands, receipts, raw streams, native transcripts, and artifacts. The local operations surface will present decision-grade checkpoints from that canonical ledger instead of introducing a second TSV source of truth. |
 
 ## Bank for a later measured experiment

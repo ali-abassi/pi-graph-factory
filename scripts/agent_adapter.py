@@ -4,18 +4,23 @@
 from __future__ import annotations
 
 import argparse
+from collections import deque
+import gzip
 import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import uuid
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
+COMPACT_STRING_BYTES = 4_096
+CAPTURE_TAIL_BYTES = 2_000_000
 
 CLAUDE_TOOL_NAMES = {
     "read": "Read",
@@ -84,6 +89,71 @@ def codex_command(model: str, prompt: str, final_response: Path) -> list[str]:
     ]
 
 
+def persist_harness_blob(artifact_dir: Path, value: str) -> dict[str, object]:
+    """Store one large UTF-8 value once and return its content-addressed reference."""
+
+    encoded = value.encode("utf-8", errors="replace")
+    digest = hashlib.sha256(encoded).hexdigest()
+    relative = Path("harness.blobs") / f"{digest}.txt.gz"
+    destination = artifact_dir / relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.parent.chmod(0o700)
+    if not destination.exists():
+        with gzip.open(destination, "wb", compresslevel=6) as target:
+            target.write(encoded)
+        destination.chmod(0o600)
+    return {
+        "$artifact": str(relative),
+        "bytes": len(encoded),
+        "sha256": digest,
+        "encoding": "utf-8+gzip",
+        "preview": value[:160] + " … " + value[-160:],
+    }
+
+
+def compact_harness_value(value: object, artifact_dir: Path) -> object:
+    """Replace bulky transport fields with content-addressed artifact references."""
+
+    if isinstance(value, str):
+        encoded = value.encode("utf-8", errors="replace")
+        if len(encoded) <= COMPACT_STRING_BYTES:
+            return value
+        return persist_harness_blob(artifact_dir, value)
+    if isinstance(value, list):
+        return [compact_harness_value(item, artifact_dir) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: compact_harness_value(item, artifact_dir)
+            for key, item in value.items()
+        }
+    return value
+
+
+def compact_harness_line(line: str, artifact_dir: Path) -> tuple[str, str | None]:
+    """Return a readable event plus any settled Pi assistant event needed by the adapter."""
+
+    try:
+        event = json.loads(line)
+    except ValueError:
+        if len(line.encode("utf-8", errors="replace")) > COMPACT_STRING_BYTES:
+            reference = persist_harness_blob(artifact_dir, line)
+            return json.dumps(
+                {"type": "raw_output", "content": reference},
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ) + "\n", None
+        return line, None
+    settled = None
+    if (
+        event.get("type") == "message_end"
+        and isinstance(event.get("message"), dict)
+        and event["message"].get("role") == "assistant"
+    ):
+        settled = line
+    compact = compact_harness_value(event, artifact_dir)
+    return json.dumps(compact, separators=(",", ":"), ensure_ascii=False) + "\n", settled
+
+
 def run_streaming(command: list[str], artifact_dir: Path | None) -> subprocess.CompletedProcess:
     """Run a harness while making its raw streams durable before it exits."""
 
@@ -105,13 +175,30 @@ def run_streaming(command: list[str], artifact_dir: Path | None) -> subprocess.C
         errors="replace",
         bufsize=1,
     )
-    captured: dict[str, list[str]] = {"stdout": [], "stderr": []}
+    captured: dict[str, deque[str]] = {"stdout": deque(), "stderr": deque()}
+    captured_bytes = {"stdout": 0, "stderr": 0}
+    settled_stdout: list[str | None] = [None]
+
+    def capture_tail(name: str, value: str) -> None:
+        captured[name].append(value)
+        captured_bytes[name] += len(value.encode("utf-8", errors="replace"))
+        while captured[name] and captured_bytes[name] > CAPTURE_TAIL_BYTES:
+            removed = captured[name].popleft()
+            captured_bytes[name] -= len(removed.encode("utf-8", errors="replace"))
 
     def drain(name: str, pipe: object) -> None:
         with streams[name].open("a", encoding="utf-8") as destination:
             for line in pipe:  # type: ignore[union-attr]
-                captured[name].append(line)
-                destination.write(line)
+                if name == "stdout":
+                    compact, settled = compact_harness_line(line, artifact_dir)
+                    if settled is not None:
+                        settled_stdout[0] = settled
+                    capture_tail(name, line)
+                    destination.write(compact)
+                else:
+                    capture_tail(name, line)
+                    compact, _ = compact_harness_line(line, artifact_dir)
+                    destination.write(compact)
                 destination.flush()
 
     threads = [
@@ -130,7 +217,7 @@ def run_streaming(command: list[str], artifact_dir: Path | None) -> subprocess.C
     return subprocess.CompletedProcess(
         command,
         returncode,
-        "".join(captured["stdout"]),
+        settled_stdout[0] or "".join(captured["stdout"]),
         "".join(captured["stderr"]),
     )
 
@@ -192,10 +279,14 @@ def claude_usage(path: Path) -> tuple[dict, dict]:
 
 
 def file_metadata(path: Path) -> dict:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
     return {
         "path": str(path),
         "bytes": path.stat().st_size,
-        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "sha256": digest.hexdigest(),
     }
 
 
@@ -205,7 +296,7 @@ def preserve_harness_artifacts(
     stderr: str,
     session_id: str | None,
 ) -> tuple[dict, tuple[dict, dict] | None]:
-    """Keep raw local harness output and the full native Claude transcript."""
+    """Keep compact harness events, referenced payloads, and declared lane proof."""
 
     if artifact_dir is None:
         transcript = claude_transcript(session_id) if session_id else None
@@ -214,11 +305,22 @@ def preserve_harness_artifacts(
     artifact_dir.chmod(0o700)
     stdout_path = artifact_dir / "harness.stdout"
     stderr_path = artifact_dir / "harness.stderr"
-    stdout_path.write_text(stdout, encoding="utf-8")
-    stderr_path.write_text(stderr, encoding="utf-8")
+    if not stdout_path.exists():
+        stdout_path.write_text(stdout, encoding="utf-8")
+    if not stderr_path.exists():
+        stderr_path.write_text(stderr, encoding="utf-8")
     stdout_path.chmod(0o600)
     stderr_path.chmod(0o600)
     files = [file_metadata(stdout_path), file_metadata(stderr_path)]
+    blob_directory = artifact_dir / "harness.blobs"
+    if blob_directory.is_dir():
+        files.extend(file_metadata(path) for path in sorted(blob_directory.glob("*.gz")))
+    visual_smoke_directory = artifact_dir / "visual-smoke"
+    if visual_smoke_directory.is_dir():
+        for path in sorted(visual_smoke_directory.rglob("*")):
+            if path.is_file() and not path.is_symlink():
+                path.chmod(0o600)
+                files.append(file_metadata(path))
     session_path = artifact_dir / "session.json"
     if session_path.is_file():
         files.append(file_metadata(session_path))
@@ -347,11 +449,14 @@ def main() -> int:
             session_id=claude_session_id,
         )
     else:
-        final_response = (
-            artifact_dir / "final-response.txt"
-            if artifact_dir is not None
-            else Path(os.environ.get("TMPDIR", "/tmp")) / f"pi-graph-factory-{uuid.uuid4()}.txt"
-        )
+        if artifact_dir is not None:
+            final_response = artifact_dir / "final-response.txt"
+        else:
+            temporary_response = tempfile.NamedTemporaryFile(
+                prefix="pi-graph-factory-", suffix=".txt", delete=False
+            )
+            temporary_response.close()
+            final_response = Path(temporary_response.name)
         command = codex_command(args.model, prompt, final_response)
     result = run_streaming(command, artifact_dir)
     artifacts, transcript_usage = preserve_harness_artifacts(
@@ -361,6 +466,8 @@ def main() -> int:
         claude_session_id,
     )
     if result.returncode:
+        if args.harness == "codex" and artifact_dir is None:
+            final_response.unlink(missing_ok=True)
         print((result.stderr or result.stdout)[-2000:], file=sys.stderr)
         return result.returncode
     usage = {"input": None, "output": None, "total": None, "cost": None}

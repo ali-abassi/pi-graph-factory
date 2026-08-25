@@ -62,6 +62,17 @@ Verify:
   likely secret-bearing files that do not belong in the integrated diff;
 - that proof belongs to the current commit and approved plan.
 
+Controller-owned current-commit acceptance and capture receipts are
+authoritative for the narrow facts that the recorded command ran, on which
+commit, with which exit status, and which artifact hash. Inspect those receipts
+and the underlying test/source quality. Do not rerun the identical expensive
+build, full suite, or capture command merely to reproduce its exit code. Run a
+focused additional command only when it tests a concrete falsification
+hypothesis not already covered by the controller receipt; name that hypothesis
+and observed result in `evidence`. A green controller receipt never proves that
+weak assertions or bad pixels satisfy a criterion, so independently inspect the
+behavioral seam and visual artifacts.
+
 Apply the configured Ponytail review lens to the integrated diff after tracing
 the touched flow. A minimality issue is blocking only when you can name the
 exact unnecessary code or dependency and its smaller concrete replacement.

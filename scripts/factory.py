@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import zlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from pathlib import Path
@@ -95,6 +96,13 @@ PLAN_JUDGE_DIMENSIONS = {
 PROMPT_OWNER = "prompt"
 OPTIMIZATION_OWNER = "optimization"
 VISUAL_ASSET_OWNER = "visual-assets"
+QA_OWNER = "qa"
+VISUAL_SMOKE_DIRECTORY = "visual-smoke"
+VISUAL_SMOKE_MIN_BYTES = 1_024
+VISUAL_SMOKE_MAX_BYTES = 25_000_000
+VISUAL_SMOKE_MIN_DIMENSION = 320
+VISUAL_SMOKE_MAX_DIMENSION = 10_000
+VISUAL_SMOKE_MAX_DECODED_BYTES = 100_000_000
 PROMPT_CASE_KINDS = {
     "happy_path",
     "missing_input",
@@ -826,7 +834,9 @@ def matches_scope(path: str, patterns: list[str]) -> bool:
     return any(fnmatch.fnmatchcase(normalized, pattern) for pattern in patterns)
 
 
-def validate_visual_contract(plan: dict[str, Any], *, required: bool) -> None:
+def validate_visual_contract(
+    plan: dict[str, Any], *, required: bool, require_qa: bool = False
+) -> None:
     contract = plan.get("visual_contract")
     if contract is None:
         if required:
@@ -1007,10 +1017,123 @@ def validate_visual_contract(plan: dict[str, Any], *, required: bool) -> None:
             raise FactoryError(
                 f"visual_contract verification {field} must contain non-empty strings"
             )
+    if require_qa and kind in {"new_product", "major_redesign"}:
+        qa_tasks = tasks_by_owner.get(QA_OWNER, [])
+        if not qa_tasks:
+            raise FactoryError(
+                "generated new products and major redesigns require an independent qa task"
+            )
+        design_ids = {
+            task["id"] for task in tasks_by_owner.get("design", [])
+        }
+        if design_ids and not any(
+            design_ids.intersection(task["depends_on"])
+            for task in qa_tasks
+        ):
+            raise FactoryError("visual qa must depend on the design task it verifies")
+        qa_patterns = [pattern for task in qa_tasks for pattern in task["files"]]
+        if not all(matches_scope(path, qa_patterns) for path in verification["evidence"]):
+            raise FactoryError("visual verification evidence paths must belong to qa")
 
 
 def acceptance_for_tasks(tasks: list[dict[str, Any]]) -> list[str]:
     return list(dict.fromkeys(command for task in tasks for command in task["acceptance"]))
+
+
+def tasks_for_repair(
+    owner_tasks: list[dict[str, Any]], issues: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Select only owner tasks whose declared scope contains a reviewed target."""
+
+    targets = {
+        target
+        for issue in issues
+        for target in issue.get("target_files", [])
+        if isinstance(target, str)
+    }
+    if not targets:
+        return owner_tasks
+    selected = [
+        task
+        for task in owner_tasks
+        if any(
+            matches_scope(target, task["files"])
+            for target in targets
+        )
+    ]
+    if not selected:
+        raise FactoryError("review targets do not match any task owned by the repair lane")
+    return selected
+
+
+def visual_repair_files(paths: list[str]) -> bool:
+    visual_suffixes = {
+        ".css", ".html", ".jpeg", ".jpg", ".jsx", ".png", ".scss",
+        ".storyboard", ".swift", ".tsx", ".vue", ".webp", ".xib",
+    }
+    visual_parts = {"app", "assets", "components", "screens", "ui", "views"}
+    for raw in paths:
+        path = Path(raw)
+        if path.suffix.lower() in visual_suffixes:
+            return True
+        if any(part.lower() in visual_parts for part in path.parts):
+            return True
+    return False
+
+
+def repair_agent_for_files(agent: dict[str, Any], paths: list[str]) -> dict[str, Any]:
+    """Drop expensive irrelevant skills from a narrowly targeted repair."""
+
+    if visual_repair_files(paths):
+        return agent
+    excluded = (
+        "browser-proof",
+        "evil-genius-copywriter",
+        "swiftui",
+        "/design",
+        "/taste",
+    )
+    skills = [
+        skill for skill in agent.get("skills", [])
+        if not any(marker in skill.lower() for marker in excluded)
+    ]
+    return {**agent, "skills": skills, "requires_visual_smoke": False}
+
+
+def repair_plan_context(
+    plan: dict[str, Any], tasks: list[dict[str, Any]], issues: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Give repairs the approved slice they need instead of the entire plan corpus."""
+
+    criterion_ids = {
+        issue.get("criterion_id")
+        for issue in issues
+        if isinstance(issue.get("criterion_id"), str)
+    }
+    context = {
+        "version": plan.get("version"),
+        "summary": plan.get("summary"),
+        "proof": plan.get("proof"),
+        "success_criteria": [
+            criterion
+            for criterion in plan.get("success_criteria", [])
+            if criterion.get("id") in criterion_ids
+        ],
+        "tasks": tasks,
+        "acceptance": acceptance_for_tasks(tasks),
+    }
+    paths = [
+        target
+        for issue in issues
+        for target in issue.get("target_files", [])
+        if isinstance(target, str)
+    ]
+    if visual_repair_files(paths) and "visual_contract" in plan:
+        context["visual_contract"] = plan["visual_contract"]
+    owners = {task["owner"] for task in tasks}
+    if PROMPT_OWNER in owners and "prompt_contract" in plan:
+        context["prompt_contract"] = plan["prompt_contract"]
+    return context
 
 
 def task_dependency_waves(tasks: list[dict[str, Any]]) -> list[list[str]]:
@@ -1873,6 +1996,7 @@ def validate_plan(
         required=require_versioned
         and isinstance(plan.get("proof"), dict)
         and plan["proof"].get("mode") == "visual",
+        require_qa=require_versioned and QA_OWNER in implementers,
     )
     validate_prompt_contract(plan)
     validate_optimization_contract(plan)
@@ -3085,7 +3209,28 @@ def run_optimization_search(
     }
 
 
-def implementation_receipt_error(receipt: dict[str, Any]) -> str | None:
+def visual_smoke_protocol_error(
+    output: dict[str, Any], required: bool
+) -> str | None:
+    if required:
+        evidence = output.get("visual_evidence")
+        if not isinstance(evidence, list) or not evidence:
+            return "visual_evidence must be a non-empty list for this lane"
+        if not all(isinstance(item, str) and item.strip() for item in evidence):
+            return "visual_evidence entries must be non-empty strings"
+        if len(evidence) > 10 or len(set(evidence)) != len(evidence):
+            return "visual_evidence must contain at most 10 unique paths"
+        observations = output.get("visual_observations")
+        if not isinstance(observations, list) or not observations:
+            return "visual_observations must be a non-empty list for this lane"
+        if not all(isinstance(item, str) and item.strip() for item in observations):
+            return "visual_observations entries must be non-empty strings"
+    return None
+
+
+def implementation_receipt_error(
+    receipt: dict[str, Any], require_visual_smoke: bool = False
+) -> str | None:
     """Explain the first protocol defect without treating a blocked lane as retryable."""
 
     if receipt.get("status") not in {"passed", "invalid"}:
@@ -3108,7 +3253,149 @@ def implementation_receipt_error(receipt: dict[str, Any]) -> str | None:
         return "checks must be a non-empty list"
     if not isinstance(output["summary"], str) or not output["summary"].strip():
         return "summary must be a non-empty string"
-    return None
+    return visual_smoke_protocol_error(output, require_visual_smoke)
+
+
+def png_dimensions(path: Path) -> tuple[int, int]:
+    """Validate a PNG's chunks and compressed pixels without an image dependency."""
+
+    with path.open("rb") as source:
+        if source.read(8) != b"\x89PNG\r\n\x1a\n":
+            raise FactoryError(f"visual smoke artifact is not a PNG: {path}")
+        dimensions = None
+        image_format = None
+        compressed = bytearray()
+        saw_end = False
+        while True:
+            length_bytes = source.read(4)
+            if not length_bytes:
+                break
+            if len(length_bytes) != 4:
+                raise FactoryError(f"visual smoke PNG has a truncated chunk: {path}")
+            length = int.from_bytes(length_bytes, "big")
+            kind = source.read(4)
+            payload = source.read(length)
+            checksum = source.read(4)
+            if len(kind) != 4 or len(payload) != length or len(checksum) != 4:
+                raise FactoryError(f"visual smoke PNG has a truncated chunk: {path}")
+            expected = zlib.crc32(kind + payload) & 0xFFFFFFFF
+            if int.from_bytes(checksum, "big") != expected:
+                raise FactoryError(f"visual smoke PNG has a corrupt chunk: {path}")
+            if kind == b"IHDR":
+                if dimensions is not None or length != 13:
+                    raise FactoryError(f"visual smoke PNG has an invalid IHDR: {path}")
+                dimensions = (
+                    int.from_bytes(payload[:4], "big"),
+                    int.from_bytes(payload[4:8], "big"),
+                )
+                image_format = tuple(payload[8:13])
+            elif kind == b"IDAT":
+                compressed.extend(payload)
+            elif kind == b"IEND":
+                saw_end = True
+                break
+    if dimensions is None or image_format is None or not compressed or not saw_end:
+        raise FactoryError(f"visual smoke PNG is missing image data: {path}")
+    bit_depth, color_type, compression, filter_method, interlace = image_format
+    valid_depths = {
+        0: {1, 2, 4, 8, 16},
+        2: {8, 16},
+        3: {1, 2, 4, 8},
+        4: {8, 16},
+        6: {8, 16},
+    }
+    if (
+        color_type not in valid_depths
+        or bit_depth not in valid_depths[color_type]
+        or compression != 0
+        or filter_method != 0
+        or interlace != 0
+    ):
+        raise FactoryError(f"visual smoke PNG uses an unsupported image format: {path}")
+    decoder = zlib.decompressobj()
+    pixels = decoder.decompress(bytes(compressed), VISUAL_SMOKE_MAX_DECODED_BYTES)
+    if not pixels or decoder.unconsumed_tail or not decoder.eof:
+        raise FactoryError(f"visual smoke PNG pixels are invalid or too large: {path}")
+    channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[color_type]
+    row_bytes = (dimensions[0] * channels * bit_depth + 7) // 8
+    if len(pixels) != dimensions[1] * (row_bytes + 1):
+        raise FactoryError(f"visual smoke PNG pixels do not match its dimensions: {path}")
+    return dimensions
+
+
+def validate_visual_smoke_receipt(
+    receipt: dict[str, Any], required: bool
+) -> list[dict[str, Any]]:
+    """Fail closed unless a visual lane preserved a real viewport-sized render."""
+
+    if not required:
+        return []
+    output = receipt["output"]
+    artifact_manifest = receipt.get("work_artifacts") or receipt.get("artifacts", {})
+    artifact_directory = (
+        artifact_manifest.get("directory") if isinstance(artifact_manifest, dict) else None
+    )
+    if not isinstance(artifact_directory, str) or not artifact_directory:
+        raise FactoryError("visual smoke receipt has no private artifact directory")
+    root = Path(artifact_directory).resolve()
+    declared_paths = {Path(raw).as_posix() for raw in output["visual_evidence"]}
+    visual_root = root / VISUAL_SMOKE_DIRECTORY
+    actual_paths = {
+        path.relative_to(root).as_posix()
+        for path in visual_root.rglob("*")
+        if path.is_file() and not path.is_symlink()
+    } if visual_root.is_dir() else set()
+    if actual_paths != declared_paths:
+        raise FactoryError(
+            "visual smoke directory must contain exactly the declared visual_evidence paths"
+        )
+    evidence = []
+    for raw in output["visual_evidence"]:
+        relative = Path(raw)
+        if (
+            relative.is_absolute()
+            or ".." in relative.parts
+            or not relative.parts
+            or relative.parts[0] != VISUAL_SMOKE_DIRECTORY
+            or relative.suffix.lower() != ".png"
+        ):
+            raise FactoryError(
+                "visual_evidence must name PNG files under the private visual-smoke/ directory"
+            )
+        path = (root / relative).resolve()
+        try:
+            path.relative_to(root)
+        except ValueError as error:
+            raise FactoryError(f"visual smoke path escapes its artifact directory: {raw}") from error
+        if not path.is_file() or path.is_symlink():
+            raise FactoryError(f"visual smoke artifact is missing or unsafe: {raw}")
+        size = path.stat().st_size
+        if size < VISUAL_SMOKE_MIN_BYTES:
+            raise FactoryError(f"visual smoke artifact is implausibly small: {raw} ({size} bytes)")
+        if size > VISUAL_SMOKE_MAX_BYTES:
+            raise FactoryError(f"visual smoke artifact is implausibly large: {raw} ({size} bytes)")
+        width, height = png_dimensions(path)
+        if (
+            min(width, height) < VISUAL_SMOKE_MIN_DIMENSION
+            or max(width, height) > VISUAL_SMOKE_MAX_DIMENSION
+        ):
+            raise FactoryError(
+                f"visual smoke artifact is not viewport-sized: {raw} ({width}x{height})"
+            )
+        digest = hashlib.sha256()
+        with path.open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+        evidence.append(
+            {
+                "path": relative.as_posix(),
+                "bytes": size,
+                "width": width,
+                "height": height,
+                "sha256": digest.hexdigest(),
+            }
+        )
+    return evidence
 
 
 def correctable_implementation_receipt(receipt: dict[str, Any]) -> bool:
@@ -3205,7 +3492,8 @@ def execute_lane(
         agent_commit_recovery = latest_agent_commit_recovery(run, owner)
     git(workspace, "add", "-A")
     actual = staged_files(workspace)
-    protocol_error = implementation_receipt_error(receipt)
+    require_visual_smoke = bool(agent.get("requires_visual_smoke"))
+    protocol_error = implementation_receipt_error(receipt, require_visual_smoke)
     if protocol_error is not None:
         if not correctable_implementation_receipt(receipt):
             raise FactoryError(
@@ -3223,10 +3511,10 @@ def execute_lane(
             f"implement:{owner}",
             workspace,
             {
-                **implementation_context,
                 "previous_invalid_receipt": initial_receipt.get("output"),
                 "controller_validation_error": protocol_error,
                 "controller_observed_changed_files": actual,
+                "visual_smoke_required": require_visual_smoke,
                 "repair_instruction": (
                     "Return a complete corrected receipt for work already performed. "
                     "Do not edit, create, delete, stage, or commit any file."
@@ -3244,7 +3532,7 @@ def execute_lane(
             raise FactoryError(
                 f"implementation receipt correction for {owner} mutated repository files"
             )
-        corrected_error = implementation_receipt_error(receipt)
+        corrected_error = implementation_receipt_error(receipt, require_visual_smoke)
         if corrected_error is not None:
             raise FactoryError(
                 f"implementer {owner} did not return a passing receipt after one "
@@ -3266,6 +3554,7 @@ def execute_lane(
             "validation_error": protocol_error,
             "repository_digest": correction_digest,
         }
+        receipt["work_artifacts"] = initial_receipt.get("artifacts", {})
         receipt.pop("receipt_sha256", None)
         receipt["receipt_sha256"] = digest_json(receipt)
         atomic_json(
@@ -3275,6 +3564,7 @@ def execute_lane(
             receipt,
         )
     output = receipt["output"]
+    visual_smoke = validate_visual_smoke_receipt(receipt, require_visual_smoke)
     claimed = sorted(output["changed_files"])
     actual, scope_correction = discard_untracked_scope_escapes(
         run,
@@ -3312,6 +3602,7 @@ def execute_lane(
         "changed_files": actual,
         "acceptance": acceptance,
         "prompt_evaluation": prompt_evaluation,
+        "visual_smoke": visual_smoke,
         "generated_output_cleanup": acceptance_cleanup,
     }
     if scope_correction is not None:
@@ -3638,7 +3929,10 @@ def recover_committed_repairs(
             f"resume found out-of-order repair commits for cycle {cycle}: {committed_order}"
         )
     for commit, owner in committed:
-        tasks = [task for task in state["plan"]["tasks"] if task["owner"] == owner]
+        tasks = tasks_for_repair(
+            [task for task in state["plan"]["tasks"] if task["owner"] == owner],
+            grouped[owner],
+        )
         actual = sorted(
             git(
                 integration,
@@ -3748,7 +4042,10 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
                 "human approval and a new evaluation version are required"
             )
         enforce_dispatch_limits(state, config["limits"], f"repair:{cycle}:{owner}")
-        tasks = [task for task in state["plan"]["tasks"] if task["owner"] == owner]
+        tasks = tasks_for_repair(
+            [task for task in state["plan"]["tasks"] if task["owner"] == owner],
+            owned,
+        )
         repair_files = sorted({
             target
             for issue in owned
@@ -3764,12 +4061,9 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
         }]
         expected_issues = {issue["id"] for issue in owned}
         repair_context = {
-            "request": state["request"],
-            "plan": state["plan"],
+            "plan": repair_plan_context(state["plan"], tasks, owned),
             "issues": owned,
             "cycle": cycle,
-            "repository_intelligence": state.get("repository_intelligence"),
-            "project_memory": durable_project_memory(run),
         }
         receipt = None
         correction_files: list[str] | None = None
@@ -3779,6 +4073,7 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
         repair_baseline_tracked = set(git(integration, "ls-files").splitlines())
         agent_commit_recovery = None
         scope_correction = None
+        work_artifacts: dict[str, Any] | None = None
         for attempt in range(1, 3):
             state["operation"] = {
                 "kind": "repair",
@@ -3792,7 +4087,7 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
                 "repair_owner_started",
                 {"cycle": cycle, "owner": owner, "attempt": attempt},
             )
-            agent = agents[owner]
+            agent = repair_agent_for_files(agents[owner], repair_files)
             role = f"repair:{cycle}:{owner}"
             if attempt == 2:
                 agent = {**agent, "skills": [], "tools": ["read"]}
@@ -3820,6 +4115,8 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
                     config["limits"],
                 )
             record_usage(state, receipt)
+            if attempt == 1:
+                work_artifacts = receipt.get("artifacts", {})
             atomic_json(
                 run / "receipts" / f"repair-{cycle}-{owner}-attempt-{attempt}.json",
                 receipt,
@@ -3835,7 +4132,7 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
             if attempt_commit_recovery is not None:
                 agent_commit_recovery = attempt_commit_recovery
             git(integration, "add", "-A")
-            output = receipt["output"]
+            output = receipt.get("output")
             if (
                 receipt["status"] != "passed"
                 or not isinstance(output, dict)
@@ -3875,8 +4172,12 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
                     output, state["plan"]["optimization"]
                 )
             addressed = output.get("addressed")
-            validation_error = None
-            if not isinstance(addressed, list) or set(addressed) != expected_issues:
+            validation_error = visual_smoke_protocol_error(
+                output, bool(agent.get("requires_visual_smoke"))
+            )
+            if validation_error is None and (
+                not isinstance(addressed, list) or set(addressed) != expected_issues
+            ):
                 validation_error = (
                     f"repair agent {owner} did not address exactly its assigned issues"
                 )
@@ -3914,6 +4215,8 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
             }
         if receipt is None:
             raise FactoryError(f"repair agent {owner} ended without a typed receipt")
+        if work_artifacts is not None:
+            receipt["work_artifacts"] = work_artifacts
         git(integration, "add", "-A")
         actual = staged_files(integration)
         if correction_files is not None and (
@@ -3940,11 +4243,16 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
             if owner == PROMPT_OWNER
             else None
         )
+        visual_smoke = validate_visual_smoke_receipt(
+            receipt,
+            bool(repair_agent_for_files(agents[owner], repair_files).get("requires_visual_smoke")),
+        )
         receipt["verification"] = {
             "owner": owner,
             "changed_files": actual,
             "acceptance": acceptance,
             "prompt_evaluation": prompt_evaluation,
+            "visual_smoke": visual_smoke,
             "generated_output_cleanup": acceptance_cleanup,
         }
         if scope_correction is not None:
@@ -4245,6 +4553,7 @@ def latest_agent_commit_recovery(run: Path, owner: str) -> dict[str, Any] | None
 def recover_committed_lane(
     run: Path,
     state: dict[str, Any],
+    agent: dict[str, Any],
     owner: str,
     tasks: list[dict[str, Any]],
     workspace: Path,
@@ -4265,7 +4574,9 @@ def recover_committed_lane(
     if receipt is None:
         raise FactoryError(f"resume found committed {owner} work without its durable agent receipt")
     if git(workspace, "log", "-1", "--format=%s") != f"factory({owner}): implement approved task":
-        protocol_error = implementation_receipt_error(receipt)
+        protocol_error = implementation_receipt_error(
+            receipt, bool(agent.get("requires_visual_smoke"))
+        )
         if protocol_error is not None and not correctable_implementation_receipt(receipt):
             raise FactoryError(
                 f"resume found a blocked or failed durable receipt for committed lane "
@@ -4282,7 +4593,9 @@ def recover_committed_lane(
         return None
     output = receipt.get("output")
     if (
-        implementation_receipt_error(receipt) is not None
+        implementation_receipt_error(
+            receipt, bool(agent.get("requires_visual_smoke"))
+        ) is not None
         or sorted(output.get("changed_files", [])) != actual
     ):
         raise FactoryError(f"resume found an invalid durable receipt for committed lane {owner}")
@@ -4307,11 +4620,15 @@ def recover_committed_lane(
         if owner == PROMPT_OWNER
         else None
     )
+    visual_smoke = validate_visual_smoke_receipt(
+        receipt, bool(agent.get("requires_visual_smoke"))
+    )
     receipt["verification"] = {
         "owner": owner,
         "changed_files": actual,
         "acceptance": acceptance,
         "prompt_evaluation": prompt_evaluation,
+        "visual_smoke": visual_smoke,
         "generated_output_cleanup": acceptance_cleanup,
         "recovered": True,
     }
@@ -4397,6 +4714,7 @@ def continue_implementation(
             recovered = recover_committed_lane(
                 run,
                 state,
+                agents[owner],
                 owner,
                 grouped[owner],
                 workspace,

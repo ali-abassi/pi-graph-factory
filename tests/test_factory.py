@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import copy
 import json
+import random
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+import zlib
 from pathlib import Path
 from unittest.mock import patch
 
@@ -25,18 +27,49 @@ from factory import (  # noqa: E402
     enforce_dispatch_limits,
     is_unsafe_repository_artifact,
     metric_score_from_receipts,
+    repair_agent_for_files,
+    repair_plan_context,
+    implementation_receipt_error,
     run_optimization_search,
     run_repair,
     run_commands_before_deadline,
     read_project_memory,
     task_dependency_waves,
+    tasks_for_repair,
     validate_plan,
     validate_plan_judgment,
     validate_controller_optimization_receipt,
     validate_optimization_candidate,
     validate_prompt_evaluation,
+    validate_visual_smoke_receipt,
     validated_usage,
 )
+
+
+def write_test_png(path: Path, width: int = 320, height: int = 640) -> None:
+    """Write a deterministic, decodable RGB PNG without a test dependency."""
+
+    def chunk(kind: bytes, payload: bytes) -> bytes:
+        checksum = zlib.crc32(kind + payload) & 0xFFFFFFFF
+        return len(payload).to_bytes(4, "big") + kind + payload + checksum.to_bytes(4, "big")
+
+    randomizer = random.Random(42)
+    rows = b"".join(
+        b"\x00" + randomizer.randbytes(width * 3)
+        for _ in range(height)
+    )
+    header = (
+        width.to_bytes(4, "big")
+        + height.to_bytes(4, "big")
+        + b"\x08\x02\x00\x00\x00"
+    )
+    path.parent.mkdir(parents=True)
+    path.write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(rows))
+        + chunk(b"IEND", b"")
+    )
 
 
 class FactoryCompilerTests(unittest.TestCase):
@@ -59,7 +92,7 @@ class FactoryCompilerTests(unittest.TestCase):
         implementers = {item["id"]: item for item in self.factory["implementers"]}
         self.assertEqual(
             set(implementers),
-            {"product", "design", "visual-assets", "copy", "prompt", "optimization"},
+            {"product", "design", "visual-assets", "copy", "prompt", "qa", "optimization"},
         )
         for owner in ("product", "design", "copy"):
             self.assertIn("skills/evil-genius-copywriter", implementers[owner]["skills"])
@@ -77,11 +110,14 @@ class FactoryCompilerTests(unittest.TestCase):
         self.assertIn("skills/deep-thinking", self.factory["plan_review"]["skills"])
         self.assertIn("skills/image-generation", implementers["visual-assets"]["skills"])
         self.assertEqual(implementers["visual-assets"]["harness"], "codex")
+        self.assertTrue(implementers["design"]["requires_visual_smoke"])
+        self.assertEqual(implementers["qa"]["instructions"], "agents/qa.md")
 
         workflow = compile_factory(self.factory)
         steps = {step["id"]: step for step in workflow["steps"]}
         self.assertEqual(steps["implement-copy"]["needs"], ["plan-review"])
         self.assertEqual(steps["implement-prompt"]["needs"], ["plan-review"])
+        self.assertEqual(steps["implement-qa"]["needs"], ["plan-review"])
         self.assertEqual(steps["implement-optimization"]["needs"], ["plan-review"])
         self.assertEqual(
             steps["integrate"]["needs"],
@@ -91,6 +127,7 @@ class FactoryCompilerTests(unittest.TestCase):
                 "implement-visual-assets",
                 "implement-copy",
                 "implement-prompt",
+                "implement-qa",
                 "implement-optimization",
             ],
         )
@@ -126,6 +163,129 @@ class FactoryCompilerTests(unittest.TestCase):
             evidence_policy="plan",
         )
 
+    def test_repair_targets_select_only_the_matching_owner_task_and_acceptance(self) -> None:
+        tasks = [
+            {
+                "id": "ui",
+                "owner": "design",
+                "files": ["App/UI/**"],
+                "acceptance": ["xcodebuild test"],
+            },
+            {
+                "id": "evidence",
+                "owner": "design",
+                "files": ["scripts/**", "evidence/**"],
+                "acceptance": ["bash -n scripts/capture.sh"],
+            },
+        ]
+        issues = [{
+            "id": "FIX-1",
+            "criterion_id": "SC-1",
+            "target_files": ["scripts/capture.sh"],
+        }]
+
+        selected = tasks_for_repair(tasks, issues)
+        context = repair_plan_context(
+            {
+                "version": 1,
+                "summary": "Repair evidence capture.",
+                "proof": {"mode": "visual", "reason": "UI proof"},
+                "success_criteria": [
+                    {"id": "SC-1", "description": "Capture succeeds."},
+                    {"id": "SC-2", "description": "UI looks polished."},
+                ],
+                "tasks": tasks,
+                "acceptance": ["xcodebuild test", "bash -n scripts/capture.sh"],
+                "visual_contract": {"selected_direction": "Quarry"},
+            },
+            selected,
+            issues,
+        )
+
+        self.assertEqual([task["id"] for task in selected], ["evidence"])
+        self.assertEqual(context["acceptance"], ["bash -n scripts/capture.sh"])
+        self.assertEqual(
+            [criterion["id"] for criterion in context["success_criteria"]],
+            ["SC-1"],
+        )
+        self.assertNotIn("visual_contract", context)
+
+    def test_nonvisual_repair_drops_irrelevant_design_and_copy_skills(self) -> None:
+        agent = {
+            "skills": [
+                "skills/design",
+                "skills/taste",
+                "skills/project-verification",
+                "skills/evil-genius-copywriter",
+                "skills/browser-proof",
+                "skills/ponytail",
+                "/plugins/swiftui-ui-patterns",
+            ]
+        }
+
+        narrowed = repair_agent_for_files(agent, ["scripts/capture_ios_evidence.sh"])
+
+        self.assertEqual(
+            narrowed["skills"],
+            ["skills/project-verification", "skills/ponytail"],
+        )
+        self.assertFalse(narrowed["requires_visual_smoke"])
+        self.assertEqual(len(agent["skills"]), 7)
+
+    def test_visual_lane_requires_decodable_private_viewport_evidence(self) -> None:
+        output = {
+            "status": "pass",
+            "changed_files": ["App/UI/Home.swift"],
+            "checks": [{"command": "xcodebuild", "passed": True}],
+            "summary": "Rendered and inspected the primary surface.",
+        }
+        receipt = {"status": "passed", "output": output, "artifacts": {}}
+        self.assertEqual(
+            implementation_receipt_error(receipt, require_visual_smoke=True),
+            "visual_evidence must be a non-empty list for this lane",
+        )
+
+        with tempfile.TemporaryDirectory() as raw:
+            artifact_root = Path(raw)
+            screenshot = artifact_root / "visual-smoke" / "primary.png"
+            write_test_png(screenshot)
+            output.update({
+                "visual_evidence": ["visual-smoke/primary.png"],
+                "visual_observations": ["The primary hierarchy is visible without clipping."],
+            })
+            receipt["artifacts"] = {"directory": str(artifact_root)}
+
+            evidence = validate_visual_smoke_receipt(receipt, required=True)
+
+            self.assertEqual(evidence[0]["path"], "visual-smoke/primary.png")
+            self.assertEqual((evidence[0]["width"], evidence[0]["height"]), (320, 640))
+            self.assertEqual(len(evidence[0]["sha256"]), 64)
+
+    def test_visual_smoke_rejects_fake_png_and_path_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            artifact_root = Path(raw)
+            screenshot = artifact_root / "visual-smoke" / "primary.png"
+            screenshot.parent.mkdir()
+            screenshot.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 2_000)
+            receipt = {
+                "status": "passed",
+                "output": {
+                    "status": "pass",
+                    "changed_files": ["App/UI/Home.swift"],
+                    "checks": [{"command": "xcodebuild", "passed": True}],
+                    "summary": "Rendered.",
+                    "visual_evidence": ["visual-smoke/primary.png"],
+                    "visual_observations": ["Inspected pixels."],
+                },
+                "artifacts": {"directory": str(artifact_root)},
+            }
+            with self.assertRaisesRegex(FactoryError, "truncated chunk"):
+                validate_visual_smoke_receipt(receipt, required=True)
+
+            receipt["output"]["visual_evidence"] = ["../primary.png"]
+            with self.assertRaisesRegex(FactoryError, "visual smoke"):
+                validate_visual_smoke_receipt(receipt, required=True)
+
     def test_visual_plans_require_research_direction_assets_and_real_proof(self) -> None:
         implementers = {item["id"] for item in self.factory["implementers"]}
         plan = {
@@ -146,6 +306,7 @@ class FactoryCompilerTests(unittest.TestCase):
                 {
                     "id": "build-ui",
                     "owner": "design",
+                    "depends_on": ["make-art"],
                     "files": ["GameUI/**"],
                     "acceptance": ["test -f GameUI/GameView.swift"],
                 },
@@ -154,6 +315,13 @@ class FactoryCompilerTests(unittest.TestCase):
                     "owner": "visual-assets",
                     "files": ["Assets/**"],
                     "acceptance": ["test -f Assets/truck.png"],
+                },
+                {
+                    "id": "verify-loop",
+                    "owner": "qa",
+                    "depends_on": ["build-ui"],
+                    "files": ["scripts/**", "evidence/**"],
+                    "acceptance": ["bash -n scripts/verify-ios.sh"],
                 },
             ],
             "visual_contract": {
@@ -186,11 +354,24 @@ class FactoryCompilerTests(unittest.TestCase):
                                  "evidence": ["evidence/drive.png", "evidence/drive.mp4"],
                                  "feature_coverage": ["SC-LOOP"]},
             },
-            "acceptance": ["test -f GameUI/GameView.swift", "test -f Assets/truck.png"],
+            "acceptance": [
+                "test -f GameUI/GameView.swift",
+                "test -f Assets/truck.png",
+                "bash -n scripts/verify-ios.sh",
+            ],
             "risks": [],
             "open_questions": [],
         }
         validate_plan(plan, implementers, require_versioned=True, evidence_policy="plan")
+
+        missing_qa = copy.deepcopy(plan)
+        missing_qa["tasks"] = [
+            task for task in missing_qa["tasks"] if task["owner"] != "qa"
+        ]
+        with self.assertRaisesRegex(FactoryError, "require an independent qa task"):
+            validate_plan(
+                missing_qa, implementers, require_versioned=True, evidence_policy="plan"
+            )
 
         missing = copy.deepcopy(plan)
         missing.pop("visual_contract")

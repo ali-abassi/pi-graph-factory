@@ -60,6 +60,7 @@ implementers:
     instructions: agents/designer.md
     skills: [skills/design, skills/taste, skills/project-verification, skills/tdd, skills/diagnosing-bugs, skills/evil-genius-copywriter, skills/browser-proof, skills/ponytail, skills/clear-prose]
     tools: [read, edit, write, bash]
+    requires_visual_smoke: true
     timeout_seconds: 14400
   - id: visual-assets
     scope: Generated or edited raster assets and their provenance
@@ -86,6 +87,15 @@ implementers:
     thinking: high
     instructions: agents/prompt_engineer.md
     skills: [skills/implementation, skills/prompt-engineering, skills/ponytail, skills/clear-prose]
+    tools: [read, edit, write, bash]
+    timeout_seconds: 14400
+  - id: qa
+    scope: Integration tests, evidence drivers, capture receipts, CI, and verification tooling
+    harness: pi
+    model: openai-codex/gpt-5.6-terra
+    thinking: medium
+    instructions: agents/qa.md
+    skills: [skills/implementation, skills/tdd, skills/diagnosing-bugs, skills/project-verification, skills/ponytail, skills/clear-prose]
     tools: [read, edit, write, bash]
     timeout_seconds: 14400
   - id: optimization

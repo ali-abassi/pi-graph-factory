@@ -39,10 +39,12 @@ repair limits, and external effects.
    after its declared upstream tasks checkpoint, and its worktree contains those
    exact committed dependency outputs. Different
    lanes may use different harnesses, models, instructions, and skills. Product,
-   UI design, generated visual assets, copywriting, prompt engineering, and
-   measured optimization are default specialists; additional specialties remain
+   UI design, generated visual assets, copywriting, prompt engineering,
+   QA/evidence, and measured optimization are default specialists; additional specialties remain
    configuration rather than new controller stages. UI code and generated art
-   have separate non-overlapping owners.
+   have separate non-overlapping owners. QA/evidence tooling is independent from
+   production UI, and design lanes inspect a controller-validated actual render
+   before integration.
    Prompt work has a required runtime/trust/evaluation contract. Optimization
    agents propose one mutation at a time while deterministic controller code
    owns baseline, scoring, keep/discard, finite limits, and one-time promotion.
@@ -60,8 +62,10 @@ repair limits, and external effects.
    separate explicit command deploys, checks health, and attempts the configured
    rollback on failure.
 12. Every input, output, command, receipt, transition, and artifact remains
-   inspectable. Interrupted work resumes from validated checkpoints instead of
-   starting the factory again or silently accepting partial state.
+   inspectable. Repeated provider payloads are retained once by content hash
+   instead of multiplying into enormous logs. Interrupted work resumes from
+   validated checkpoints instead of starting again or silently accepting
+   partial state.
 
 ## Operating modes
 

@@ -50,8 +50,10 @@ for any individual run.
 - Dispatch one to ten configured Pi, Claude Code, or Codex implementers in
   dependency-ready waves, with concurrent execution inside each wave.
 - Provide product, UI-design, generated-visual-asset, copywriting,
-  prompt-engineering, and optimization specialists by default; launch only
+  prompt-engineering, QA/evidence, and optimization specialists by default; launch only
   owners present in the approved plan and permit additional configured specialists.
+- Keep production UI ownership in `design` and independently scoped integration
+  tests, capture drivers/receipts, CI, and verification tooling in `qa`.
 - Keep generated raster art and provenance in a dedicated Codex lane with
   built-in OpenAI image generation. Require real alpha when the contract calls
   for transparency, and forbid silent emoji/system-symbol/placeholder fallback.
@@ -60,12 +62,17 @@ for any individual run.
   and prepare downstream worktrees from their transitive dependency outputs.
 - Reject overlapping planned scopes and actual out-of-scope or unsafe staged files.
 - Execute approved task checks and integrate passing lane commits deterministically.
+- Require every design implementation and visual repair to preserve and cite a
+  private, decodable, viewport-sized actual-render PNG before lane integration.
 - Give a malformed initial implementer receipt one read-only, diff-fingerprinted
   correction; refuse a second invalid receipt or any correction-time mutation.
 - Normalize a provably linear agent-created implementation or repair commit
   during execution or resume while refusing rewritten baselines, merge history,
   blocked work, and scope drift. Constrain repairs to the reviewer's exact
   target files, not the owner's broader initial task scope.
+- Slice repair plan context, acceptance, and expensive skills to the exact
+  reviewer-targeted task/files; nonvisual evidence repairs do not load UI,
+  browser, SwiftUI, taste, or copy disciplines.
 - Apply a smallest-complete-change policy through implementer instructions and skills.
 - Apply the Ponytail solution ladder in product and design lanes across Pi,
   Claude Code, and Codex harnesses.
@@ -96,6 +103,9 @@ for any individual run.
 - Capture declared screenshots, video, and browser artifacts on the integrated commit.
 - Bind proof hashes to the current commit and approved plan.
 - Require an independent read-only review to account for every success criterion.
+- Treat controller command receipts as authoritative for command/commit/exit
+  facts and rerun an identical expensive command only for a named new
+  falsification hypothesis.
 - Apply proportional adversarial review to concrete failure chains and require
   current semantic proof from the real product seam; speculation outside an
   approved criterion cannot create an automatic repair loop.
@@ -118,6 +128,9 @@ for any individual run.
 - Keep automatic merge and delivery disabled by default.
 - Run an explicit configured deploy, health check, and rollback attempt after merge.
 - Inspect active operations, receipts, contexts, events, worktrees, and proof artifacts.
+- Preserve large repeated harness payloads once as content-addressed compressed
+  blobs referenced from a compact readable event stream, with bounded in-memory
+  tails and exact SHA-256 provenance.
 - Project a lane failure immediately while sibling work continues, and persist
   Pi/Codex harness streams incrementally for truthful last-activity inspection.
 - Preserve immutable per-attempt contexts, private adapter/harness streams, native

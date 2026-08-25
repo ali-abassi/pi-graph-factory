@@ -55,7 +55,7 @@ commands exactly-once across machine death.
 
 ## Evidence
 
-- 94 deterministic repository tests across simple, medium, complex, refusal,
+- 129 deterministic repository tests across simple, medium, complex, refusal,
   lifecycle, concurrency, and graph cases.
 - Specialist configuration tests prove copywriting is a routable implementation
   owner, a conditional capability for product/UI files, and part of the same
@@ -120,16 +120,25 @@ commands exactly-once across machine death.
   repair receipts one read-only fingerprinted correction. The final live
   bug-fix run still stopped after two invalid repair receipts; it is refusal
   evidence, not a `merge_ready` claim.
-- Pi Graph Core v0.1.0 and Pi Graph v0.3.0 validation of the 29-node topology.
+- A frozen new-product iOS evaluation correctly refused a visibly weak result
+  but exposed late visual feedback, fused UI/evidence ownership, overbroad
+  repair context, redundant expensive checks, and transport-amplified reviewer
+  logs. The promoted controller requires actual-render lane smoke proof,
+  separates QA/evidence ownership, slices repairs, discourages identical command
+  replay, and stores repeated large transport values once by content hash. The
+  178,079,345-byte reviewer stream re-encoded losslessly to 23,293,955 bytes.
+- Pi Graph Core v0.2.0 validation of the 32-step topology.
 - Full risk register: [`risk-register.json`](risk-register.json).
 
 ## Remaining conditions
 
-The next high-value work is the user-observed step-by-step complex run: inspect
-every Graphify receipt, planner input/output, plan judgment, lane
-context/receipt, integrated check, proof, review, repair, merge, and delivery
-receipt against a frozen application corpus. Those approved/rejected plans
-should become the first human-rated calibration set for `plan-quality-v1`.
+The next high-value external validation is a fresh user-observed step-by-step
+complex run on the promoted controller: inspect every Graphify receipt, planner
+input/output, plan judgment, lane context/receipt, integrated check, proof,
+review, repair, merge, and delivery receipt against a frozen application corpus.
+The failed iOS run remains a negative calibration case rather than a target to
+polish. Approved and rejected plans should become the first human-rated
+calibration set for `plan-quality-v1`.
 Railway Cloud Agents provide a persistent off-laptop VM, but their shared
 personal disk and credentials are still a trusted environment.
 
