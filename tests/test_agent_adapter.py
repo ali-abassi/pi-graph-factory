@@ -154,7 +154,9 @@ class AgentAdapterTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as raw:
             artifacts = Path(raw)
-            result = run_streaming([sys.executable, "-c", script], artifacts)
+            emitter = artifacts / "emit-events.py"
+            emitter.write_text(script, encoding="utf-8")
+            result = run_streaming([sys.executable, str(emitter)], artifacts)
 
             normalized = (artifacts / "harness.stdout").read_text(encoding="utf-8")
             blobs = list((artifacts / "harness.blobs").glob("*.gz"))
