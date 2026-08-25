@@ -44,4 +44,4 @@ jobs:
           python scripts/compile_factory.py factory.yaml \
             --out "$RUNNER_TEMP/factory.steps.yaml"
           piw doctor --json
-          piw validate "$RUNNER_TEMP/factory.steps.yaml" --strict --json
+          piw validate "$RUNNER_TEMP/factory.steps.yaml" --json

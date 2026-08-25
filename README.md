@@ -655,7 +655,7 @@ Generated YAML is intentionally not committed:
 
 python3 -m pip install \
   'git+https://github.com/ali-abassi/agent-workflows.git@v0.2.0'
-piw validate /tmp/factory.steps.yaml --strict
+piw validate /tmp/factory.steps.yaml
 piw graph /tmp/factory.steps.yaml
 ```
 
@@ -727,7 +727,7 @@ The deterministic suite currently covers 107 cases, including:
   escalation, and explicit unlimited-review continuation.
 
 CI runs the suite on Ubuntu and macOS with Python 3.10 and 3.14, compiles the
-30-node policy graph, and validates it with the public Pi Graph Core release.
+31-node policy graph, and validates it with the public Pi Graph Core release.
 The measured hill-climb and candidate ledger are in
 [`docs/IMPROVEMENT.md`](docs/IMPROVEMENT.md) and
 [`docs/improvement-ledger.jsonl`](docs/improvement-ledger.jsonl).

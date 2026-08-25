@@ -99,6 +99,8 @@ All notable changes to Pi Graph Factory are documented here.
 
 ### Changed
 
+- Pi Graph validation examples and CI now use the public 0.4 CLI contract,
+  which validates strictly by default and no longer accepts `--strict`.
 - Codex implementers now use `--approve-for-me` as the single workspace-write
   policy selector, matching Codex CLI 0.149+ instead of passing the now-invalid
   `--sandbox workspace-write --approve-for-me` combination.
