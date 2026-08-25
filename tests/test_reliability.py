@@ -141,6 +141,23 @@ class FactoryReliabilityTests(unittest.TestCase):
             lane["payload"]["discarded_untracked_scope_escapes"], ["outside.txt"]
         )
 
+    def test_scope_correction_prunes_empty_parent_directories(self) -> None:
+        run = self.approved_run(["product"])
+        self.env["PI_GRAPH_FACTORY_EXPECTED_LANES"] = "1"
+        self.env["PI_GRAPH_FACTORY_RELIABILITY_MODE"] = "nested_escape"
+
+        completed = self.cli("run", "--run", str(run))
+
+        self.assertEqual(completed["phase"], "merged")
+        lane = run / "worktrees" / "product"
+        self.assertFalse((lane / "outside").exists())
+        state = json.loads((run / "state.json").read_text())
+        correction = state["lane_receipts"]["product"]["receipt"]["scope_correction"]
+        self.assertEqual(
+            correction["discarded_files"],
+            ["outside/AppIcon.appiconset/Contents.json"],
+        )
+
     def test_tracked_scope_escape_is_durable_and_fails_closed(self) -> None:
         (self.repo / "outside.txt").write_text("tracked baseline\n", encoding="utf-8")
         subprocess.run(["git", "add", "outside.txt"], cwd=self.repo, check=True)

@@ -59,8 +59,14 @@ if args.role.startswith("implement:"):
         changed.extend(["evidence/desktop.png", "evidence/flow.webm", "evidence/browser-receipt.json"])
     if mode in {"escape", "silent_escape", "commit_escape"}:
         Path("outside.txt").write_text("escape\n", encoding="utf-8")
+    if mode == "nested_escape":
+        nested_escape = Path("outside/AppIcon.appiconset/Contents.json")
+        nested_escape.parent.mkdir(parents=True)
+        nested_escape.write_text("{}\n", encoding="utf-8")
     if mode in {"escape", "commit_escape"}:
         changed.append("outside.txt")
+    if mode == "nested_escape":
+        changed.append("outside/AppIcon.appiconset/Contents.json")
     if mode in {"commit", "commit_escape"}:
         subprocess.run(["git", "add", "-A"], check=True)
         subprocess.run(

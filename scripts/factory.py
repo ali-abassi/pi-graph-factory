@@ -1260,6 +1260,28 @@ def discard_untracked_scope_escapes(
 
     git(workspace, "reset", "-q", "HEAD", "--", *escaped)
     git(workspace, "clean", "-f", "--", *escaped)
+    workspace_root = workspace.resolve()
+    escaped_parents: set[Path] = set()
+    for relative in escaped:
+        candidate = workspace / relative
+        for parent in candidate.parents:
+            if parent == workspace:
+                break
+            resolved = parent.resolve()
+            if resolved != workspace_root and workspace_root not in resolved.parents:
+                raise FactoryError(
+                    f"refusing to prune scope-escape directory outside worktree: {relative}"
+                )
+            escaped_parents.add(parent)
+    for directory in sorted(
+        escaped_parents,
+        key=lambda path: len(path.parts),
+        reverse=True,
+    ):
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
     git(workspace, "add", "-A")
     corrected = staged_files(workspace)
     validate_lane_changes(owner, tasks, corrected)
