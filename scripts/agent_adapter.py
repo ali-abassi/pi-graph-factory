@@ -74,8 +74,8 @@ def codex_command(model: str, prompt: str, final_response: Path) -> list[str]:
         "exec",
         "--model",
         model,
-        "--sandbox",
-        "workspace-write",
+        # Current Codex makes this flag select the workspace-write sandbox;
+        # passing --sandbox alongside it is a conflicting CLI contract.
         "--approve-for-me",
         "--json",
         "--output-last-message",

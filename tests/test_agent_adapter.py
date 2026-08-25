@@ -92,9 +92,8 @@ class AgentAdapterTests(unittest.TestCase):
             Path("/tmp/final-response.txt"),
         )
 
-        self.assertIn("--sandbox", command)
-        self.assertEqual(command[command.index("--sandbox") + 1], "workspace-write")
         self.assertIn("--approve-for-me", command)
+        self.assertNotIn("--sandbox", command)
         self.assertIn("--json", command)
         self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", command)
 

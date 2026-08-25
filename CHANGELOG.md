@@ -99,6 +99,10 @@ All notable changes to Pi Graph Factory are documented here.
 
 ### Changed
 
+- Codex implementers now use `--approve-for-me` as the single workspace-write
+  policy selector, matching Codex CLI 0.149+ instead of passing the now-invalid
+  `--sandbox workspace-write --approve-for-me` combination.
+
 - Codex implementers now run with explicit worktree-write sandboxing and
   automatic approvals, fixing the visual-assets lane's read-only default without
   granting unrestricted host access.
