@@ -49,7 +49,11 @@ class FactoryReliabilityTests(unittest.TestCase):
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         return json.loads(result.stdout)
 
-    def approved_run(self, owners: list[str]) -> Path:
+    def approved_run(
+        self,
+        owners: list[str],
+        dependencies: dict[str, list[str]] | None = None,
+    ) -> Path:
         config = yaml.safe_load((ROOT / "factory.yaml").read_text(encoding="utf-8"))
         base = config["implementers"][0]
         config["implementers"] = [
@@ -73,7 +77,8 @@ class FactoryReliabilityTests(unittest.TestCase):
             files = [f"{owner}.txt"]
             if owner == "product":
                 files.append("evidence/**")
-            tasks.append({"id": owner, "owner": owner, "files": files,
+            tasks.append({"id": owner, "owner": owner,
+                          "depends_on": (dependencies or {}).get(owner, []), "files": files,
                           "acceptance": [f"test -s {owner}.txt"]})
         plan = {
             "summary": "Reliability plan", "tasks": tasks,
@@ -91,6 +96,31 @@ class FactoryReliabilityTests(unittest.TestCase):
         self.env["PI_GRAPH_FACTORY_EXPECTED_LANES"] = "2"
         completed = self.cli("run", "--run", str(run))
         self.assertEqual(completed["phase"], "merged")
+
+    def test_dependency_lane_sees_committed_upstream_output(self) -> None:
+        run = self.approved_run(
+            ["product", "design"],
+            dependencies={"design": ["product"]},
+        )
+        self.env["PI_GRAPH_FACTORY_DEPENDENCY_MODE"] = "1"
+
+        completed = self.cli("run", "--run", str(run))
+
+        self.assertEqual(completed["phase"], "merged")
+        state = json.loads((run / "state.json").read_text())
+        self.assertEqual(state["lane_bases"]["design"]["dependency_commits"], [
+            state["lane_receipts"]["product"]["commit"]
+        ])
+        self.assertNotEqual(
+            state["lane_receipts"]["design"]["base_commit"], state["base_commit"]
+        )
+        events = [json.loads(line) for line in (run / "events.jsonl").read_text().splitlines()]
+        completed_owners = [
+            event["payload"]["owner"]
+            for event in events
+            if event["event"] == "lane_completed"
+        ]
+        self.assertEqual(completed_owners, ["product", "design"])
 
     def test_untracked_scope_escape_is_discarded_and_recorded(self) -> None:
         run = self.approved_run(["product"])

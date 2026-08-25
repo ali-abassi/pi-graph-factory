@@ -17,13 +17,21 @@ inventing a third one. Do not use generic card grids, indiscriminate pills,
 arbitrary gradients, emoji, or system icons as central product art unless the
 approved contract specifically justifies them. Raster assets belong to the
 `visual-assets` lane; consume its declared paths but never edit them.
+Likewise, consume upstream domain or product files supplied through declared
+task dependencies. Do not recreate, fork, or repair another owner's output in
+the design lane. If a required dependency is absent or broken, return blocked
+with the exact missing path or failing check so the controller can assign it to
+the owning lane.
 
 Preserve the product's existing visual language unless the approved task
 explicitly changes it. Verify the actual interactive path at every required
 viewport, keyboard/accessibility behavior, console and network errors, loading
 and failure states, and responsive layout. Produce the project-owned screenshot,
 video, and browser receipts declared by the plan through one repeatable capture
-script. Final capture runs after all lanes integrate. The script must clean up
+script. During isolated implementation, create the capture harness and run only
+safe static checks such as shell syntax or a doctor mode. Never run a configured
+final capture command in the lane: the controller runs it after all dependencies
+and lanes integrate, then runs it again after repairs. The script must clean up
 its browser/server processes and write only declared artifact paths. Do not
 fabricate media or claim visual verification from source inspection alone.
 Capture only approved request/criterion behavior; do not invent a new
@@ -32,7 +40,11 @@ error, transition, and persisted state visible long enough for a human reviewer
 to read in the recorded video.
 When no credible driver exists for the changed surface, create the smallest
 project-local launch/doctor/drive/evidence/cleanup harness in your owned files,
-run it once, and make it validate that media decode and show the intended state.
+run its non-capturing doctor path once, and make final capture validate that media
+decode and show the intended state. Clean up only processes and exact paths the
+harness created; never use a broad glob or an unresolved variable as a deletion
+target. Remove diagnostic-only tests and temporary outputs before returning the
+lane receipt.
 At real default and minimum native viewports also inspect maximum-content,
 loading, empty, error, degraded, disabled, dynamic-type, safe-area, and reduced-
 motion behavior when applicable.

@@ -47,7 +47,8 @@ for any individual run.
 
 ## Implementation and integration
 
-- Dispatch one to ten configured Pi, Claude Code, or Codex implementers concurrently.
+- Dispatch one to ten configured Pi, Claude Code, or Codex implementers in
+  dependency-ready waves, with concurrent execution inside each wave.
 - Provide product, UI-design, generated-visual-asset, copywriting,
   prompt-engineering, and optimization specialists by default; launch only
   owners present in the approved plan and permit additional configured specialists.
@@ -55,6 +56,8 @@ for any individual run.
   built-in OpenAI image generation. Require real alpha when the contract calls
   for transparency, and forbid silent emoji/system-symbol/placeholder fallback.
 - Isolate initial owner work in Git branches and worktrees.
+- Validate task dependency ids and owner cycles, checkpoint upstream commits,
+  and prepare downstream worktrees from their transitive dependency outputs.
 - Reject overlapping planned scopes and actual out-of-scope or unsafe staged files.
 - Execute approved task checks and integrate passing lane commits deterministically.
 - Give a malformed initial implementer receipt one read-only, diff-fingerprinted
@@ -113,6 +116,8 @@ for any individual run.
 - Keep automatic merge and delivery disabled by default.
 - Run an explicit configured deploy, health check, and rollback attempt after merge.
 - Inspect active operations, receipts, contexts, events, worktrees, and proof artifacts.
+- Project a lane failure immediately while sibling work continues, and persist
+  Pi/Codex harness streams incrementally for truthful last-activity inspection.
 - Preserve immutable per-attempt contexts, private adapter/harness streams, native
   Claude transcripts, deduplicated Claude token usage, blockers, and last meaningful
   activity as the local operations UI's backend contract.

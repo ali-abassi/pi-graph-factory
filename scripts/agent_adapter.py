@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import uuid
 from pathlib import Path
 
@@ -63,6 +64,75 @@ def claude_command(
         command.extend(["--session-id", session_id])
     command.append(prompt)
     return command
+
+
+def codex_command(model: str, prompt: str, final_response: Path) -> list[str]:
+    """Build an unattended Codex command writable only inside its worktree."""
+
+    return [
+        "codex",
+        "exec",
+        "--model",
+        model,
+        "--sandbox",
+        "workspace-write",
+        "--approve-for-me",
+        "--json",
+        "--output-last-message",
+        str(final_response),
+        prompt,
+    ]
+
+
+def run_streaming(command: list[str], artifact_dir: Path | None) -> subprocess.CompletedProcess:
+    """Run a harness while making its raw streams durable before it exits."""
+
+    if artifact_dir is None:
+        return subprocess.run(command, text=True, capture_output=True, check=False)
+    streams = {
+        "stdout": artifact_dir / "harness.stdout",
+        "stderr": artifact_dir / "harness.stderr",
+    }
+    for path in streams.values():
+        path.touch()
+        path.chmod(0o600)
+    process = subprocess.Popen(
+        command,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        encoding="utf-8",
+        errors="replace",
+        bufsize=1,
+    )
+    captured: dict[str, list[str]] = {"stdout": [], "stderr": []}
+
+    def drain(name: str, pipe: object) -> None:
+        with streams[name].open("a", encoding="utf-8") as destination:
+            for line in pipe:  # type: ignore[union-attr]
+                captured[name].append(line)
+                destination.write(line)
+                destination.flush()
+
+    threads = [
+        threading.Thread(target=drain, args=("stdout", process.stdout), daemon=True),
+        threading.Thread(target=drain, args=("stderr", process.stderr), daemon=True),
+    ]
+    for thread in threads:
+        thread.start()
+    returncode = process.wait()
+    for thread in threads:
+        thread.join()
+    if process.stdout is not None:
+        process.stdout.close()
+    if process.stderr is not None:
+        process.stderr.close()
+    return subprocess.CompletedProcess(
+        command,
+        returncode,
+        "".join(captured["stdout"]),
+        "".join(captured["stderr"]),
+    )
 
 
 def claude_transcript(session_id: str) -> Path | None:
@@ -152,6 +222,10 @@ def preserve_harness_artifacts(
     session_path = artifact_dir / "session.json"
     if session_path.is_file():
         files.append(file_metadata(session_path))
+    final_response = artifact_dir / "final-response.txt"
+    if final_response.is_file():
+        final_response.chmod(0o600)
+        files.append(file_metadata(final_response))
     transcript_usage = None
     source = claude_transcript(session_id) if session_id else None
     if source:
@@ -273,8 +347,13 @@ def main() -> int:
             session_id=claude_session_id,
         )
     else:
-        command = ["codex", "exec", "--model", args.model, prompt]
-    result = subprocess.run(command, text=True, capture_output=True, check=False)
+        final_response = (
+            artifact_dir / "final-response.txt"
+            if artifact_dir is not None
+            else Path(os.environ.get("TMPDIR", "/tmp")) / f"pi-graph-factory-{uuid.uuid4()}.txt"
+        )
+        command = codex_command(args.model, prompt, final_response)
+    result = run_streaming(command, artifact_dir)
     artifacts, transcript_usage = preserve_harness_artifacts(
         artifact_dir,
         result.stdout,
@@ -291,6 +370,12 @@ def main() -> int:
     elif transcript_usage is not None:
         usage, details = transcript_usage
         artifacts["usage"] = details
+    elif args.harness == "codex":
+        if not final_response.is_file():
+            raise ValueError("Codex produced no final response file")
+        raw = final_response.read_text(encoding="utf-8").strip()
+        if artifact_dir is None:
+            final_response.unlink(missing_ok=True)
     status, output = decode_output(raw)
     receipt = {"status": status, "harness": args.harness, "model": args.model,
                "role": args.role, "output": output, "usage": usage,

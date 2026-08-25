@@ -965,6 +965,29 @@ class FactoryLifecycleTests(unittest.TestCase):
         failed = self.command("run", "--run", str(run), expected=2)
         self.assertIn("acceptance for product mutated repository files", failed["error"])
 
+    def test_lane_acceptance_discards_only_new_generated_build_outputs(self) -> None:
+        run = self.initialize(run_id="lane-acceptance-cache-run")
+        path = self.write_plan(self.root / "lane-acceptance-cache.json", [])
+        value = json.loads(path.read_text())
+        value["tasks"][0]["acceptance"].append(
+            "mkdir -p .build/debug && printf 'cache' > .build/debug/test-cache"
+        )
+        path.write_text(json.dumps(value))
+        planned = self.command("plan", "--run", str(run), "--file", str(path))
+        self.command("approve", "--run", str(run), "--sha256", planned["plan_sha256"])
+
+        completed = self.command("run", "--run", str(run))
+
+        self.assertEqual(completed["phase"], "merged")
+        self.assertFalse((self.repo / ".build").exists())
+        state = json.loads((run / "state.json").read_text())
+        cleanup = state["lane_receipts"]["product"]["receipt"]["verification"][
+            "generated_output_cleanup"
+        ]
+        self.assertEqual(cleanup["discarded_roots"], [".build"])
+        self.assertEqual(cleanup["discarded_count"], 1)
+        self.assertTrue(Path(cleanup["receipt"]).is_file())
+
     def test_reviewer_cannot_mutate_the_integration_it_is_judging(self) -> None:
         run = self.initialize(run_id="reviewer-mutation-run")
         planned = self.command(

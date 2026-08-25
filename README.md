@@ -26,7 +26,7 @@ planner <-> independent plan judge (8.5/10, three cycles maximum)
 judge authorizes the exact typed-plan SHA-256
       |
       v
-       1-10 specialist implementers in isolated Git worktrees
+       1-10 specialist implementers in isolated Git worktree waves
        product | UI design | visual assets | copy | prompt | optimization | configured
              |          |               |        |        |              |
                  +--- deterministic integration
@@ -74,8 +74,9 @@ Read [VISION.md](VISION.md) for the intended product and
 - A single `start` command that initializes, plans, authorizes, implements,
   proves, reviews, repairs, and reaches the configured merge outcome without a
   human planning checkpoint. Terminal failures remain explicit and inspectable.
-- One to ten active implementers running concurrently in isolated branches and
-  worktrees.
+- One to ten implementers in validated dependency waves: every ready owner runs
+  concurrently in an isolated branch/worktree, and a downstream worktree starts
+  from the exact committed outputs of its transitive dependencies.
 - Configured specialist ownership: product, UI design, generated visual assets,
   copywriting, prompt engineering, and measured optimization by default, with
   only specialists named in the approved plan dispatched. The default visual-
@@ -103,6 +104,8 @@ Read [VISION.md](VISION.md) for the intended product and
   verification driver. Incremental UI work follows the existing system without
   unnecessary prototype ceremony.
 - Conservative plan-time rejection of overlapping owner globs.
+- Controller-validated task dependencies with unknown-edge and owner-cycle
+  refusal, deterministic ready waves, and commit-bound downstream context.
 - Git-derived changed-file verification against each owner's approved scope.
 - Mechanical execution of every approved task and integrated acceptance command.
 - Deterministic lane integration with `git cherry-pick` and `git diff --check`.
@@ -321,6 +324,7 @@ The planner and controller share a small contract:
     {
       "id": "export-api",
       "owner": "product",
+      "depends_on": [],
       "files": ["src/export/**", "tests/export/**"],
       "acceptance": ["pytest tests/export -q"]
     }
@@ -337,9 +341,12 @@ actual staged paths—not the model's claim—must match the approved owner scop
 If a lane creates new out-of-scope scaffolding in its disposable worktree, the
 controller discards those exact untracked paths, records a scope-correction
 receipt, and validates the remaining Git change and reported file list again.
-An out-of-scope edit to any tracked file still fails closed. Generated caches,
-secret-bearing files, acceptance-command mutations, and integration drift are
-never corrected this way.
+An out-of-scope edit to any tracked file still fails closed. Agent-staged
+generated caches and secret-bearing files are rejected. If a controller-run
+acceptance command creates a recognized untracked build cache such as SwiftPM
+`.build`, the controller deletes only the newly observed cache files, records a
+cleanup receipt, and still rejects every source, tracked, secret, or arbitrary
+untracked mutation.
 Agents should not commit lane work. If one creates only linear descendant
 commits on its assigned disposable branch, the controller records their hashes,
 soft-resets to the pre-dispatch baseline, and validates the complete delta before
@@ -421,6 +428,8 @@ review is in [Prose skill decisions](docs/PROSE_SKILLS.md), and the bounded
 search contract is in [Prompt and optimization](docs/PROMPT_OPTIMIZATION.md).
 The source-level pstack review and adopt/bank/reject decisions are in
 [pstack source review](docs/PSTACK_SKILLS.md).
+The source-level Fusion Harness review and selective adaptations are in
+[Fusion Harness source review](docs/FUSION_HARNESS.md).
 
 Supported harness identifiers are:
 
@@ -433,15 +442,19 @@ commands or require configured screenshot, video, or browser-artifact paths.
 Never create placeholder media for non-visual work. Visual plans activate the
 configured capture command and declared artifacts after integration.
 
-Only owners present in the approved plan launch. All active initial lanes run
-concurrently; integration and state transitions remain serialized. Review
-repairs run only for owners named in typed findings.
+Only owners present in the approved plan launch. Ready owners in the same
+dependency wave run concurrently; a consumer begins only after its declared
+upstream owners checkpoint, and its worktree contains those exact committed
+outputs. Integration and state transitions remain serialized. Review repairs
+run only for owners named in typed findings.
 
 Pi usage is read from its settled assistant event. Claude Code usage is derived
 from unique message ids in its preserved native transcript, including cache
 creation/read tokens without double-counting repeated JSONL records. Codex usage
 remains `null` unless its local harness output exposes it. The factory does not
-invent token or cost numbers.
+invent token or cost numbers. Pi/Codex JSON events and all harness diagnostics
+are persisted privately while the child is still running, so long xhigh turns
+produce truthful activity evidence before their final receipt.
 
 ## Limits and usage
 
@@ -500,8 +513,8 @@ after the configured grace period. Set either timeout to `null` when the
 environment should allow unbounded runtime. Every normalized call receipt is
 durable, and aggregate usage appears in state and the final receipt.
 When a ceiling is explicitly configured, the controller refuses the next
-planner, reviewer, or repair dispatch after it is reached. Initial implementers
-start as one approved parallel batch, so already-running lanes can collectively
+planner, reviewer, or repair dispatch after it is reached. Ready implementers
+start as one approved parallel wave, so already-running lanes can collectively
 cross a ceiling before subsequent work stops. Set `require_usage: true` to
 refuse further dispatch after a harness reports unknown usage; provider-side
 budgets remain the only hard external spend cap.
@@ -526,8 +539,9 @@ isolation.
 
 Task, plan, and evidence-test acceptance commands are read-only predicates.
 They cannot repeat configured capture commands or mutate repository files after
-scope/proof validation. Reviewers are also mechanically prevented from changing
-the integration tree they judge.
+scope/proof validation. Recognized newly created build caches are removed with a
+typed audit receipt; every other mutation fails. Reviewers are also mechanically
+prevented from changing the integration tree they judge.
 
 For every review cycle the controller:
 

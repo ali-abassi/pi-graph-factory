@@ -30,7 +30,11 @@ if args.role.startswith("implement:"):
     ready = Path(os.environ["PI_GRAPH_FACTORY_READY_DIR"])
     ready.mkdir(parents=True, exist_ok=True)
     (ready / owner).write_text("ready\n", encoding="utf-8")
-    expected = int(os.environ.get("PI_GRAPH_FACTORY_EXPECTED_LANES", "1"))
+    dependency_mode = os.environ.get("PI_GRAPH_FACTORY_DEPENDENCY_MODE") == "1"
+    if dependency_mode and owner == "design":
+        if not Path("product.txt").is_file():
+            raise SystemExit("downstream design lane cannot see committed product output")
+    expected = 1 if dependency_mode else int(os.environ.get("PI_GRAPH_FACTORY_EXPECTED_LANES", "1"))
     deadline = time.monotonic() + 5
     while len([path for path in ready.iterdir() if path.name != "release"]) < expected:
         if time.monotonic() >= deadline:

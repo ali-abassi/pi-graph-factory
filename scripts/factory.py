@@ -49,10 +49,13 @@ GLOB_MAGIC = re.compile(r"[*?\[]")
 TASK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 GENERATED_DIRECTORIES = {
     "__pycache__",
+    ".build",
     ".mypy_cache",
     ".pytest_cache",
     ".ruff_cache",
+    ".swiftpm",
     ".venv",
+    "DerivedData",
     "graphify-out",
     "node_modules",
 }
@@ -68,10 +71,13 @@ DEFAULT_GITIGNORE = """.factory/
 !.env.template
 __pycache__/
 *.py[cod]
+.build/
+.swiftpm/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .venv/
+DerivedData/
 node_modules/
 graphify-out/
 """
@@ -1007,7 +1013,59 @@ def acceptance_for_tasks(tasks: list[dict[str, Any]]) -> list[str]:
     return list(dict.fromkeys(command for task in tasks for command in task["acceptance"]))
 
 
-def is_unsafe_repository_artifact(path: str) -> bool:
+def task_dependency_waves(tasks: list[dict[str, Any]]) -> list[list[str]]:
+    """Return deterministic owner waves from explicit cross-owner task edges."""
+
+    task_owners = {task["id"]: task["owner"] for task in tasks}
+    owner_order = list(dict.fromkeys(task["owner"] for task in tasks))
+    dependencies = {owner: set() for owner in owner_order}
+    for task in tasks:
+        for dependency in task.get("depends_on", []):
+            if dependency not in task_owners:
+                raise FactoryError(
+                    f"task {task['id']} depends on unknown task {dependency!r}"
+                )
+            dependency_owner = task_owners[dependency]
+            if dependency_owner == task["owner"]:
+                raise FactoryError(
+                    f"task {task['id']} cannot depend on task {dependency!r} from the same owner"
+                )
+            dependencies[task["owner"]].add(dependency_owner)
+    completed: set[str] = set()
+    waves: list[list[str]] = []
+    while len(completed) < len(owner_order):
+        ready = [
+            owner
+            for owner in owner_order
+            if owner not in completed and dependencies[owner] <= completed
+        ]
+        if not ready:
+            remaining = [owner for owner in owner_order if owner not in completed]
+            raise FactoryError(
+                "task dependencies contain an owner cycle: " + ", ".join(remaining)
+            )
+        waves.append(ready)
+        completed.update(ready)
+    return waves
+
+
+def dependency_owners(tasks: list[dict[str, Any]]) -> dict[str, list[str]]:
+    task_owners = {task["id"]: task["owner"] for task in tasks}
+    owner_order = list(dict.fromkeys(task["owner"] for task in tasks))
+    result: dict[str, list[str]] = {}
+    for owner in owner_order:
+        result[owner] = list(
+            dict.fromkeys(
+                task_owners[dependency]
+                for task in tasks
+                if task["owner"] == owner
+                for dependency in task.get("depends_on", [])
+            )
+        )
+    return result
+
+
+def is_generated_repository_artifact(path: str) -> bool:
     normalized = path.replace("\\", "/")
     parts = normalized.split("/")
     name = parts[-1]
@@ -1015,7 +1073,151 @@ def is_unsafe_repository_artifact(path: str) -> bool:
         return True
     if name in GENERATED_FILES or Path(name).suffix in GENERATED_SUFFIXES:
         return True
+    return False
+
+
+def is_unsafe_repository_artifact(path: str) -> bool:
+    normalized = path.replace("\\", "/")
+    name = normalized.split("/")[-1]
+    if is_generated_repository_artifact(path):
+        return True
     return name == ".env" or (name.startswith(".env.") and name not in SAFE_ENV_TEMPLATES)
+
+
+def untracked_files(repo: Path) -> set[str]:
+    result = subprocess.run(
+        ["git", "-C", str(repo), "ls-files", "--others", "--exclude-standard", "-z"],
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode:
+        raise FactoryError(
+            "cannot inspect untracked changes: "
+            + result.stderr.decode(errors="replace").strip()
+        )
+    return {os.fsdecode(raw) for raw in result.stdout.split(b"\0") if raw}
+
+
+def discard_generated_acceptance_outputs(
+    run: Path,
+    owner: str,
+    workspace: Path,
+    before: set[str],
+) -> dict[str, Any] | None:
+    """Remove only new untracked build caches created by controller verification."""
+
+    generated = sorted(
+        path
+        for path in untracked_files(workspace) - before
+        if is_generated_repository_artifact(path)
+    )
+    if not generated:
+        return None
+    workspace_root = workspace.resolve()
+    for relative in generated:
+        candidate = workspace / relative
+        try:
+            candidate.relative_to(workspace)
+            parent = candidate.parent.resolve()
+        except (OSError, ValueError) as error:
+            raise FactoryError(
+                f"refusing to clean unsafe acceptance output path: {relative}"
+            ) from error
+        if parent != workspace_root and workspace_root not in parent.parents:
+            raise FactoryError(
+                f"refusing to clean acceptance output outside worktree: {relative}"
+            )
+        if candidate.is_symlink() or candidate.is_file():
+            candidate.unlink()
+        elif candidate.exists():
+            raise FactoryError(
+                f"refusing to recursively clean unexpected acceptance output: {relative}"
+            )
+    for directory in sorted(
+        {parent for relative in generated for parent in (workspace / relative).parents
+         if parent != workspace and workspace in parent.parents},
+        key=lambda path: len(path.parts),
+        reverse=True,
+    ):
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
+    roots = sorted(
+        {
+            "/".join(parts[: index + 1])
+            for relative in generated
+            for parts in [relative.replace("\\", "/").split("/")]
+            for index, part in enumerate(parts)
+            if part in GENERATED_DIRECTORIES
+        }
+    )
+    correction = {
+        "schema": "pi-graph-factory.acceptance-cleanup.v1",
+        "owner": owner,
+        "action": "discard_new_untracked_generated_outputs",
+        "discarded_count": len(generated),
+        "discarded_roots": roots,
+        "discarded_files": generated,
+        "observed_at": now(),
+    }
+    correction["receipt_sha256"] = digest_json(correction)
+    atomic_json(
+        run
+        / "receipts"
+        / f"acceptance-cleanup-{owner}-{correction['receipt_sha256'][:12]}.json",
+        correction,
+    )
+    return {
+        "discarded_count": len(generated),
+        "discarded_roots": roots,
+        "receipt": str(
+            run
+            / "receipts"
+            / f"acceptance-cleanup-{owner}-{correction['receipt_sha256'][:12]}.json"
+        ),
+        "receipt_sha256": correction["receipt_sha256"],
+    }
+
+
+def run_verified_acceptance(
+    run: Path,
+    owner: str,
+    workspace: Path,
+    commands: list[str],
+    label: str,
+    *,
+    expected_files: list[str],
+    expected_digest: str,
+    timeout_seconds: int | float | None,
+    termination_grace_seconds: int,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    """Run checks, clean only recognized caches, and reject every other mutation."""
+
+    untracked_before = untracked_files(workspace)
+    acceptance = run_commands(
+        workspace,
+        commands,
+        label,
+        timeout_seconds=timeout_seconds,
+        termination_grace_seconds=termination_grace_seconds,
+    )
+    cleanup = discard_generated_acceptance_outputs(
+        run,
+        owner,
+        workspace,
+        untracked_before,
+    )
+    git(workspace, "add", "-A")
+    if (
+        staged_files(workspace) != expected_files
+        or staged_change_digest(workspace) != expected_digest
+    ):
+        raise FactoryError(
+            f"{label} mutated repository files; acceptance commands must be "
+            "read-only predicates apart from recognized generated caches"
+        )
+    return acceptance, cleanup
 
 
 def validate_lane_changes(owner: str, tasks: list[dict[str, Any]], actual: list[str]) -> None:
@@ -1592,6 +1794,16 @@ def validate_plan(
         if task["id"] in seen_ids:
             raise FactoryError(f"duplicate task id: {task['id']}")
         seen_ids.add(task["id"])
+        dependencies = task.setdefault("depends_on", [])
+        if (
+            not isinstance(dependencies, list)
+            or not all(isinstance(item, str) and TASK_ID.fullmatch(item) for item in dependencies)
+            or len(set(dependencies)) != len(dependencies)
+            or task["id"] in dependencies
+        ):
+            raise FactoryError(
+                f"task {task['id']} depends_on must contain unique task ids and not itself"
+            )
         if task["owner"] not in implementers:
             raise FactoryError(f"unknown task owner {task['owner']!r}")
         if not isinstance(task["files"], list) or not task["files"]:
@@ -1620,6 +1832,7 @@ def validate_plan(
                     f"{task['owner']} and {other_owner}"
                 )
             ownership.append((pattern, task["owner"]))
+    task_dependency_waves(plan["tasks"])
     validate_visual_contract(
         plan,
         required=require_versioned
@@ -1731,7 +1944,8 @@ def cmd_init(args: argparse.Namespace) -> dict[str, Any]:
         "config_sha256": digest_bytes((run / "factory.yaml").read_bytes()),
         "plan": None, "plan_sha256": None, "approved_plan_sha256": None,
         "plan_approval": None,
-        "answers": {}, "cycles": [], "lane_receipts": {}, "integration": None,
+        "answers": {}, "cycles": [], "lane_receipts": {}, "lane_bases": {},
+        "integration": None,
         "final_review": None, "merge": None,
         "usage": {"calls": 0, "input_tokens": 0, "output_tokens": 0,
                   "total_tokens": 0, "cost_usd": 0.0, "unknown_calls": 0},
@@ -2864,6 +3078,7 @@ def execute_lane(
     tasks: list[dict[str, Any]],
     workspace: Path,
     branch: str,
+    dependencies: list[str],
     limits: dict[str, Any],
     evidence_spec: dict[str, Any],
 ) -> dict[str, Any]:
@@ -2899,6 +3114,19 @@ def execute_lane(
         "evidence": evidence_spec,
         "repository_intelligence": state.get("repository_intelligence"),
         "project_memory": durable_project_memory(run),
+        "dependency_outputs": [
+            {
+                "owner": dependency,
+                "commit": state["lane_receipts"][dependency]["commit"],
+                "changed_files": state["lane_receipts"][dependency]["receipt"]
+                .get("verification", {})
+                .get("changed_files", []),
+                "summary": state["lane_receipts"][dependency]["receipt"]
+                .get("output", {})
+                .get("summary"),
+            }
+            for dependency in dependencies
+        ],
     }
     resumed_changes = worktree_changed_files(workspace)
     if resumed_changes:
@@ -3016,20 +3244,17 @@ def execute_lane(
             f"claimed={claimed}, actual={actual}"
         )
     before_acceptance = staged_change_digest(workspace)
-    acceptance = run_commands(
+    acceptance, acceptance_cleanup = run_verified_acceptance(
+        run,
+        owner,
         workspace,
         acceptance_for_tasks(tasks),
-        f"implementation owner {owner}",
+        f"implementation acceptance for {owner}",
+        expected_files=actual,
+        expected_digest=before_acceptance,
         timeout_seconds=limits["command_timeout_seconds"],
         termination_grace_seconds=limits["termination_grace_seconds"],
     )
-    git(workspace, "add", "-A")
-    after_acceptance_files = staged_files(workspace)
-    if after_acceptance_files != actual or staged_change_digest(workspace) != before_acceptance:
-        raise FactoryError(
-            f"implementation acceptance for {owner} mutated repository files; "
-            "acceptance commands must be read-only predicates"
-        )
     prompt_evaluation = (
         validate_prompt_evaluation(acceptance, state["plan"]["prompt_contract"])
         if owner == PROMPT_OWNER
@@ -3039,6 +3264,7 @@ def execute_lane(
         "changed_files": actual,
         "acceptance": acceptance,
         "prompt_evaluation": prompt_evaluation,
+        "generated_output_cleanup": acceptance_cleanup,
     }
     if scope_correction is not None:
         receipt["scope_correction"] = scope_correction
@@ -3401,18 +3627,18 @@ def recover_committed_repairs(
             validate_controller_optimization_receipt(
                 output, state["plan"]["optimization"], commit=commit
             )
-        before = worktree_changed_files(integration)
-        acceptance = run_commands(
+        expected_digest = staged_change_digest(integration)
+        acceptance, acceptance_cleanup = run_verified_acceptance(
+            run,
+            owner,
             integration,
             acceptance_for_tasks(tasks),
-            f"recovered repair owner {owner}",
+            f"recovered repair acceptance for {owner}",
+            expected_files=[],
+            expected_digest=expected_digest,
             timeout_seconds=limits["command_timeout_seconds"],
             termination_grace_seconds=limits["termination_grace_seconds"],
         )
-        if worktree_changed_files(integration) != before:
-            raise FactoryError(
-                f"recovered repair acceptance for {owner} mutated repository files"
-            )
         prompt_evaluation = (
             validate_prompt_evaluation(acceptance, state["plan"]["prompt_contract"])
             if owner == PROMPT_OWNER
@@ -3423,6 +3649,7 @@ def recover_committed_repairs(
             "changed_files": actual,
             "acceptance": acceptance,
             "prompt_evaluation": prompt_evaluation,
+            "generated_output_cleanup": acceptance_cleanup,
             "commit": commit,
             "recovered": True,
         }
@@ -3592,20 +3819,17 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
             )
         validate_lane_changes(owner, tasks, actual)
         before_acceptance = staged_change_digest(integration)
-        acceptance = run_commands(
+        acceptance, acceptance_cleanup = run_verified_acceptance(
+            run,
+            owner,
             integration,
             acceptance_for_tasks(tasks),
-            f"repair owner {owner}",
+            f"repair acceptance for {owner}",
+            expected_files=actual,
+            expected_digest=before_acceptance,
             timeout_seconds=config["limits"]["command_timeout_seconds"],
             termination_grace_seconds=config["limits"]["termination_grace_seconds"],
         )
-        git(integration, "add", "-A")
-        after_acceptance_files = staged_files(integration)
-        if after_acceptance_files != actual or staged_change_digest(integration) != before_acceptance:
-            raise FactoryError(
-                f"repair acceptance for {owner} mutated repository files; "
-                "acceptance commands must be read-only predicates"
-            )
         prompt_evaluation = (
             validate_prompt_evaluation(acceptance, state["plan"]["prompt_contract"])
             if owner == PROMPT_OWNER
@@ -3616,6 +3840,7 @@ def run_repair(run: Path, state: dict[str, Any], config: dict[str, Any], integra
             "changed_files": actual,
             "acceptance": acceptance,
             "prompt_evaluation": prompt_evaluation,
+            "generated_output_cleanup": acceptance_cleanup,
         }
         git(integration, "commit", "-m", f"factory: repair cycle {cycle} ({owner})")
         repair_commit = git(integration, "rev-parse", "HEAD")
@@ -3831,18 +4056,58 @@ def tasks_by_owner(state: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     return grouped
 
 
-def ensure_lane_workspace(repo: Path, run: Path, state: dict[str, Any], owner: str) -> tuple[Path, str]:
+def ensure_lane_workspace(
+    repo: Path,
+    run: Path,
+    state: dict[str, Any],
+    owner: str,
+    dependency_commits: list[str],
+) -> tuple[Path, str, str]:
     workspace = run / "worktrees" / owner
     branch = f"factory/{state['id']}/{owner}"
+    lane_bases = state.setdefault("lane_bases", {})
+    recorded = lane_bases.get(owner)
     if workspace.exists():
         if git(workspace, "branch", "--show-current") != branch:
             raise FactoryError(f"resume found unexpected branch in {owner} worktree")
-        return workspace, branch
+        base = recorded.get("commit") if isinstance(recorded, dict) else state["base_commit"]
+        if dependency_commits and not isinstance(recorded, dict):
+            raise FactoryError(f"resume found {owner} worktree without its dependency-base receipt")
+        if isinstance(recorded, dict) and recorded.get("dependency_commits") != dependency_commits:
+            raise FactoryError(f"resume found dependency-base drift for {owner}")
+        ancestor = subprocess.run(
+            ["git", "-C", str(workspace), "merge-base", "--is-ancestor", base, "HEAD"],
+            check=False,
+        )
+        if ancestor.returncode:
+            raise FactoryError(f"resume cannot verify the prepared dependency base for {owner}")
+        if not isinstance(recorded, dict):
+            lane_bases[owner] = {
+                "commit": base,
+                "dependency_commits": dependency_commits,
+                "prepared_at": now(),
+            }
+        return workspace, branch, base
     if git(repo, "rev-parse", "--verify", branch, check=False):
         workspace.parent.mkdir(parents=True, exist_ok=True)
         git(repo, "worktree", "add", str(workspace), branch)
-        return workspace, branch
-    return provision_lane(repo, run, state["id"], owner, state["base_commit"])
+        if not isinstance(recorded, dict) or not isinstance(recorded.get("commit"), str):
+            raise FactoryError(f"resume found {owner} branch without its dependency-base receipt")
+        if recorded.get("dependency_commits") != dependency_commits:
+            raise FactoryError(f"resume found dependency-base drift for {owner}")
+        return workspace, branch, recorded["commit"]
+    workspace, branch = provision_lane(
+        repo, run, state["id"], owner, state["base_commit"]
+    )
+    for commit in dependency_commits:
+        git(workspace, "cherry-pick", commit)
+    base = git(workspace, "rev-parse", "HEAD")
+    lane_bases[owner] = {
+        "commit": base,
+        "dependency_commits": dependency_commits,
+        "prepared_at": now(),
+    }
+    return workspace, branch, base
 
 
 def latest_agent_receipt(run: Path, role: str) -> dict[str, Any] | None:
@@ -3875,15 +4140,16 @@ def recover_committed_lane(
     tasks: list[dict[str, Any]],
     workspace: Path,
     branch: str,
+    lane_base: str,
     limits: dict[str, Any],
 ) -> dict[str, Any] | None:
     if worktree_changed_files(workspace):
         return None
     head = git(workspace, "rev-parse", "HEAD")
-    if head == state["base_commit"]:
+    if head == lane_base:
         return None
     actual = sorted(
-        git(workspace, "diff", "--name-only", f"{state['base_commit']}..{head}").splitlines()
+        git(workspace, "diff", "--name-only", f"{lane_base}..{head}").splitlines()
     )
     validate_lane_changes(owner, tasks, actual)
     receipt = latest_agent_receipt(run, f"implement:{owner}")
@@ -3901,7 +4167,7 @@ def recover_committed_lane(
             owner,
             workspace,
             branch,
-            state["base_commit"],
+            lane_base,
             receipt["receipt_sha256"],
         )
         return None
@@ -3915,15 +4181,18 @@ def recover_committed_lane(
         validate_controller_optimization_receipt(
             output, state["plan"]["optimization"], commit=head
         )
-    acceptance = run_commands(
+    expected_digest = staged_change_digest(workspace)
+    acceptance, acceptance_cleanup = run_verified_acceptance(
+        run,
+        owner,
         workspace,
         acceptance_for_tasks(tasks),
-        f"recovered owner {owner}",
+        f"recovered acceptance for {owner}",
+        expected_files=[],
+        expected_digest=expected_digest,
         timeout_seconds=limits["command_timeout_seconds"],
         termination_grace_seconds=limits["termination_grace_seconds"],
     )
-    if worktree_changed_files(workspace):
-        raise FactoryError(f"recovered acceptance for {owner} mutated repository files")
     prompt_evaluation = (
         validate_prompt_evaluation(acceptance, state["plan"]["prompt_contract"])
         if owner == PROMPT_OWNER
@@ -3934,6 +4203,7 @@ def recover_committed_lane(
         "changed_files": actual,
         "acceptance": acceptance,
         "prompt_evaluation": prompt_evaluation,
+        "generated_output_cleanup": acceptance_cleanup,
         "recovered": True,
     }
     return {"owner": owner, "branch": branch, "commit": head, "receipt": receipt}
@@ -3947,43 +4217,119 @@ def continue_implementation(
 ) -> Path:
     agents = {item["id"]: item for item in config["implementers"]}
     grouped = tasks_by_owner(state)
+    waves = task_dependency_waves(state["plan"]["tasks"])
+    direct_dependencies = dependency_owners(state["plan"]["tasks"])
+    owner_order = [owner for wave in waves for owner in wave]
     if state["phase"] == "approved":
         enforce_dispatch_limits(state, config["limits"], "implementation batch")
         state["phase"] = "implementing"
-        save_state(run, state, "implementation_started", {"owners": sorted(grouped)})
-    lane_specs = []
+        save_state(
+            run,
+            state,
+            "implementation_started",
+            {"owners": owner_order, "waves": waves},
+        )
     lane_commits_by_owner: dict[str, str] = {}
-    for owner, tasks in grouped.items():
+    for owner in owner_order:
         completed = state["lane_receipts"].get(owner)
         if completed:
             commit = completed.get("commit")
             if not commit or git(repo, "rev-parse", "--verify", f"{commit}^{{commit}}", check=False) != commit:
                 raise FactoryError(f"resume cannot resolve completed lane commit for {owner}")
             lane_commits_by_owner[owner] = commit
+    state.setdefault("pending_lane_failures", {})
+
+    def transitive_dependencies(owner: str) -> list[str]:
+        closure: set[str] = set()
+        pending = list(direct_dependencies[owner])
+        while pending:
+            dependency = pending.pop()
+            if dependency in closure:
+                continue
+            closure.add(dependency)
+            pending.extend(direct_dependencies[dependency])
+        return [candidate for candidate in owner_order if candidate in closure]
+
+    for wave_number, wave in enumerate(waves, start=1):
+        pending_owners = [owner for owner in wave if owner not in state["lane_receipts"]]
+        if not pending_owners:
             continue
-        workspace, branch = ensure_lane_workspace(repo, run, state, owner)
-        recovered = recover_committed_lane(
-            run, state, owner, tasks, workspace, branch, config["limits"]
-        )
-        if recovered is not None:
-            state["lane_receipts"][owner] = {
-                "branch": branch,
-                "commit": recovered["commit"],
-                "receipt": recovered["receipt"],
-            }
-            lane_commits_by_owner[owner] = recovered["commit"]
-            save_state(
+        lane_specs = []
+        for owner in pending_owners:
+            dependencies = transitive_dependencies(owner)
+            missing = [dependency for dependency in dependencies if dependency not in lane_commits_by_owner]
+            if missing:
+                raise FactoryError(
+                    f"cannot dispatch {owner}; dependency lanes are incomplete: "
+                    + ", ".join(missing)
+                )
+            dependency_commits = [lane_commits_by_owner[item] for item in dependencies]
+            had_base = owner in state.setdefault("lane_bases", {})
+            workspace, branch, lane_base = ensure_lane_workspace(
+                repo,
                 run,
                 state,
-                "lane_recovered",
-                {"owner": owner, "commit": recovered["commit"]},
+                owner,
+                dependency_commits,
             )
+            if not had_base:
+                save_state(
+                    run,
+                    state,
+                    "lane_dependency_base_prepared",
+                    {
+                        "owner": owner,
+                        "wave": wave_number,
+                        "base_commit": lane_base,
+                        "dependency_owners": dependencies,
+                        "dependency_commits": dependency_commits,
+                    },
+                )
+            recovered = recover_committed_lane(
+                run,
+                state,
+                owner,
+                grouped[owner],
+                workspace,
+                branch,
+                lane_base,
+                config["limits"],
+            )
+            if recovered is not None:
+                state["lane_receipts"][owner] = {
+                    "branch": branch,
+                    "base_commit": lane_base,
+                    "commit": recovered["commit"],
+                    "receipt": recovered["receipt"],
+                }
+                lane_commits_by_owner[owner] = recovered["commit"]
+                state["pending_lane_failures"].pop(owner, None)
+                save_state(
+                    run,
+                    state,
+                    "lane_recovered",
+                    {"owner": owner, "commit": recovered["commit"], "wave": wave_number},
+                )
+                continue
+            state["pending_lane_failures"].pop(owner, None)
+            lane_specs.append(
+                (owner, grouped[owner], workspace, branch, lane_base, dependencies)
+            )
+        if not lane_specs:
             continue
-        lane_specs.append((owner, tasks, workspace, branch))
-    first_failure: Exception | None = None
-    if lane_specs:
-        enforce_dispatch_limits(state, config["limits"], "implementation batch")
-        with ThreadPoolExecutor(max_workers=len(lane_specs), thread_name_prefix="factory-lane") as pool:
+        enforce_dispatch_limits(
+            state, config["limits"], f"implementation wave {wave_number}"
+        )
+        save_state(
+            run,
+            state,
+            "implementation_wave_started",
+            {"wave": wave_number, "owners": [item[0] for item in lane_specs]},
+        )
+        first_failure: Exception | None = None
+        with ThreadPoolExecutor(
+            max_workers=len(lane_specs), thread_name_prefix=f"factory-wave-{wave_number}"
+        ) as pool:
             futures = {
                 pool.submit(
                     execute_lane,
@@ -3994,22 +4340,38 @@ def continue_implementation(
                     tasks,
                     workspace,
                     branch,
+                    dependencies,
                     config["limits"],
                     config["evidence"],
-                ): owner
-                for owner, tasks, workspace, branch in lane_specs
+                ): (owner, lane_base)
+                for owner, tasks, workspace, branch, lane_base, dependencies in lane_specs
             }
             for future in as_completed(futures):
+                owner, lane_base = futures[future]
                 try:
                     completed = future.result()
                 except Exception as error:
                     if first_failure is None:
                         first_failure = error
+                    state["pending_lane_failures"][owner] = {
+                        "owner": owner,
+                        "wave": wave_number,
+                        "message": str(error),
+                        "observed_at": now(),
+                    }
+                    save_state(
+                        run,
+                        state,
+                        "lane_failed",
+                        state["pending_lane_failures"][owner],
+                    )
                     continue
                 owner = completed["owner"]
                 lane_commits_by_owner[owner] = completed["commit"]
+                state["pending_lane_failures"].pop(owner, None)
                 state["lane_receipts"][owner] = {
                     "branch": completed["branch"],
+                    "base_commit": lane_base,
                     "commit": completed["commit"],
                     "receipt": completed["receipt"],
                 }
@@ -4034,10 +4396,17 @@ def continue_implementation(
                     "lane_completed",
                     {
                         "owner": owner,
+                        "wave": wave_number,
+                        "base_commit": lane_base,
                         "commit": completed["commit"],
                         "discarded_untracked_scope_escapes": (
                             completed["receipt"].get("scope_correction", {}).get(
                                 "discarded_files", []
+                            )
+                        ),
+                        "discarded_generated_acceptance_outputs": (
+                            completed["receipt"].get("verification", {}).get(
+                                "generated_output_cleanup"
                             )
                         ),
                         "normalized_agent_commits": (
@@ -4047,10 +4416,16 @@ def continue_implementation(
                         ),
                     },
                 )
-    if first_failure is not None:
-        raise first_failure
+        if first_failure is not None:
+            raise first_failure
+        save_state(
+            run,
+            state,
+            "implementation_wave_completed",
+            {"wave": wave_number, "owners": wave},
+        )
     enforce_dispatch_limits(state, config["limits"], "review:1")
-    lane_commits = [lane_commits_by_owner[owner] for owner in grouped]
+    lane_commits = [lane_commits_by_owner[owner] for owner in owner_order]
     integration_path = run / "worktrees" / "integration"
     integration_branch = f"factory/{state['id']}/integration"
     if state.get("integration"):
@@ -4535,10 +4910,22 @@ def cmd_inspect(args: argparse.Namespace) -> dict[str, Any]:
     run = Path(args.run).resolve()
     state = load_state(run)
     lanes = {}
+    waves = task_dependency_waves(state["plan"]["tasks"]) if state.get("plan") else []
+    owner_dependencies = (
+        dependency_owners(state["plan"]["tasks"]) if state.get("plan") else {}
+    )
+    wave_by_owner = {
+        owner: number
+        for number, wave in enumerate(waves, start=1)
+        for owner in wave
+    }
     for owner in tasks_by_owner(state) if state.get("plan") else []:
         workspace = run / "worktrees" / owner
         lanes[owner] = {
             "checkpointed": owner in state.get("lane_receipts", {}),
+            "wave": wave_by_owner[owner],
+            "depends_on": owner_dependencies[owner],
+            "dependency_base": state.get("lane_bases", {}).get(owner),
             "worktree": str(workspace),
             "exists": workspace.exists(),
             "changed_files": worktree_changed_files(workspace) if workspace.exists() else [],
@@ -4547,6 +4934,7 @@ def cmd_inspect(args: argparse.Namespace) -> dict[str, Any]:
     blockers = []
     if state.get("last_error"):
         blockers.append(state["last_error"])
+    blockers.extend(state.get("pending_lane_failures", {}).values())
     latest_review = state.get("final_review")
     if not latest_review and state.get("cycles"):
         latest_review = state["cycles"][-1].get("review")
@@ -4563,6 +4951,7 @@ def cmd_inspect(args: argparse.Namespace) -> dict[str, Any]:
         "blockers": blockers,
         "usage": state.get("usage"),
         "active_agents": active_agent_records(run),
+        "implementation_waves": waves,
         "lanes": lanes,
         "integration": state.get("integration"),
         "completed_cycles": len(state.get("cycles", [])),

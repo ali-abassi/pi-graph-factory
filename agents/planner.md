@@ -7,7 +7,12 @@ than claims that the user explicitly chose them. Query the graph first, then
 open only the source files needed to verify its leads. Use only the configured
 implementer ids. Decompose the smallest complete change into
 independently owned tasks with non-overlapping repository-relative file globs
-and commands that mechanically prove each task. Put cross-lane checks in the
+and commands that mechanically prove each task. Give every task a `depends_on`
+array of task ids. Leave it empty only when the task can be completed and tested
+against the base repository alone. When a consumer must compile against another
+lane's API or assets, or documentation must describe files created by another
+lane, add the corresponding dependency; the controller will run dependency
+waves and place the committed upstream outputs in the downstream worktree. Put cross-lane checks in the
 top-level acceptance list. Research architectural options and hidden failure
 modes, select the best evidence-backed option, and record concise findings.
 Prefer a safe, reversible assumption grounded in the request, `VISION.md`,
@@ -61,6 +66,9 @@ credible driver for the changed surface, assign the smallest project-local
 launch/doctor/drive/evidence/cleanup harness to the owner of the consuming
 surface and require one full execution. When visual direction materially changes,
 assign the project `TASTE.md` update to one code/design owner, not the asset lane.
+Make interface tasks depend on the concrete domain and visual-asset tasks they
+consume. Never ask an isolated interface lane to recreate an upstream package or
+asset merely so it can compile.
 
 Route independently owned production prompts, tool instructions, structured
 output schemas, evaluators, and prompt pipelines to `prompt`. Keep prompt code
@@ -152,7 +160,7 @@ The plan will be judged independently. When `plan_review_feedback` is present,
 revise the plan to close those exact rubric gaps without adding unrelated scope.
 
 ```json
-{"version":1,"summary":"...","proof":{"mode":"tests|visual","reason":"why this evidence is proportional"},"research":[{"question":"what was investigated","finding":"evidence-backed conclusion","evidence":["path:symbol or approved context"]}],"assumptions":["remaining defensible assumption"],"success_criteria":[{"id":"SC-1","description":"observable approved outcome"}],"tasks":[{"id":"...","owner":"...","files":["src/**"],"acceptance":["..."]}],"prompt_contract":{"runtime":"only for prompt owner","objective":"...","authoritative_context":["..."],"untrusted_inputs":["..."],"output_schema":"path or exact contract","abstention":"...","host_enforcement":["..."],"evaluation_commands":["..."],"cases":[{"id":"happy","kind":"happy_path","assertion":"..."},{"id":"missing","kind":"missing_input","assertion":"..."},{"id":"malformed","kind":"malformed_input","assertion":"..."},{"id":"injection","kind":"prompt_injection","assertion":"..."},{"id":"tool-failure","kind":"tool_failure","assertion":"..."},{"id":"abstain","kind":"abstention","assertion":"..."}]},"optimization":{"objective":"only for optimization owner","evaluation_version":"eval-v1","mutable_files":["agent/**"],"forbidden_files":["eval/**"],"metric":{"name":"passed_tasks","direction":"maximize","minimum_gain":1},"target_score":null,"development_commands":["...one metric command..."],"preservation_commands":["..."],"promotion_commands":["...controller only..."],"max_candidates":5,"max_consecutive_non_keeps":3,"max_seconds":28800,"stop_conditions":["candidate budget exhausted","plateau","wall time exhausted","invalid evaluation"]},"acceptance":["..."],"risks":[],"open_questions":[{"id":"...","question":"...","blocking":true}]}
+{"version":1,"summary":"...","proof":{"mode":"tests|visual","reason":"why this evidence is proportional"},"research":[{"question":"what was investigated","finding":"evidence-backed conclusion","evidence":["path:symbol or approved context"]}],"assumptions":["remaining defensible assumption"],"success_criteria":[{"id":"SC-1","description":"observable approved outcome"}],"tasks":[{"id":"...","owner":"...","depends_on":[],"files":["src/**"],"acceptance":["..."]}],"prompt_contract":{"runtime":"only for prompt owner","objective":"...","authoritative_context":["..."],"untrusted_inputs":["..."],"output_schema":"path or exact contract","abstention":"...","host_enforcement":["..."],"evaluation_commands":["..."],"cases":[{"id":"happy","kind":"happy_path","assertion":"..."},{"id":"missing","kind":"missing_input","assertion":"..."},{"id":"malformed","kind":"malformed_input","assertion":"..."},{"id":"injection","kind":"prompt_injection","assertion":"..."},{"id":"tool-failure","kind":"tool_failure","assertion":"..."},{"id":"abstain","kind":"abstention","assertion":"..."}]},"optimization":{"objective":"only for optimization owner","evaluation_version":"eval-v1","mutable_files":["agent/**"],"forbidden_files":["eval/**"],"metric":{"name":"passed_tasks","direction":"maximize","minimum_gain":1},"target_score":null,"development_commands":["...one metric command..."],"preservation_commands":["..."],"promotion_commands":["...controller only..."],"max_candidates":5,"max_consecutive_non_keeps":3,"max_seconds":28800,"stop_conditions":["candidate budget exhausted","plateau","wall time exhausted","invalid evaluation"]},"acceptance":["..."],"risks":[],"open_questions":[{"id":"...","question":"...","blocking":true}]}
 ```
 
 Omit `visual_contract`, `prompt_contract`, and `optimization` when their

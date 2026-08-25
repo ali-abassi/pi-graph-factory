@@ -75,6 +75,10 @@ the overall score `null` and the verdict `revise`.
 - 7: implementable in principle with coarse tasks and checks.
 - 7.5: delta from 7 — each task has one valid owner and plausible repository scope.
 - 8: delta from 7.5 — commands are executable, read-only predicates and lane order works.
+- At 8 or higher, every task that compiles against or truthfully documents
+  another lane's new API, asset, schema, or file declares that task in
+  `depends_on`. Reject a flat parallel plan that forces an isolated consumer to
+  guess or recreate upstream outputs.
 - 8.5: delta from 8 — the chosen proof is proportional, integration-safe, and
   sufficient for the success criteria; missing VISION/FEATURE_MAP files are
   assigned; any planned test-first seam is executable as written; copy and UI

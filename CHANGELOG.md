@@ -6,6 +6,12 @@ All notable changes to Pi Graph Factory are documented here.
 
 ### Added
 
+- Explicit task dependencies and deterministic owner waves. Ready lanes remain
+  parallel, while downstream worktrees are prepared from the exact committed
+  outputs of every transitive dependency; unknown edges and owner cycles fail
+  plan validation.
+- Source-level Fusion Harness adopt/bank/reject decisions, incremental private
+  Pi/Codex harness streams, and immediate failed-lane blocker projection.
 - New-product visual quality contract: isolated public reference research,
   evidence-backed decision/deep-thinking disciplines, project `TASTE.md`,
   competing directions, explicit screens/states/assets/originality/quality bar,
@@ -88,6 +94,12 @@ All notable changes to Pi Graph Factory are documented here.
 
 ### Changed
 
+- Codex implementers now run with explicit worktree-write sandboxing and
+  automatic approvals, fixing the visual-assets lane's read-only default without
+  granting unrestricted host access.
+- Controller-run acceptance may clean only newly created recognized build
+  caches, with a typed receipt. Source, tracked, secret-bearing, and arbitrary
+  untracked mutations still fail closed.
 - Public policy validation now pins the renamed Agent Workflows v0.2.0 release
   instead of the redirected Pi Graph Core v0.1.0 repository.
 

@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.agent_adapter import claude_command, claude_usage, decode_output, skill_prompt
+from scripts.agent_adapter import (
+    claude_command,
+    claude_usage,
+    codex_command,
+    decode_output,
+    run_streaming,
+    skill_prompt,
+)
 
 
 class AgentAdapterTests(unittest.TestCase):
@@ -76,6 +84,31 @@ class AgentAdapterTests(unittest.TestCase):
 
         self.assertIn("--session-id", command)
         self.assertIn("00000000-0000-4000-8000-000000000000", command)
+
+    def test_codex_command_is_writable_only_inside_the_worktree(self) -> None:
+        command = codex_command(
+            "gpt-5.6-luna",
+            "Generate the approved assets.",
+            Path("/tmp/final-response.txt"),
+        )
+
+        self.assertIn("--sandbox", command)
+        self.assertEqual(command[command.index("--sandbox") + 1], "workspace-write")
+        self.assertIn("--approve-for-me", command)
+        self.assertIn("--json", command)
+        self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", command)
+
+    def test_harness_streams_are_persisted_before_process_completion(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            artifacts = Path(raw)
+            result = run_streaming(
+                [sys.executable, "-c", "print('one', flush=True); print('two', flush=True)"],
+                artifacts,
+            )
+
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual((artifacts / "harness.stdout").read_text(), "one\ntwo\n")
+            self.assertEqual((artifacts / "harness.stderr").read_text(), "")
 
     def test_claude_usage_deduplicates_repeated_jsonl_message_records(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

@@ -34,7 +34,10 @@ repair limits, and external effects.
    hash and continues. Human approval is an optional governance mode, not a
    default workflow step. Externally supplied plans still require it because
    they bypass the planner/judge loop.
-7. One to ten implementation agents work in isolated Git worktrees. Different
+7. One to ten implementation agents work in isolated Git worktrees and explicit
+   dependency waves. Independent owners run concurrently. A consumer starts only
+   after its declared upstream tasks checkpoint, and its worktree contains those
+   exact committed dependency outputs. Different
    lanes may use different harnesses, models, instructions, and skills. Product,
    UI design, generated visual assets, copywriting, prompt engineering, and
    measured optimization are default specialists; additional specialties remain
@@ -101,6 +104,9 @@ first version.
   operational policy, not a definition of task failure.
 - Recovery validates and continues known checkpoints. Ambiguous repository
   mutations stop for inspection rather than being erased or guessed through.
+- Parallelism follows real independence. The factory never makes an isolated UI,
+  documentation, or integration lane guess or recreate an upstream API or asset
+  merely to maximize concurrency.
 - Deployment is an explicit external effect with health evidence and an
   operator-provided rollback contract.
 - Simplicity wins: one controller, one run ledger, one review loop, one merge

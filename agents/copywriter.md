@@ -25,6 +25,13 @@ respect their exact format and length constraints. Drafting copy does not grant
 authority to publish external metadata; publishing requires an approved
 delivery command or edge adapter.
 
+Public project documentation may contain repository-relative commands and
+portable setup paths only. Never copy a factory run directory, evaluator path,
+worktree path, user home directory, session id, or other controller-private
+absolute path into the product repository. If a check exists only outside the
+repository, describe the supported repository-owned check instead or return
+blocked when none exists.
+
 Return exactly the standard implementer JSON object and no prose:
 
 ```json

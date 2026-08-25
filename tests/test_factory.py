@@ -29,6 +29,7 @@ from factory import (  # noqa: E402
     run_repair,
     run_commands_before_deadline,
     read_project_memory,
+    task_dependency_waves,
     validate_plan,
     validate_plan_judgment,
     validate_controller_optimization_receipt,
@@ -801,6 +802,8 @@ class FactoryCompilerTests(unittest.TestCase):
     def test_generated_and_secret_bearing_artifacts_are_classified_conservatively(self) -> None:
         for path in (
             "tests/__pycache__/test_app.cpython-314.pyc",
+            "MonsterTruckMayhemDomain/.build/debug/GameTests.xctest",
+            "DerivedData/Build/app",
             "node_modules/tool/index.js",
             ".env",
             "config/.env.production",
@@ -809,6 +812,32 @@ class FactoryCompilerTests(unittest.TestCase):
             self.assertTrue(is_unsafe_repository_artifact(path), path)
         for path in (".env.example", ".env.sample", ".env.template", "src/app.py"):
             self.assertFalse(is_unsafe_repository_artifact(path), path)
+
+    def test_task_dependencies_compile_into_deterministic_owner_waves(self) -> None:
+        tasks = [
+            {"id": "domain", "owner": "product", "depends_on": []},
+            {"id": "art", "owner": "visual-assets", "depends_on": []},
+            {"id": "docs", "owner": "copy", "depends_on": []},
+            {
+                "id": "ui",
+                "owner": "design",
+                "depends_on": ["domain", "art"],
+            },
+        ]
+
+        self.assertEqual(
+            task_dependency_waves(tasks),
+            [["product", "visual-assets", "copy"], ["design"]],
+        )
+
+    def test_task_dependency_owner_cycle_fails_closed(self) -> None:
+        tasks = [
+            {"id": "domain", "owner": "product", "depends_on": ["ui"]},
+            {"id": "ui", "owner": "design", "depends_on": ["domain"]},
+        ]
+
+        with self.assertRaisesRegex(FactoryError, "owner cycle"):
+            task_dependency_waves(tasks)
 
     def test_usage_rejects_non_finite_or_non_integer_values(self) -> None:
         valid = {"role": "test", "usage": {"input": 1, "output": 2, "total": 3,
